@@ -1,0 +1,19 @@
+{
+  "name": "Kindred",
+  "short_name": "Kindred",
+  "description": "Compatibility-first dating + social platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e1e2e",
+  "theme_color": "#cba6f7",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["social", "lifestyle"]
+}

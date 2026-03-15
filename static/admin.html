@@ -109,6 +109,29 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 .detail-item .dk { font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
 .detail-item .dv { font-size:14px; color:var(--text); font-weight:500; }
 
+/* Analytics */
+.analytics-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; margin-bottom:24px; }
+.analytics-card { background:#313244; border-radius:12px; padding:20px; text-align:center; }
+.analytics-card .value { font-size:2em; font-weight:bold; color:#cba6f7; }
+.analytics-card .label { color:#a6adc8; font-size:0.85em; margin-top:4px; }
+.chart-bar-container { display:flex; align-items:flex-end; gap:4px; height:200px; padding:12px 0; }
+.chart-bar { flex:1; background:linear-gradient(to top,#cba6f7,#89b4fa); border-radius:4px 4px 0 0; min-width:8px; position:relative; transition:all .2s; }
+.chart-bar:hover { filter:brightness(1.2); }
+.chart-bar:hover::after { content:attr(data-value); position:absolute; top:-24px; left:50%; transform:translateX(-50%); background:#45475a; padding:2px 8px; border-radius:4px; font-size:12px; white-space:nowrap; }
+.chart-label-row { display:flex; gap:4px; }
+.chart-label-row span { flex:1; text-align:center; font-size:9px; color:var(--overlay0); min-width:8px; overflow:hidden; }
+
+/* Content Filter */
+.filter-table { width:100%; border-collapse:separate; border-spacing:0 4px; }
+.filter-table th { text-align:left; font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; padding:8px 12px; }
+.filter-table td { padding:10px 12px; background:var(--mantle); font-size:13px; color:var(--subtext1); }
+.filter-table tr td:first-child { border-radius:8px 0 0 8px; }
+.filter-table tr td:last-child { border-radius:0 8px 8px 0; }
+.filter-type-profanity { background:rgba(243,139,168,.15); color:var(--red); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+.filter-type-spam { background:rgba(249,226,175,.15); color:var(--yellow); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+.filter-type-other { background:var(--surface0); color:var(--overlay0); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+.matched-highlight { background:rgba(243,139,168,.2); color:var(--red); padding:1px 4px; border-radius:3px; font-weight:500; }
+
 @media(max-width:600px) {
     .container{padding:12px;}
     .card{padding:16px;}
@@ -121,7 +144,7 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.4.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.5.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -140,6 +163,8 @@ const TABS=[
     {id:'safety',label:'Safety Reports'},
     {id:'invites',label:'Invites'},
     {id:'feedback',label:'Feedback'},
+    {id:'analytics',label:'Analytics'},
+    {id:'contentfilter',label:'Content Filter'},
 ];
 
 function adminHeaders(){
@@ -172,6 +197,8 @@ function showView(v){
     else if(v==='safety')renderSafety();
     else if(v==='invites')renderInvites();
     else if(v==='feedback')renderFeedback();
+    else if(v==='analytics')renderAnalytics();
+    else if(v==='contentfilter')renderContentFilter();
 }
 
 function showLoginScreen(){
@@ -217,7 +244,7 @@ async function renderDashboard(){
     const app=document.getElementById('app');
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading stats...</div>';
     try{
-        const r=await adminFetch(API+'/api/admin/stats');const s=await r.json();
+        const [r,pmr]=await Promise.all([adminFetch(API+'/api/admin/stats'),adminFetch(API+'/api/admin/photo-moderation').then(r=>r.json()).catch(()=>({pending:[]}))]); const s=await r.json(); const pendingPhotos=(pmr.pending||pmr.photos||[]).length||0;
         let html=`<div class="card"><h2>Platform Overview</h2><p class="subtitle">Real-time platform statistics</p>
         <div class="stat-grid">
             <div class="stat-card"><div class="num">${s.profiles}</div><div class="label">Profiles</div></div>
@@ -230,6 +257,7 @@ async function renderDashboard(){
             <div class="stat-card"><div class="num">${s.safety_reports||0}</div><div class="label">Safety Reports</div></div>
             <div class="stat-card"><div class="num">${s.groups||0}</div><div class="label">Groups</div></div>
             <div class="stat-card"><div class="num">${s.events||0}</div><div class="label">Events</div></div>
+            <div class="stat-card"><div class="num" style="color:${pendingPhotos>0?'var(--yellow)':'var(--green)'}">${pendingPhotos}</div><div class="label">Photos Pending</div></div>
             <div class="stat-card"><div class="num" style="color:var(--green);font-size:16px">Puter.js</div><div class="label">Narratives</div></div>
         </div>`;
 
@@ -652,6 +680,104 @@ async function rejectVerify(id){
     await adminFetch(API+'/api/admin/verifications/'+id+'/reject',{method:'POST'});
     toast('Verification rejected','success');
     renderVerifications();
+}
+
+// ─── Analytics ───
+async function renderAnalytics(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading analytics...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/analytics?days=30');const d=await r.json();
+        let html=`<div class="card"><h2>Analytics</h2><p class="subtitle">Engagement metrics for the last 30 days</p>`;
+
+        // Summary cards
+        html+=`<div class="analytics-cards">
+            <div class="analytics-card"><div class="value">${d.total_users||0}</div><div class="label">Total Users</div></div>
+            <div class="analytics-card"><div class="value">${d.active_today||0}</div><div class="label">Active Today</div></div>
+            <div class="analytics-card"><div class="value">${d.messages_today||0}</div><div class="label">Messages Today</div></div>
+            <div class="analytics-card"><div class="value">${d.new_signups_7d||0}</div><div class="label">New Signups (7d)</div></div>
+        </div>`;
+
+        // Daily signups bar chart
+        const daily=d.daily_signups||[];
+        if(daily.length){
+            const maxVal=Math.max(...daily.map(x=>x.count),1);
+            html+=`<div class="section-head">Daily Signups (Last 30 Days)</div>`;
+            html+=`<div style="background:var(--mantle);border-radius:8px;padding:16px">`;
+            html+=`<div class="chart-bar-container">`;
+            for(const day of daily){
+                const pct=Math.max((day.count/maxVal)*100,2);
+                html+=`<div class="chart-bar" style="height:${pct}%" data-value="${day.date}: ${day.count}" title="${day.date}: ${day.count}"></div>`;
+            }
+            html+=`</div>`;
+            html+=`<div class="chart-label-row">`;
+            for(const day of daily){
+                const short=day.date.slice(5);
+                html+=`<span>${short}</span>`;
+            }
+            html+=`</div></div>`;
+        }
+
+        // Engagement metrics
+        html+=`<div class="section-head">Engagement Metrics</div>`;
+        html+=`<div class="analytics-cards">
+            <div class="analytics-card"><div class="value">${d.avg_messages_per_user!=null?d.avg_messages_per_user.toFixed(1):'--'}</div><div class="label">Avg Messages / User</div></div>
+            <div class="analytics-card"><div class="value">${d.avg_response_time||'--'}</div><div class="label">Avg Response Time</div></div>
+            <div class="analytics-card"><div class="value">${d.match_view_rate!=null?(d.match_view_rate*100).toFixed(1)+'%':'--'}</div><div class="label">Match View Rate</div></div>
+        </div>`;
+
+        // Top viewed profiles
+        const topProfiles=d.top_viewed_profiles||[];
+        if(topProfiles.length){
+            html+=`<div class="section-head">Top Viewed Profiles</div>`;
+            for(const p of topProfiles){
+                html+=`<div class="profile-item" style="padding:10px 16px">
+                    <div style="display:flex;align-items:center;gap:10px">
+                        ${p.photo?`<img src="/uploads/${p.photo}" class="photo-thumb">`:'<div style="width:36px;height:36px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--overlay0)">?</div>'}
+                        <div><strong>${escHtml(p.name)}</strong><br><span style="color:var(--overlay0);font-size:12px">${p.views||0} views</span></div>
+                    </div>
+                    <button class="btn-sm btn-view" onclick="viewProfile('${p.id}')">Inspect</button>
+                </div>`;
+            }
+        }
+
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading analytics</h3><p>The analytics endpoint may not be available yet.</p></div>';console.error(e);}
+}
+
+// ─── Content Filter ───
+async function renderContentFilter(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading content filter log...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/content-filter-log');const d=await r.json();
+        const logs=d.logs||d.entries||[];
+        if(!logs.length){app.innerHTML='<div class="card"><h2>Content Filter Log</h2><div class="empty"><h3>No flagged content</h3><p>No content has been flagged by the filter yet.</p></div></div>';return;}
+        let html=`<div class="card"><h2>Content Filter Log</h2><p class="subtitle">${logs.length} flagged item${logs.length!==1?'s':''}</p>
+        <div style="overflow-x:auto"><table class="filter-table"><thead><tr>
+            <th>Time</th><th>User</th><th>Type</th><th>Matched Text</th><th>Action</th>
+        </tr></thead><tbody>`;
+        for(const entry of logs){
+            const typeClass=entry.type==='profanity'?'filter-type-profanity':entry.type==='spam'?'filter-type-spam':'filter-type-other';
+            const matched=entry.matched||entry.matched_text||'';
+            const originalText=entry.text||entry.original_text||'';
+            let displayText=escHtml(originalText);
+            if(matched){
+                const safeMatched=escHtml(matched);
+                displayText=displayText.replace(new RegExp(safeMatched.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<span class="matched-highlight">${m}</span>`);
+            }
+            html+=`<tr>
+                <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${entry.time||entry.created_at?new Date(entry.time||entry.created_at).toLocaleString():'--'}</td>
+                <td><strong>${escHtml(entry.user||entry.user_name||'Unknown')}</strong></td>
+                <td><span class="${typeClass}">${entry.type||'unknown'}</span></td>
+                <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">${displayText||'--'}</td>
+                <td style="font-size:12px">${escHtml(entry.action||entry.action_taken||'--')}</td>
+            </tr>`;
+        }
+        html+=`</tbody></table></div></div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading content filter log</h3><p>The content filter endpoint may not be available yet.</p></div>';console.error(e);}
 }
 
 // ─── Utils ───

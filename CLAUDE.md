@@ -1,4 +1,4 @@
-# Kindred v1.4.0
+# Kindred v1.5.0
 
 Compatibility-first dating + social platform. Open source, privacy-first.
 
@@ -28,10 +28,14 @@ kindred/
     admin_app.py        # FastAPI admin server (port 8001)
     questions.py        # Questionnaire: Big Five, scenarios, trade-offs, behavioral, self-disclosure, communication, financial, energy
     engine.py           # Matching: 8-dimension scoring, calibration, coaching, template narratives
-    database.py         # SQLite CRUD: 20+ tables, thread-local pooling, schema versioning
+    database.py         # SQLite CRUD: 30+ tables, thread-local pooling, schema versioning
+    content_filter.py   # Profanity/spam detection + censoring
+    logging_config.py   # Structured JSON/text logging
   static/
     index.html          # User SPA
     admin.html          # Admin SPA
+    manifest.json       # PWA manifest
+    service-worker.js   # Push notifications + offline caching
 ```
 
 ## Run
@@ -51,7 +55,7 @@ Copy `.env.example` to `.env` and customize. Key vars:
 - `KINDRED_RATE_LIMIT` / `KINDRED_RATE_LIMIT_AUTH` - Rate limiting
 
 ## Database Tables
-profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress
+profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events
 
 ## Key Features
 - **8-dimension matching**: Personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker
@@ -71,6 +75,20 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - **Admin dashboard**: Stats, groups/events/verifications management, profile inspection
 - **Settings**: Notification preferences, password change, blocked users, profile deactivation
 - **Message pagination**: Load older messages, optimistic send UI
+- **Message reactions**: Emoji reactions (❤️ 👍 😂 😮 😢) on messages
+- **Daily suggestions**: Top Picks — curated daily match suggestions
+- **Who Viewed Me**: See who visited your profile
+- **Who Liked You**: See who liked your profile (premium-gatable)
+- **2FA (TOTP)**: Authenticator app two-factor authentication
+- **Web push notifications**: Service worker + Push API for background notifications
+- **Group chat**: Real-time WebSocket messaging within groups
+- **Events calendar**: Month grid calendar view with event indicators
+- **GIF search**: Tenor API integration for in-chat GIF sharing
+- **Guided onboarding**: First-time user walkthrough tour
+- **Content filtering**: Automated profanity censoring and spam blocking
+- **Premium tier**: Subscription scaffolding with gated features
+- **Analytics dashboard**: Admin engagement metrics, daily signups chart
+- **PWA**: Installable web app with offline caching
 
 ## Key Architecture
 - Dual-server: user (8000) + admin (8001) sharing same SQLite DB
@@ -90,6 +108,7 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 
 ## Version History
 
+- **v1.5.0** - Features: daily match suggestions (top picks), message reactions, who viewed me, who liked you (premium-gatable), group chat (WebSocket), events calendar view, GIF search (Tenor), guided onboarding tour, 2FA TOTP. Infrastructure: content filtering (profanity/spam), premium subscription scaffolding, analytics events tracking, PWA (manifest + service worker + push notifications). Admin: analytics dashboard (summary cards, daily signups chart, engagement metrics), content filter log viewer
 - **v1.4.0** - Security: refresh token rotation, configurable bcrypt rounds, email verification flow, photo moderation queue. Infrastructure: structured JSON/text logging, new DB tables (refresh_tokens, email_verifications, photo_moderation, questionnaire_progress), schema v3 migration. Backend: questionnaire progress save/restore endpoints, logout/logout-all, refresh token endpoint. Admin: photo moderation review (approve/reject). Frontend: OpenGraph/description meta tags, theme-color, expanded mobile responsive (768px + 400px breakpoints), ARIA roles (banner/main/status+live), keyboard focus-visible outlines, sr-only utility, questionnaire progress persistence (save/load via API), skeleton loading states for Matches/Feed/Discover/Groups/Events
 - **v1.3.0** - Security hardening (env config, auth on all endpoints, rate limiting, CORS, file magic validation), architecture (connection pooling, config module, schema versioning), features (profile blocking, read receipts, notification prefs, password reset/change, profile deactivation, auto-thumbnails, message pagination, group moderation), UX (toast stacking, loading skeletons, optimistic messaging, empty state CTAs), deployment (Docker, .env config)
 - **v1.2.0** - Video intros (upload/view/delete), music preferences (add songs, compute compatibility between pairs), music compatibility on match detail view

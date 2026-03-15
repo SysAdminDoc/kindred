@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v1.4.0 - Find Your Match</title>
+<title>Kindred v1.5.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -11,6 +11,7 @@
 <meta property="og:image" content="/static/logo.svg">
 <meta name="theme-color" content="#1e1e2e">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="manifest" href="/static/manifest.json">
 <script src="https://js.puter.com/v2/"></script>
 <style>
 :root {
@@ -490,11 +491,117 @@ textarea::placeholder { color:var(--surface2); }
 .btn:focus-visible,.nav-tab:focus-visible,.choice-card:focus-visible,.tradeoff-card:focus-visible,.scenario-opt:focus-visible,.multi-opt:focus-visible,.game-choice:focus-visible,.convo-item:focus-visible,.match-card:focus-visible,.group-card:focus-visible,.event-card:focus-visible,.search-card:focus-visible{outline:2px solid var(--mauve);outline-offset:2px;}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
 *:focus:not(:focus-visible){outline:none;}
+
+/* Top Picks horizontal scroll */
+.top-picks { display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory; padding:12px 0; scrollbar-width:thin; }
+.top-picks::-webkit-scrollbar { height:6px; }
+.top-picks::-webkit-scrollbar-thumb { background:var(--surface2); border-radius:3px; }
+.top-picks .pick-card { scroll-snap-align:start; min-width:160px; max-width:180px; background:var(--mantle); border:1px solid var(--surface0); border-radius:var(--radius); padding:14px; text-align:center; cursor:pointer; transition:all .25s; flex-shrink:0; }
+.top-picks .pick-card:hover { border-color:var(--mauve); transform:translateY(-2px); box-shadow:0 4px 20px rgba(203,166,247,.1); }
+.top-picks .pick-card img { width:64px; height:64px; border-radius:50%; object-fit:cover; border:2px solid var(--surface1); margin-bottom:8px; }
+.top-picks .pick-card .pick-placeholder { width:64px; height:64px; border-radius:50%; background:var(--surface0); display:flex; align-items:center; justify-content:center; font-size:24px; color:var(--overlay0); margin:0 auto 8px; }
+.top-picks .pick-card .pick-name { font-size:14px; font-weight:600; color:var(--text); margin-bottom:2px; }
+.top-picks .pick-card .pick-age { font-size:12px; color:var(--overlay0); margin-bottom:6px; }
+.top-picks .pick-score { font-size:18px; font-weight:700; color:var(--green); }
+
+/* Reaction picker & bar */
+.reaction-bar { display:flex; gap:4px; font-size:14px; margin-top:4px; flex-wrap:wrap; }
+.reaction-badge { display:inline-flex; align-items:center; gap:2px; background:var(--surface0); border:1px solid var(--surface1); border-radius:12px; padding:2px 6px; font-size:12px; cursor:pointer; transition:all .2s; }
+.reaction-badge:hover { border-color:var(--mauve); }
+.reaction-badge .r-count { font-size:10px; color:var(--subtext0); }
+.reaction-trigger { opacity:0; cursor:pointer; font-size:14px; transition:opacity .2s; position:absolute; top:-8px; right:-4px; background:var(--surface0); border:1px solid var(--surface1); border-radius:10px; padding:1px 5px; }
+.msg-bubble:hover .reaction-trigger { opacity:1; }
+.reaction-picker { position:absolute; bottom:100%; right:0; background:var(--surface0); border:1px solid var(--surface1); border-radius:12px; padding:6px 10px; display:flex; gap:8px; box-shadow:var(--shadow); z-index:50; }
+.reaction-picker span { cursor:pointer; font-size:18px; transition:transform .15s; }
+.reaction-picker span:hover { transform:scale(1.3); }
+
+/* GIF panel */
+.gif-panel { background:var(--mantle); border:1px solid var(--surface0); border-radius:var(--radius); padding:12px; margin-top:8px; }
+.gif-search-row { display:flex; gap:8px; margin-bottom:8px; }
+.gif-search-row input { flex:1; padding:8px 12px; background:var(--base); border:1px solid var(--surface1); border-radius:8px; color:var(--text); font-size:13px; outline:none; }
+.gif-search-row input:focus { border-color:var(--mauve); }
+.gif-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; max-height:300px; overflow-y:auto; }
+.gif-grid img { width:100%; border-radius:6px; cursor:pointer; transition:transform .15s; }
+.gif-grid img:hover { transform:scale(1.03); }
+
+/* Calendar */
+.calendar-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.calendar-header h3 { font-size:16px; color:var(--text); }
+.calendar-header button { background:var(--surface0); border:1px solid var(--surface1); color:var(--subtext0); padding:4px 10px; border-radius:6px; cursor:pointer; font-size:13px; }
+.calendar-header button:hover { background:var(--surface1); color:var(--text); }
+.calendar-day-labels { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-bottom:4px; }
+.calendar-day-labels span { text-align:center; font-size:11px; color:var(--overlay0); font-weight:600; text-transform:uppercase; padding:4px 0; }
+.calendar-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+.calendar-day { aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--surface0); border-radius:6px; cursor:pointer; font-size:13px; color:var(--subtext0); transition:all .2s; position:relative; }
+.calendar-day:hover { background:var(--surface1); color:var(--text); }
+.calendar-day.has-event::after { content:''; width:6px; height:6px; border-radius:50%; background:var(--mauve); position:absolute; bottom:4px; }
+.calendar-day.today { border:2px solid var(--mauve); color:var(--mauve); font-weight:700; }
+.calendar-day.other-month { opacity:.3; }
+.calendar-day.selected { background:var(--mauve); color:var(--crust); font-weight:600; }
+.calendar-day.selected::after { background:var(--crust); }
+.view-toggle { display:inline-flex; background:var(--surface0); border-radius:8px; overflow:hidden; border:1px solid var(--surface1); }
+.view-toggle button { background:none; border:none; color:var(--subtext0); padding:6px 14px; font-size:12px; cursor:pointer; transition:all .2s; }
+.view-toggle button.active { background:var(--mauve); color:var(--crust); font-weight:600; }
+
+/* Onboarding */
+.onboarding-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9998; transition:opacity .3s; }
+.onboarding-highlight { position:relative; z-index:9999; box-shadow:0 0 0 4px var(--mauve), 0 0 20px rgba(203,166,247,.4); border-radius:var(--radius); }
+.onboarding-tooltip { position:fixed; z-index:10000; background:var(--surface0); color:var(--text); border:1px solid var(--surface1); border-radius:12px; padding:20px; max-width:320px; box-shadow:0 8px 32px rgba(0,0,0,0.5); }
+.onboarding-tooltip h3 { font-size:16px; color:var(--mauve); margin-bottom:8px; }
+.onboarding-tooltip p { font-size:14px; color:var(--subtext1); line-height:1.5; margin-bottom:16px; }
+.onboarding-tooltip .ob-step { font-size:11px; color:var(--overlay0); margin-bottom:4px; }
+.onboarding-tooltip .ob-actions { display:flex; gap:8px; justify-content:flex-end; }
+
+/* Premium gate */
+.premium-gate-wrapper { position:relative; }
+.premium-gate-blur { filter:blur(8px); pointer-events:none; -webkit-user-select:none; user-select:none; }
+.premium-gate-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:2; background:rgba(30,30,46,.5); border-radius:var(--radius); }
+.premium-gate-overlay .gate-text { font-size:16px; font-weight:600; color:var(--mauve); margin-bottom:12px; }
+
+/* Group chat messages */
+.group-chat-messages { max-height:400px; overflow-y:auto; padding:8px 0; }
+.group-tabs { display:flex; gap:4px; margin-bottom:12px; }
+.group-tab { background:var(--surface0); border:1px solid var(--surface1); color:var(--subtext0); padding:6px 14px; border-radius:8px; cursor:pointer; font-size:13px; transition:all .2s; }
+.group-tab:hover { background:var(--surface1); color:var(--text); }
+.group-tab.active { background:var(--mauve); color:var(--crust); font-weight:600; border-color:var(--mauve); }
+
+/* Viewers list */
+.viewer-item { display:flex; align-items:center; gap:12px; padding:10px 14px; background:var(--mantle); border-radius:8px; margin-bottom:6px; cursor:pointer; transition:all .2s; }
+.viewer-item:hover { background:var(--surface0); }
+.viewer-item img { width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid var(--surface1); }
+.viewer-item .v-placeholder { width:40px; height:40px; border-radius:50%; background:var(--surface0); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--overlay0); }
+.viewer-item .v-info { flex:1; }
+.viewer-item .v-name { font-size:14px; font-weight:500; color:var(--text); }
+.viewer-item .v-time { font-size:11px; color:var(--overlay0); }
+
+/* Who Liked Me grid */
+.liked-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+.liked-card { background:var(--mantle); border:1px solid var(--surface0); border-radius:var(--radius); padding:16px; text-align:center; cursor:pointer; transition:all .25s; }
+.liked-card:hover { border-color:var(--red); transform:translateY(-2px); box-shadow:0 4px 20px rgba(243,139,168,.1); }
+.liked-card img { width:72px; height:72px; border-radius:50%; object-fit:cover; border:2px solid var(--surface1); margin-bottom:8px; }
+.liked-card .lk-placeholder { width:72px; height:72px; border-radius:50%; background:var(--surface0); display:flex; align-items:center; justify-content:center; font-size:28px; color:var(--overlay0); margin:0 auto 8px; }
+.liked-card .lk-name { font-size:14px; font-weight:600; color:var(--text); margin-bottom:2px; }
+.liked-card .lk-age { font-size:12px; color:var(--overlay0); }
+
+/* 2FA */
+.twofa-section { padding:12px 0; }
+.twofa-qr { text-align:center; margin:16px 0; }
+.twofa-qr img { border-radius:8px; background:white; padding:8px; }
+.twofa-code-input { display:flex; gap:8px; align-items:center; margin-top:12px; }
+.twofa-code-input input { width:160px; text-align:center; font-size:18px; letter-spacing:4px; font-weight:700; }
+
+@media(max-width:768px) {
+    .top-picks .pick-card { min-width:140px; }
+    .gif-grid { grid-template-columns:1fr 1fr; }
+    .calendar-day { font-size:11px; }
+    .liked-grid { grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); }
+    .onboarding-tooltip { max-width:90vw; left:5vw !important; right:5vw !important; }
+}
 </style>
 </head>
 <body>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.4.0</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.5.0</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <div id="notif-bell" style="display:none;position:relative;cursor:pointer" onclick="toggleNotifications()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--subtext0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -540,6 +647,10 @@ function connectWS(){
                 if(chatOpen&&window._chatPartner===msg.from) openChat(activeProfile,msg.from);
                 // Refresh notification count
                 pollNotifications();
+            } else if(msg.type==='group_message'){
+                toast('New message in '+msg.group_name,'info');
+                const gcEl=document.getElementById('group-msgs');
+                if(gcEl&&window._activeGroupChat===msg.group_id) loadGroupChat(msg.group_id);
             } else if(msg.type==='typing'){
                 const ti=document.getElementById('typing-indicator');
                 if(ti&&window._chatPartner===msg.from){
@@ -575,11 +686,13 @@ const TABS_LOGGEDOUT=[
 const TABS_LOGGEDIN=[
     {id:'myprofile',label:'My Profile'},
     {id:'matches',label:'Matches'},
+    {id:'likedme',label:'Liked You'},
     {id:'messages',label:'Messages'},
     {id:'feed',label:'Feed'},
     {id:'discover',label:'Discover'},
     {id:'groups',label:'Groups'},
     {id:'events',label:'Events'},
+    {id:'calendar',label:'Calendar'},
 ];
 
 // ─── Build flat question array from API response ───
@@ -797,6 +910,8 @@ function showView(v){
     else if(v==='discover')renderDiscover();
     else if(v==='groups')renderGroups();
     else if(v==='events')renderEvents();
+    else if(v==='likedme')renderWhoLikedMe();
+    else if(v==='calendar')renderEventsCalendar();
 }
 
 function loginAs(id){
@@ -1247,12 +1362,18 @@ async function viewProfilePage(pid,viewer){
             right+=`<div class="ms-section"><h2>Settings</h2>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Notification Preferences</summary>
                 <div id="notif-prefs" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
+                <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Push Notifications</summary>
+                <div style="padding:12px 0"><p style="color:var(--overlay0);font-size:13px;margin-bottom:12px">Get notified about new messages, matches, and activity even when the app is closed.</p><div id="push-status"></div><button class="btn btn-primary" id="push-toggle-btn" onclick="togglePushNotifications()" style="padding:8px 20px;font-size:13px">Enable Push Notifications</button></div></details>
+                <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Two-Factor Authentication</summary>
+                <div id="twofa-area" class="twofa-section"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Change Password</summary>
                 <div style="padding:12px 0;display:flex;flex-direction:column;gap:8px">
                     <input type="password" id="pw-current" placeholder="Current password">
                     <input type="password" id="pw-new" placeholder="New password (min 6 chars)">
                     <button class="btn btn-primary" onclick="changePassword()" style="align-self:flex-start;padding:8px 20px">Change Password</button>
                 </div></details>
+                <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Who Viewed Me</summary>
+                <div id="viewers-list" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Blocked Users</summary>
                 <div id="blocked-list" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details><summary style="cursor:pointer;color:var(--red);font-size:14px;padding:8px 0">Deactivate Profile</summary>
@@ -1278,6 +1399,9 @@ async function viewProfilePage(pid,viewer){
             loadVerifyStatus(pid);
             loadNotifPrefs();
             loadBlockedUsers(pid);
+            loadViewers(pid);
+            load2FAStatus();
+            checkPushStatus();
         }
         // Load like button state
         if(!isOwner&&v){
@@ -1420,12 +1544,29 @@ async function viewAllFriends(pid){
 async function renderMyMatches(){
     if(!activeProfile){showView('welcome');return;}
     const app=document.getElementById('app');
-    app.innerHTML='<div class="card"><div class="skeleton skeleton-line" style="width:40%"></div><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>';
+    app.innerHTML='<div class="card" id="top-picks-card"><h2>Today\'s Top Picks</h2><p class="subtitle">Your best matches for today</p><div id="top-picks-area"><div style="color:var(--overlay0);font-size:13px;padding:12px 0">Generating your daily picks...</div></div></div><div id="matches-area"><div class="card"><div class="skeleton skeleton-line" style="width:40%"></div><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>';
+    loadTopPicks();
     showMatchesFor(activeProfile);
 }
 
+async function loadTopPicks(){
+    try{
+        const r=await authFetch(API+'/api/suggestions/daily');
+        if(!r.ok) return;
+        const d=await r.json();
+        const el=document.getElementById('top-picks-area');
+        if(!el) return;
+        if(!d.suggestions||!d.suggestions.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px 0">No suggestions available today. Check back tomorrow!</div>';return;}
+        el.innerHTML='<div class="top-picks">'+d.suggestions.map(s=>{
+            const photo=s.photo?`<img src="/uploads/${s.photo}">`:'<div class="pick-placeholder">?</div>';
+            const sc=s.score>=70?'var(--green)':s.score>=45?'var(--yellow)':'var(--peach)';
+            return `<div class="pick-card" onclick="showDetail('${activeProfile}','${s.profile_id}')">${photo}<div class="pick-name">${escHtml(s.name)}</div>${s.age?`<div class="pick-age">${s.age} yrs</div>`:''}<div class="pick-score" style="color:${sc}">${s.score}%</div></div>`;
+        }).join('')+'</div>';
+    }catch(e){}
+}
+
 async function showMatchesFor(pid){
-    const c=document.getElementById('mres')||document.getElementById('app');
+    const c=document.getElementById('matches-area')||document.getElementById('mres')||document.getElementById('app');
     c.innerHTML='<div class="loading"><div class="spinner"></div>Computing compatibility...</div>';
     try{
         const r=await fetch(API+'/api/matches/'+pid);const d=await r.json();
@@ -1876,12 +2017,17 @@ async function openChat(meId,themId){
     }
 
     html+=`<div class="msg-list" id="msgs">${md.messages.map(m=>{
-        let content=m.photo?`<img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')">`:escHtml(m.content);
+        let content;
+        const gifMatch=m.content&&m.content.match(/^\[gif:(.*)\]$/);
+        if(m.photo) content=`<img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')">`;
+        else if(gifMatch) content=`<img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px">`;
+        else content=escHtml(m.content);
         let readTag=m.from_id===meId?(m.read_at?`<span style="color:var(--blue);font-size:10px"> Read</span>`:(m.read?`<span style="color:var(--overlay0);font-size:10px"> Delivered</span>`:``)):'';
-        return `<div class="msg-bubble ${m.from_id===meId?'msg-mine':'msg-theirs'}">${content}<div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}${readTag}</div></div>`;
+        const reactions=(m.reactions||[]).map(r=>`<span class="reaction-badge" onclick="reactToMessage('${m.id}','${r.reaction}')">${r.reaction}<span class="r-count">${r.count}</span></span>`).join('');
+        return `<div class="msg-bubble ${m.from_id===meId?'msg-mine':'msg-theirs'}" style="position:relative">${content}<div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}${readTag}</div>${reactions?`<div class="reaction-bar">${reactions}</div>`:''}<span class="reaction-trigger" onclick="showReactionPicker(event,'${m.id}')">+</span></div>`;
     }).join('')}</div>
     <div><span id="typing-indicator" style="color:var(--overlay0);font-size:0.85em;min-height:1.2em;display:block"></span></div>
-    <div class="msg-input-row"><input type="text" id="msg-in" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg('${meId}','${themId}');else wsSendTyping('${themId}')" style="flex:1"><label style="cursor:pointer;padding:8px 12px;background:var(--surface0);border-radius:8px;color:var(--overlay0);font-size:18px" title="Send photo">&#128247;<input type="file" accept="image/*" style="display:none" onchange="sendPhotoMsg('${meId}','${themId}',this.files[0])"></label><button class="btn btn-primary" onclick="sendMsg('${meId}','${themId}')">Send</button></div></div>`;
+    <div class="msg-input-row"><input type="text" id="msg-in" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg('${meId}','${themId}');else wsSendTyping('${themId}')" style="flex:1"><label style="cursor:pointer;padding:8px 12px;background:var(--surface0);border-radius:8px;color:var(--overlay0);font-size:18px" title="Send photo">&#128247;<input type="file" accept="image/*" style="display:none" onchange="sendPhotoMsg('${meId}','${themId}',this.files[0])"></label><button class="btn btn-secondary" onclick="toggleGifPanel('${meId}','${themId}')" style="padding:8px 12px;font-size:13px">GIF</button><button class="btn btn-primary" onclick="sendMsg('${meId}','${themId}')">Send</button></div><div id="gif-panel-area"></div></div>`;
 
     app.innerHTML=html;
     const ml=document.getElementById('msgs');ml.scrollTop=ml.scrollHeight;
@@ -2200,6 +2346,12 @@ async function viewGroup(gid){
         if(!g.is_member) html+=`<button class="btn btn-primary" onclick="joinGroupAction('${gid}')" style="margin-bottom:16px">Join Group</button>`;
         else html+=`<button class="btn btn-secondary" onclick="leaveGroupAction('${gid}')" style="margin-bottom:16px;font-size:12px;padding:6px 12px">Leave Group</button>`;
 
+        // Tabs: Posts | Chat
+        if(g.is_member){
+            html+=`<div class="group-tabs"><button class="group-tab active" onclick="switchGroupTab('posts','${gid}')">Posts</button><button class="group-tab" onclick="switchGroupTab('chat','${gid}')">Chat</button></div>`;
+        }
+
+        html+=`<div id="group-posts-tab">`;
         // Post form for members
         if(g.is_member){
             html+=`<div style="display:flex;gap:8px;margin-bottom:16px"><input type="text" id="gp-input" placeholder="Write something to the group..." style="flex:1" onkeydown="if(event.key==='Enter')postToGroup('${gid}')"><button class="btn btn-primary" onclick="postToGroup('${gid}')" style="padding:8px 16px">Post</button></div>`;
@@ -2213,6 +2365,10 @@ async function viewGroup(gid){
         } else {
             html+=`<div style="color:var(--overlay0);font-size:13px;padding:12px">No posts yet. Start the conversation!</div>`;
         }
+        html+=`</div>`;
+
+        // Group Chat tab (hidden by default)
+        html+=`<div id="group-chat-tab" style="display:none"><div class="group-chat-messages" id="group-msgs"><div class="loading"><div class="spinner"></div>Loading chat...</div></div><div style="display:flex;gap:8px;margin-top:8px"><input type="text" id="gc-input" placeholder="Type a message..." style="flex:1" onkeydown="if(event.key==='Enter')sendGroupMsg('${gid}')"><button class="btn btn-primary" onclick="sendGroupMsg('${gid}')" style="padding:8px 16px">Send</button></div></div>`;
 
         // Members
         html+=`<h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 8px">Members (${g.member_count})</h3><div class="ms-friends-grid">`;
@@ -2241,7 +2397,7 @@ async function deleteGroupPostAction(gid,pid){
 async function renderEvents(){
     if(!activeProfile){showView('welcome');return;}
     const app=document.getElementById('app');
-    app.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div><h2>Events</h2><p class="subtitle">Find and create meetups</p></div><button class="btn btn-primary" onclick="showCreateEventForm()" style="padding:8px 16px;font-size:13px">Create Event</button></div><div id="create-event-area"></div>
+    app.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div><h2>Events</h2><p class="subtitle">Find and create meetups</p></div><div style="display:flex;gap:8px;align-items:center"><div class="view-toggle"><button onclick="showView('events')">List</button><button onclick="showView('calendar')">Calendar</button></div><button class="btn btn-primary" onclick="showCreateEventForm()" style="padding:8px 16px;font-size:13px">Create Event</button></div></div><div id="create-event-area"></div>
     <h3 style="font-size:14px;color:var(--subtext1);margin-bottom:10px">My Events</h3><div id="my-events"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
     <h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">Upcoming Events</h3><div id="all-events"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
     loadEvents();
@@ -2385,7 +2541,399 @@ async function deactivateMyProfile(pid){
     showView('myprofile');
 }
 
+// ─── Who Viewed Me (Settings section) ───
+async function loadViewers(pid){
+    const el=document.getElementById('viewers-list');if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/profile/'+pid+'/viewers');
+        if(!r.ok){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Not available</div>';return;}
+        const d=await r.json();
+        if(!d.viewers||!d.viewers.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">No one has viewed your profile yet.</div>';return;}
+        el.innerHTML=d.viewers.map(v=>`<div class="viewer-item" onclick="viewProfilePage('${v.profile_id}')">${v.photo?`<img src="/uploads/${v.photo}">`:'<div class="v-placeholder">?</div>'}<div class="v-info"><div class="v-name">${escHtml(v.name)}</div><div class="v-time">viewed ${timeAgo(v.viewed_at)}</div></div></div>`).join('');
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load viewers</div>';}
+}
+
+// ─── Who Liked Me (Tab View) ───
+async function renderWhoLikedMe(){
+    if(!activeProfile){showView('welcome');return;}
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="card"><h2>Who Liked You</h2><p class="subtitle">People who are interested in you</p><div id="liked-me-area"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>';
+    try{
+        const r=await authFetch(API+'/api/profile/'+activeProfile+'/liked-by');
+        const el=document.getElementById('liked-me-area');if(!el)return;
+        if(!r.ok){
+            // Premium gated - show blurred placeholder
+            el.innerHTML=`<div class="premium-gate-wrapper"><div class="premium-gate-blur"><div class="liked-grid">${Array(6).fill('<div class="liked-card"><div class="lk-placeholder">?</div><div class="lk-name">Someone</div><div class="lk-age">?? yrs</div></div>').join('')}</div></div><div class="premium-gate-overlay"><div class="gate-text">See who likes you</div><button class="btn btn-primary" onclick="toast('Premium features coming soon!','info')">Upgrade to See</button></div></div>`;
+            return;
+        }
+        const d=await r.json();
+        if(!d.liked_by||!d.liked_by.length){showEmpty(el,'&#10084;','No likes yet','When someone likes your profile, they\'ll appear here.','Find Matches',"showView('matches')");return;}
+        el.innerHTML='<div class="liked-grid">'+d.liked_by.map(p=>{
+            const photo=p.photo?`<img src="/uploads/${p.photo}">`:'<div class="lk-placeholder">?</div>';
+            return `<div class="liked-card" onclick="viewProfilePage('${p.profile_id}')">${photo}<div class="lk-name">${escHtml(p.name)}</div>${p.age?`<div class="lk-age">${p.age} yrs</div>`:''}</div>`;
+        }).join('')+'</div>';
+    }catch(e){
+        const el=document.getElementById('liked-me-area');
+        if(el) el.innerHTML='<div class="empty"><h3>Could not load</h3></div>';
+    }
+}
+
+// ─── Message Reactions ───
+function showReactionPicker(event,msgId){
+    event.stopPropagation();
+    // Remove any existing picker
+    document.querySelectorAll('.reaction-picker').forEach(p=>p.remove());
+    const picker=document.createElement('div');
+    picker.className='reaction-picker';
+    ['&#10084;&#65039;','&#128077;','&#128514;','&#128558;','&#128546;'].forEach(emoji=>{
+        const s=document.createElement('span');
+        s.innerHTML=emoji;
+        s.onclick=(e)=>{e.stopPropagation();reactToMessage(msgId,s.textContent);picker.remove();};
+        picker.appendChild(s);
+    });
+    event.currentTarget.parentElement.appendChild(picker);
+    setTimeout(()=>document.addEventListener('click',()=>picker.remove(),{once:true}),10);
+}
+
+async function reactToMessage(msgId,reaction){
+    try{
+        await authFetch(API+'/api/messages/'+msgId+'/reactions',{method:'POST',headers:authHeaders(),body:JSON.stringify({reaction})});
+        // Refresh chat if open
+        if(window._chatPartner) openChat(activeProfile,window._chatPartner);
+    }catch(e){toast('Could not add reaction','error');}
+}
+
+// ─── GIF Search in Chat ───
+let gifPanelOpen=false;
+function toggleGifPanel(meId,themId){
+    const area=document.getElementById('gif-panel-area');if(!area)return;
+    gifPanelOpen=!gifPanelOpen;
+    if(!gifPanelOpen){area.innerHTML='';return;}
+    area.innerHTML=`<div class="gif-panel"><div class="gif-search-row"><input type="text" id="gif-search" placeholder="Search GIFs..." onkeydown="if(event.key==='Enter')searchGifs('${meId}','${themId}')"><button class="btn btn-secondary" onclick="searchGifs('${meId}','${themId}')" style="padding:6px 14px;font-size:12px">Search</button></div><div id="gif-results" class="gif-grid"></div></div>`;
+    // Load trending
+    loadTrendingGifs(meId,themId);
+}
+
+async function loadTrendingGifs(meId,themId){
+    const el=document.getElementById('gif-results');if(!el)return;
+    try{
+        const r=await fetch('https://tenor.googleapis.com/v2/featured?key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&limit=20&media_filter=gif');
+        const d=await r.json();
+        renderGifResults(d.results||[],meId,themId);
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px">Could not load GIFs</div>';}
+}
+
+async function searchGifs(meId,themId){
+    const q=document.getElementById('gif-search')?.value?.trim();
+    if(!q){loadTrendingGifs(meId,themId);return;}
+    const el=document.getElementById('gif-results');if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+    try{
+        const r=await fetch('https://tenor.googleapis.com/v2/search?q='+encodeURIComponent(q)+'&key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&limit=20&media_filter=gif');
+        const d=await r.json();
+        renderGifResults(d.results||[],meId,themId);
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px">Search failed</div>';}
+}
+
+function renderGifResults(results,meId,themId){
+    const el=document.getElementById('gif-results');if(!el)return;
+    if(!results.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px;grid-column:1/-1">No GIFs found</div>';return;}
+    el.innerHTML=results.map(g=>{
+        const url=g.media_formats?.gif?.url||g.media_formats?.tinygif?.url||'';
+        const thumb=g.media_formats?.tinygif?.url||g.media_formats?.gif?.url||'';
+        return url?`<img src="${escHtml(thumb)}" alt="GIF" loading="lazy" onclick="sendGif('${meId}','${themId}','${escHtml(url)}')">`:'';
+    }).join('');
+}
+
+async function sendGif(from,to,url){
+    gifPanelOpen=false;
+    const inp=document.getElementById('msg-in');
+    if(inp) inp.value='[gif:'+url+']';
+    sendMsg(from,to);
+}
+
+// ─── Group Chat ───
+function switchGroupTab(tab,gid){
+    document.querySelectorAll('.group-tab').forEach(t=>t.classList.remove('active'));
+    event.currentTarget.classList.add('active');
+    document.getElementById('group-posts-tab').style.display=tab==='posts'?'block':'none';
+    document.getElementById('group-chat-tab').style.display=tab==='chat'?'block':'none';
+    if(tab==='chat') loadGroupChat(gid);
+}
+
+async function loadGroupChat(gid){
+    const el=document.getElementById('group-msgs');if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/groups/'+gid+'/messages');
+        if(!r.ok){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px">Chat not available</div>';return;}
+        const d=await r.json();
+        if(!d.messages||!d.messages.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px">No messages yet. Start the chat!</div>';return;}
+        el.innerHTML=d.messages.map(m=>{
+            const isMine=m.profile_id===activeProfile;
+            return `<div class="msg-bubble ${isMine?'msg-mine':'msg-theirs'}"><div style="font-size:11px;color:${isMine?'rgba(0,0,0,.5)':'var(--overlay0)'};margin-bottom:2px">${escHtml(m.name)}</div>${escHtml(m.content)}<div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}</div></div>`;
+        }).join('');
+        el.scrollTop=el.scrollHeight;
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px">Could not load chat</div>';}
+}
+
+async function sendGroupMsg(gid){
+    const inp=document.getElementById('gc-input');const txt=inp?.value?.trim();if(!txt)return;
+    inp.value='';
+    await authFetch(API+'/api/groups/'+gid+'/messages',{method:'POST',headers:authHeaders(),body:JSON.stringify({content:txt})});
+    loadGroupChat(gid);
+}
+
+// ─── Events Calendar View ───
+let calYear,calMonth,calSelectedDay=null;
+async function renderEventsCalendar(){
+    if(!activeProfile){showView('welcome');return;}
+    const now=new Date();
+    calYear=calYear||now.getFullYear();
+    calMonth=calMonth!==undefined?calMonth:now.getMonth();
+    calSelectedDay=null;
+    const app=document.getElementById('app');
+    app.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div><h2>Events Calendar</h2><p class="subtitle">View events by date</p></div><div class="view-toggle"><button class="active" onclick="renderEventsCalendar()">Calendar</button><button onclick="showView('events')">List</button></div></div><div id="cal-area"><div class="loading"><div class="spinner"></div></div></div><div id="cal-day-events"></div></div>`;
+    try{
+        const r=await fetch(API+'/api/events');const d=await r.json();
+        buildCalendar(d.events||[]);
+    }catch(e){document.getElementById('cal-area').innerHTML='<div class="empty"><h3>Could not load events</h3></div>';}
+}
+
+function buildCalendar(events){
+    const el=document.getElementById('cal-area');if(!el)return;
+    const now=new Date();
+    const firstDay=new Date(calYear,calMonth,1).getDay();
+    const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+    const prevDays=new Date(calYear,calMonth,0).getDate();
+    const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    // Parse event dates for this month
+    const eventDays=new Set();
+    const eventsByDay={};
+    for(const ev of events){
+        if(!ev.event_date)continue;
+        const ed=new Date(ev.event_date+'T00:00:00');
+        if(ed.getFullYear()===calYear&&ed.getMonth()===calMonth){
+            const day=ed.getDate();
+            eventDays.add(day);
+            if(!eventsByDay[day])eventsByDay[day]=[];
+            eventsByDay[day].push(ev);
+        }
+    }
+    window._calEventsByDay=eventsByDay;
+
+    let html=`<div class="calendar-header"><button onclick="calNav(-1)">&larr; Prev</button><h3>${monthNames[calMonth]} ${calYear}</h3><button onclick="calNav(1)">Next &rarr;</button></div>`;
+    html+=`<div class="calendar-day-labels"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>`;
+    html+=`<div class="calendar-grid">`;
+
+    // Previous month trailing days
+    for(let i=firstDay-1;i>=0;i--){
+        html+=`<div class="calendar-day other-month">${prevDays-i}</div>`;
+    }
+    // Current month days
+    for(let d=1;d<=daysInMonth;d++){
+        const isToday=d===now.getDate()&&calMonth===now.getMonth()&&calYear===now.getFullYear();
+        const hasEvent=eventDays.has(d);
+        html+=`<div class="calendar-day${isToday?' today':''}${hasEvent?' has-event':''}" onclick="selectCalDay(${d})">${d}</div>`;
+    }
+    // Next month leading days
+    const totalCells=firstDay+daysInMonth;
+    const remaining=totalCells%7===0?0:7-(totalCells%7);
+    for(let i=1;i<=remaining;i++){
+        html+=`<div class="calendar-day other-month">${i}</div>`;
+    }
+    html+=`</div>`;
+    el.innerHTML=html;
+}
+
+function calNav(dir){
+    calMonth+=dir;
+    if(calMonth>11){calMonth=0;calYear++;}
+    if(calMonth<0){calMonth=11;calYear--;}
+    renderEventsCalendar();
+}
+
+function selectCalDay(day){
+    calSelectedDay=day;
+    document.querySelectorAll('.calendar-day:not(.other-month)').forEach(el=>{
+        el.classList.toggle('selected',parseInt(el.textContent)===day);
+    });
+    const evEl=document.getElementById('cal-day-events');if(!evEl)return;
+    const dayEvents=window._calEventsByDay?.[day];
+    if(!dayEvents||!dayEvents.length){
+        evEl.innerHTML=`<div style="color:var(--overlay0);font-size:13px;padding:16px;text-align:center">No events on this day</div>`;
+        return;
+    }
+    evEl.innerHTML='<h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">Events on '+day+'</h3><div class="event-grid">'+dayEvents.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending</div></div>`).join('')+'</div>';
+}
+
+// ─── Guided Onboarding Tour ───
+const onboardingSteps=[
+    {target:'nav',text:'Welcome to Kindred! Start by completing your questionnaire to get matched.',title:'Welcome!'},
+    {target:'nav',tabId:'matches',text:'Once you have a profile, find your most compatible matches here.',title:'Your Matches'},
+    {target:'nav',tabId:'messages',text:'Message your matches and start meaningful conversations.',title:'Messages'},
+    {target:'nav',tabId:'groups',text:'Join groups and attend events to meet like-minded people.',title:'Groups & Events'},
+    {target:'nav',tabId:'myprofile',text:'Customize your profile page, add photos, and manage your settings.',title:'Your Profile'},
+];
+let onboardingStep=0;
+
+function startOnboarding(){
+    if(localStorage.getItem('kindred_onboarded'))return;
+    onboardingStep=0;
+    showOnboardingStep();
+}
+
+function showOnboardingStep(){
+    // Remove previous
+    document.querySelectorAll('.onboarding-overlay,.onboarding-tooltip').forEach(e=>e.remove());
+    document.querySelectorAll('.onboarding-highlight').forEach(e=>e.classList.remove('onboarding-highlight'));
+
+    if(onboardingStep>=onboardingSteps.length){
+        finishOnboarding();
+        return;
+    }
+
+    const step=onboardingSteps[onboardingStep];
+    // Overlay
+    const overlay=document.createElement('div');
+    overlay.className='onboarding-overlay';
+    document.body.appendChild(overlay);
+
+    // Find target element
+    let targetEl=null;
+    if(step.tabId){
+        targetEl=document.querySelector(`.nav-tab[data-v="${step.tabId}"]`);
+    }
+    if(!targetEl) targetEl=document.getElementById(step.target);
+    if(targetEl) targetEl.classList.add('onboarding-highlight');
+
+    // Tooltip
+    const tooltip=document.createElement('div');
+    tooltip.className='onboarding-tooltip';
+    tooltip.innerHTML=`<div class="ob-step">Step ${onboardingStep+1} of ${onboardingSteps.length}</div><h3>${step.title}</h3><p>${step.text}</p><div class="ob-actions"><button class="btn btn-secondary" onclick="finishOnboarding()" style="padding:6px 14px;font-size:12px">Skip</button><button class="btn btn-primary" onclick="nextOnboardingStep()" style="padding:6px 14px;font-size:12px">${onboardingStep===onboardingSteps.length-1?'Finish':'Next'}</button></div>`;
+
+    // Position tooltip
+    if(targetEl){
+        const rect=targetEl.getBoundingClientRect();
+        tooltip.style.top=(rect.bottom+12)+'px';
+        tooltip.style.left=Math.max(12,Math.min(rect.left,window.innerWidth-340))+'px';
+    } else {
+        tooltip.style.top='50%';tooltip.style.left='50%';tooltip.style.transform='translate(-50%,-50%)';
+    }
+    document.body.appendChild(tooltip);
+}
+
+function nextOnboardingStep(){
+    onboardingStep++;
+    showOnboardingStep();
+}
+
+function finishOnboarding(){
+    document.querySelectorAll('.onboarding-overlay,.onboarding-tooltip').forEach(e=>e.remove());
+    document.querySelectorAll('.onboarding-highlight').forEach(e=>e.classList.remove('onboarding-highlight'));
+    localStorage.setItem('kindred_onboarded','1');
+    authFetch(API+'/api/onboarding/complete',{method:'POST',headers:authHeaders()}).catch(()=>{});
+    toast('You\'re all set! Enjoy Kindred.','success');
+}
+
+// ─── 2FA Setup ───
+async function load2FAStatus(){
+    const el=document.getElementById('twofa-area');if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/auth/2fa/status');
+        if(!r.ok){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">2FA not available</div>';return;}
+        const d=await r.json();
+        if(d.enabled){
+            el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="color:var(--green);font-weight:600;font-size:14px">2FA Enabled</span></div><button class="btn btn-danger" onclick="disable2FA()" style="padding:6px 14px;font-size:12px">Disable 2FA</button>`;
+        } else {
+            el.innerHTML=`<p style="color:var(--overlay0);font-size:13px;margin-bottom:12px">Add an extra layer of security to your account with a time-based one-time password (TOTP).</p><button class="btn btn-primary" onclick="setup2FA()" style="padding:8px 20px;font-size:13px">Enable 2FA</button>`;
+        }
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not check 2FA status</div>';}
+}
+
+async function setup2FA(){
+    const el=document.getElementById('twofa-area');if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div>Setting up...</div>';
+    try{
+        const r=await authFetch(API+'/api/auth/2fa/setup',{method:'POST',headers:authHeaders()});
+        if(!r.ok){el.innerHTML='<div style="color:var(--red);font-size:13px">Setup failed</div>';return;}
+        const d=await r.json();
+        el.innerHTML=`<p style="color:var(--subtext1);font-size:13px;margin-bottom:12px">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.):</p><div class="twofa-qr"><img src="${d.qr_url}" alt="2FA QR Code" style="max-width:200px"></div>${d.secret?`<p style="font-size:12px;color:var(--overlay0);margin:8px 0">Manual key: <code style="background:var(--surface0);padding:2px 6px;border-radius:4px;font-size:12px;color:var(--text)">${d.secret}</code></p>`:''}<p style="color:var(--subtext1);font-size:13px;margin-top:12px">Enter the 6-digit code from your app to verify:</p><div class="twofa-code-input"><input type="text" id="twofa-code" maxlength="6" placeholder="000000" style="font-size:18px;letter-spacing:4px;font-weight:700;width:160px;text-align:center"><button class="btn btn-primary" onclick="verify2FA()" style="padding:8px 16px;font-size:13px">Verify</button></div>`;
+    }catch(e){el.innerHTML='<div style="color:var(--red);font-size:13px">Setup failed</div>';}
+}
+
+async function verify2FA(){
+    const code=document.getElementById('twofa-code')?.value?.trim();
+    if(!code||code.length!==6){toast('Enter 6-digit code','error');return;}
+    try{
+        const r=await authFetch(API+'/api/auth/2fa/verify',{method:'POST',headers:authHeaders(),body:JSON.stringify({code})});
+        if(r.ok){toast('2FA enabled successfully!','success');load2FAStatus();}
+        else{const d=await r.json();toast(d.detail||'Invalid code','error');}
+    }catch(e){toast('Verification failed','error');}
+}
+
+async function disable2FA(){
+    try{
+        const r=await authFetch(API+'/api/auth/2fa/disable',{method:'POST',headers:authHeaders()});
+        if(r.ok){toast('2FA disabled','success');load2FAStatus();}
+        else{toast('Failed to disable 2FA','error');}
+    }catch(e){toast('Failed','error');}
+}
+
+// ─── Web Push Notifications ───
+async function checkPushStatus(){
+    const btn=document.getElementById('push-toggle-btn');
+    const status=document.getElementById('push-status');
+    if(!btn)return;
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)){
+        btn.style.display='none';
+        if(status) status.innerHTML='<div style="color:var(--overlay0);font-size:12px;margin-bottom:8px">Push notifications are not supported in this browser.</div>';
+        return;
+    }
+    try{
+        const reg=await navigator.serviceWorker.ready;
+        const sub=await reg.pushManager.getSubscription();
+        if(sub){
+            btn.textContent='Disable Push Notifications';
+            btn.className='btn btn-danger';
+            if(status) status.innerHTML='<div style="color:var(--green);font-size:12px;margin-bottom:8px;font-weight:500">Push notifications are enabled.</div>';
+        }
+    }catch(e){}
+}
+
+async function togglePushNotifications(){
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)){toast('Push not supported','error');return;}
+    try{
+        const reg=await navigator.serviceWorker.ready;
+        const existing=await reg.pushManager.getSubscription();
+        if(existing){
+            await existing.unsubscribe();
+            await authFetch(API+'/api/push/unsubscribe',{method:'POST',headers:authHeaders()});
+            toast('Push notifications disabled','success');
+            checkPushStatus();
+            return;
+        }
+        // Get VAPID key
+        const kr=await authFetch(API+'/api/push/vapid-key');
+        if(!kr.ok){toast('Could not get push key','error');return;}
+        const kd=await kr.json();
+        const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:kd.public_key});
+        await authFetch(API+'/api/push/subscribe',{method:'POST',headers:authHeaders(),body:JSON.stringify(sub.toJSON())});
+        toast('Push notifications enabled!','success');
+        checkPushStatus();
+    }catch(e){toast('Could not enable push notifications','error');}
+}
+
+// ─── PWA ───
+if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/static/service-worker.js').catch(()=>{});
+}
+
 init();
+// Trigger onboarding after init for new users
+if(localStorage.getItem('kindred_token')&&!localStorage.getItem('kindred_onboarded')){
+    setTimeout(startOnboarding,1500);
+}
 </script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 """
-Kindred v1.4.0 - Configuration
+Kindred v1.5.0 - Configuration
 Loads settings from environment variables or .env file.
 """
 
@@ -61,5 +61,19 @@ REFRESH_TOKEN_DAYS = int(os.getenv("KINDRED_REFRESH_TOKEN_DAYS", "30"))
 # --- Background tasks ---
 EMBEDDING_WORKERS = int(os.getenv("KINDRED_EMBEDDING_WORKERS", "2"))
 
+# --- Web Push (VAPID) ---
+VAPID_PUBLIC_KEY = os.getenv("KINDRED_VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.getenv("KINDRED_VAPID_PRIVATE_KEY", "")
+VAPID_CONTACT = os.getenv("KINDRED_VAPID_CONTACT", "mailto:admin@kindred.app")
+
+# --- Content Filtering ---
+CONTENT_FILTER_ENABLED = os.getenv("KINDRED_CONTENT_FILTER", "true").lower() == "true"
+
+# --- Premium ---
+PREMIUM_ENABLED = os.getenv("KINDRED_PREMIUM_ENABLED", "false").lower() == "true"
+
+# --- Daily Suggestions ---
+DAILY_SUGGESTION_COUNT = int(os.getenv("KINDRED_DAILY_SUGGESTIONS", "5"))
+
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4

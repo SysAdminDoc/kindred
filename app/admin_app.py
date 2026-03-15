@@ -1,5 +1,5 @@
 """
-Kindred v1.4.0 - Admin Server
+Kindred v1.5.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -34,10 +34,12 @@ from app.database import (
     get_all_events, get_event, get_event_rsvps, delete_event,
     get_pending_verifications, review_verification,
     get_pending_photo_moderations, review_photo_moderation,
+    get_analytics_summary, get_engagement_metrics,
+    get_content_filter_logs,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="1.4.0")
+admin_app = FastAPI(title="Kindred Admin", version="1.5.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -319,6 +321,21 @@ def reject_photo(mod_id: str, admin: dict = Depends(require_admin)):
     if not review_photo_moderation(mod_id, approved=False, reviewer_id=admin["id"]):
         raise HTTPException(status_code=404, detail="Photo moderation entry not found")
     return {"message": "Photo rejected"}
+
+
+# ─── Analytics ───
+@admin_app.get("/api/admin/analytics")
+def admin_analytics(days: int = 30, admin: dict = Depends(require_admin)):
+    summary = get_analytics_summary(days)
+    engagement = get_engagement_metrics(min(days, 7))
+    return {"summary": summary, "engagement": engagement}
+
+
+# ─── Content Filter Log ───
+@admin_app.get("/api/admin/content-filter-log")
+def admin_content_filter_log(limit: int = 100, admin: dict = Depends(require_admin)):
+    logs = get_content_filter_logs(limit)
+    return {"logs": logs}
 
 
 # ─── Static Files ───

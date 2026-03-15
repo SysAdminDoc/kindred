@@ -1,10 +1,12 @@
 """
-Kindred v1.4.0 - Database Layer
+Kindred v1.5.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
 likes, status updates, activity feed, groups, events,
-blocks, password resets, notification preferences.
+blocks, password resets, notification preferences,
+message reactions, daily suggestions, TOTP 2FA, push subscriptions,
+group messages, content filtering, premium subscriptions, analytics.
 """
 
 import json
@@ -433,6 +435,89 @@ def init_db():
             updated_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS message_reactions (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            reaction TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(message_id, profile_id, reaction),
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS daily_suggestions (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            suggested_id TEXT NOT NULL,
+            score REAL NOT NULL,
+            date TEXT NOT NULL,
+            seen INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (suggested_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_daily_suggestions_date ON daily_suggestions(profile_id, date);
+
+        CREATE TABLE IF NOT EXISTS totp_secrets (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE,
+            secret TEXT NOT NULL,
+            verified INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS group_messages (
+            id TEXT PRIMARY KEY,
+            group_id TEXT NOT NULL,
+            from_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (from_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_group_messages ON group_messages(group_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS content_filter_log (
+            id TEXT PRIMARY KEY,
+            content_type TEXT NOT NULL,
+            content_id TEXT,
+            profile_id TEXT,
+            flagged_text TEXT,
+            reason TEXT,
+            filter_type TEXT,
+            action TEXT DEFAULT 'censored',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS premium_subscriptions (
+            user_id TEXT PRIMARY KEY,
+            tier TEXT NOT NULL DEFAULT 'free',
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS analytics_events (
+            id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            profile_id TEXT,
+            metadata TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_analytics_events ON analytics_events(event_type, created_at);
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -483,6 +568,9 @@ def _migrate(conn):
         # v1.4.0
         "ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0",
+        # v1.5.0
+        "ALTER TABLE users ADD COLUMN subscription_tier TEXT DEFAULT 'free'",
+        "ALTER TABLE users ADD COLUMN onboarding_completed INTEGER DEFAULT 0",
     ]
     for sql in migrations:
         try:
@@ -2453,3 +2541,402 @@ def delete_questionnaire_progress(user_id: str):
     conn = get_db()
     conn.execute("DELETE FROM questionnaire_progress WHERE user_id = ?", (user_id,))
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Message Reactions
+# ---------------------------------------------------------------------------
+
+def add_message_reaction(message_id: str, profile_id: str, reaction: str) -> str:
+    conn = get_db()
+    reaction_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT OR IGNORE INTO message_reactions (id, message_id, profile_id, reaction) VALUES (?, ?, ?, ?)",
+        (reaction_id, message_id, profile_id, reaction),
+    )
+    conn.commit()
+    return reaction_id
+
+
+def remove_message_reaction(message_id: str, profile_id: str, reaction: str) -> bool:
+    conn = get_db()
+    cur = conn.execute(
+        "DELETE FROM message_reactions WHERE message_id = ? AND profile_id = ? AND reaction = ?",
+        (message_id, profile_id, reaction),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_message_reactions(message_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT mr.*, p.name as profile_name, p.photo as profile_photo
+           FROM message_reactions mr
+           LEFT JOIN profiles p ON mr.profile_id = p.id
+           WHERE mr.message_id = ?
+           ORDER BY mr.created_at ASC""",
+        (message_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Daily Suggestions
+# ---------------------------------------------------------------------------
+
+def save_daily_suggestions(profile_id: str, suggestions: list[dict]):
+    from datetime import date
+    conn = get_db()
+    today = date.today().isoformat()
+    conn.execute("DELETE FROM daily_suggestions WHERE profile_id = ?", (profile_id,))
+    for s in suggestions:
+        sid = str(uuid.uuid4())[:8]
+        conn.execute(
+            "INSERT INTO daily_suggestions (id, profile_id, suggested_id, score, date) VALUES (?, ?, ?, ?, ?)",
+            (sid, profile_id, s["suggested_id"], s["score"], today),
+        )
+    conn.commit()
+
+
+def get_daily_suggestions(profile_id: str) -> list[dict]:
+    from datetime import date
+    conn = get_db()
+    today = date.today().isoformat()
+    rows = conn.execute(
+        """SELECT ds.*, p.name, p.photo, p.age, p.gender
+           FROM daily_suggestions ds
+           LEFT JOIN profiles p ON ds.suggested_id = p.id
+           WHERE ds.profile_id = ? AND ds.date = ?
+           ORDER BY ds.score DESC""",
+        (profile_id, today),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_suggestion_seen(suggestion_id: str):
+    conn = get_db()
+    conn.execute("UPDATE daily_suggestions SET seen = 1 WHERE id = ?", (suggestion_id,))
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Who Viewed Me
+# ---------------------------------------------------------------------------
+
+def get_profile_viewers(profile_id: str, limit: int = 50) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT be.profile_id, MAX(be.created_at) as last_viewed,
+                  p.name, p.photo, p.age, p.gender
+           FROM behavioral_events be
+           LEFT JOIN profiles p ON be.profile_id = p.id
+           WHERE be.event_type = 'profile_view' AND be.target_id = ?
+           GROUP BY be.profile_id
+           ORDER BY last_viewed DESC
+           LIMIT ?""",
+        (profile_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Who Liked You
+# ---------------------------------------------------------------------------
+
+def get_who_liked_me(profile_id: str, limit: int = 50) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT l.*, p.name, p.photo, p.age, p.gender
+           FROM likes l
+           LEFT JOIN profiles p ON l.from_id = p.id
+           WHERE l.target_id = ? AND l.target_type = 'profile'
+           ORDER BY l.created_at DESC
+           LIMIT ?""",
+        (profile_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# TOTP 2FA
+# ---------------------------------------------------------------------------
+
+def save_totp_secret(user_id: str, secret: str) -> str:
+    conn = get_db()
+    totp_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        """INSERT INTO totp_secrets (id, user_id, secret)
+           VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET secret=excluded.secret, verified=0,
+           created_at=CURRENT_TIMESTAMP""",
+        (totp_id, user_id, secret),
+    )
+    conn.commit()
+    return totp_id
+
+
+def get_totp_secret(user_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM totp_secrets WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def verify_totp_setup(user_id: str) -> bool:
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE totp_secrets SET verified = 1 WHERE user_id = ?", (user_id,)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def delete_totp_secret(user_id: str):
+    conn = get_db()
+    conn.execute("DELETE FROM totp_secrets WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Push Subscriptions
+# ---------------------------------------------------------------------------
+
+def save_push_subscription(user_id: str, endpoint: str, p256dh: str, auth: str) -> str:
+    conn = get_db()
+    sub_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        """INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id,
+           p256dh=excluded.p256dh, auth=excluded.auth""",
+        (sub_id, user_id, endpoint, p256dh, auth),
+    )
+    conn.commit()
+    return sub_id
+
+
+def get_push_subscriptions(user_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM push_subscriptions WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_push_subscription(endpoint: str):
+    conn = get_db()
+    conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Group Messages
+# ---------------------------------------------------------------------------
+
+def send_group_message(group_id: str, from_id: str, content: str) -> str:
+    conn = get_db()
+    msg_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT INTO group_messages (id, group_id, from_id, content) VALUES (?, ?, ?, ?)",
+        (msg_id, group_id, from_id, content),
+    )
+    conn.commit()
+    return msg_id
+
+
+def get_group_messages(group_id: str, limit: int = 100, before: str = None) -> list[dict]:
+    conn = get_db()
+    if before:
+        rows = conn.execute(
+            """SELECT gm.*, p.name as from_name, p.photo as from_photo
+               FROM group_messages gm
+               LEFT JOIN profiles p ON gm.from_id = p.id
+               WHERE gm.group_id = ? AND gm.created_at < ?
+               ORDER BY gm.created_at DESC LIMIT ?""",
+            (group_id, before, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT gm.*, p.name as from_name, p.photo as from_photo
+               FROM group_messages gm
+               LEFT JOIN profiles p ON gm.from_id = p.id
+               WHERE gm.group_id = ?
+               ORDER BY gm.created_at DESC LIMIT ?""",
+            (group_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Content Filter Log
+# ---------------------------------------------------------------------------
+
+def log_content_filter(content_type: str, content_id: str, profile_id: str,
+                       flagged_text: str, reason: str, filter_type: str,
+                       action: str = "censored") -> str:
+    conn = get_db()
+    log_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        """INSERT INTO content_filter_log
+           (id, content_type, content_id, profile_id, flagged_text, reason, filter_type, action)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (log_id, content_type, content_id, profile_id, flagged_text, reason, filter_type, action),
+    )
+    conn.commit()
+    return log_id
+
+
+def get_content_filter_logs(limit: int = 100) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT cfl.*, p.name as profile_name
+           FROM content_filter_log cfl
+           LEFT JOIN profiles p ON cfl.profile_id = p.id
+           ORDER BY cfl.created_at DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Premium Subscriptions
+# ---------------------------------------------------------------------------
+
+def get_subscription(user_id: str) -> dict:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM premium_subscriptions WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    if row:
+        return dict(row)
+    return {"user_id": user_id, "tier": "free", "started_at": None, "expires_at": None}
+
+
+def update_subscription(user_id: str, tier: str, expires_at: str = None):
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO premium_subscriptions (user_id, tier, expires_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET tier=excluded.tier,
+           expires_at=excluded.expires_at, started_at=CURRENT_TIMESTAMP""",
+        (user_id, tier, expires_at),
+    )
+    conn.commit()
+
+
+def is_premium(user_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT tier, expires_at FROM premium_subscriptions WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    if not row or row["tier"] == "free":
+        return False
+    if row["expires_at"]:
+        from datetime import datetime, timezone
+        try:
+            expires = datetime.fromisoformat(row["expires_at"])
+            if expires < datetime.now(timezone.utc):
+                return False
+        except (ValueError, TypeError):
+            pass
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Analytics Events
+# ---------------------------------------------------------------------------
+
+def log_analytics_event(event_type: str, profile_id: str = None, metadata: str = None):
+    conn = get_db()
+    event_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT INTO analytics_events (id, event_type, profile_id, metadata) VALUES (?, ?, ?, ?)",
+        (event_id, event_type, profile_id, metadata),
+    )
+    conn.commit()
+
+
+def get_analytics_summary(days: int = 30) -> dict:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT event_type, DATE(created_at) as day, COUNT(*) as count
+           FROM analytics_events
+           WHERE created_at >= datetime('now', ? || ' days')
+           GROUP BY event_type, DATE(created_at)
+           ORDER BY day ASC""",
+        (f"-{days}",),
+    ).fetchall()
+    summary = {}
+    daily = {}
+    for r in rows:
+        et = r["event_type"]
+        summary[et] = summary.get(et, 0) + r["count"]
+        day = r["day"]
+        if day not in daily:
+            daily[day] = {}
+        daily[day][et] = r["count"]
+    # Daily active users
+    dau_rows = conn.execute(
+        """SELECT DATE(created_at) as day, COUNT(DISTINCT profile_id) as dau
+           FROM analytics_events
+           WHERE created_at >= datetime('now', ? || ' days') AND profile_id IS NOT NULL
+           GROUP BY DATE(created_at)""",
+        (f"-{days}",),
+    ).fetchall()
+    dau = {r["day"]: r["dau"] for r in dau_rows}
+    return {"totals": summary, "daily": daily, "daily_active_users": dau}
+
+
+def get_engagement_metrics(days: int = 7) -> dict:
+    conn = get_db()
+    # Average messages per active user
+    msg_row = conn.execute(
+        """SELECT COUNT(*) as total_messages, COUNT(DISTINCT from_id) as active_senders
+           FROM messages
+           WHERE created_at >= datetime('now', ? || ' days')""",
+        (f"-{days}",),
+    ).fetchone()
+    total_messages = msg_row["total_messages"] if msg_row else 0
+    active_senders = msg_row["active_senders"] if msg_row else 0
+    avg_messages = round(total_messages / max(active_senders, 1), 2)
+    # Response rate: messages that got a reply
+    reply_row = conn.execute(
+        """SELECT COUNT(DISTINCT m1.id) as sent,
+                  COUNT(DISTINCT m2.id) as replied
+           FROM messages m1
+           LEFT JOIN messages m2 ON m2.from_id = m1.to_id AND m2.to_id = m1.from_id
+                AND m2.created_at > m1.created_at
+           WHERE m1.created_at >= datetime('now', ? || ' days')""",
+        (f"-{days}",),
+    ).fetchone()
+    sent = reply_row["sent"] if reply_row else 0
+    replied = reply_row["replied"] if reply_row else 0
+    response_rate = round(replied / max(sent, 1) * 100, 1)
+    return {
+        "total_messages": total_messages,
+        "active_senders": active_senders,
+        "avg_messages_per_user": avg_messages,
+        "response_rate_pct": response_rate,
+        "period_days": days,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Onboarding
+# ---------------------------------------------------------------------------
+
+def mark_onboarding_completed(user_id: str):
+    conn = get_db()
+    conn.execute("UPDATE users SET onboarding_completed = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+
+
+def has_completed_onboarding(user_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT onboarding_completed FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    return bool(row and row["onboarding_completed"])

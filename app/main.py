@@ -1,5 +1,5 @@
 """
-Kindred v1.4.0 - FastAPI Backend (User Server)
+Kindred v1.5.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -30,8 +30,11 @@ from app.config import (
     CORS_ORIGINS, RATE_LIMIT_DEFAULT, RATE_LIMIT_AUTH,
     PHOTO_REVEAL_THRESHOLD, MAX_UPLOAD_MB,
     BCRYPT_ROUNDS, REFRESH_TOKEN_DAYS,
+    VAPID_PUBLIC_KEY, CONTENT_FILTER_ENABLED,
+    PREMIUM_ENABLED, DAILY_SUGGESTION_COUNT,
 )
 from app.logging_config import setup_logging, get_logger
+from app.content_filter import check_content, filter_message
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
     update_profile_field, send_message, get_conversation, get_conversations_for,
@@ -72,6 +75,15 @@ from app.database import (
     create_email_verification, verify_email_token,
     submit_photo_for_moderation,
     save_questionnaire_progress, get_questionnaire_progress, delete_questionnaire_progress,
+    add_message_reaction, remove_message_reaction, get_message_reactions,
+    save_daily_suggestions, get_daily_suggestions, mark_suggestion_seen,
+    get_profile_viewers, get_who_liked_me,
+    save_totp_secret, get_totp_secret, verify_totp_setup, delete_totp_secret,
+    save_push_subscription, get_push_subscriptions, delete_push_subscription,
+    send_group_message, get_group_messages,
+    log_content_filter,
+    get_subscription, update_subscription, is_premium,
+    log_analytics_event, mark_onboarding_completed, has_completed_onboarding,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -91,7 +103,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="1.4.0")
+app = FastAPI(title="Kindred", version="1.5.0")
 
 # CORS middleware
 app.add_middleware(
@@ -351,6 +363,7 @@ def register(request: Request, body: AuthRegister):
     token = create_token(user_id)
     refresh = _create_refresh_token_for_user(user_id)
     log.info("User registered: %s", body.email)
+    log_analytics_event("signup", user_id)
     return {
         "token": token,
         "refresh_token": refresh,
@@ -370,6 +383,7 @@ def login(request: Request, body: AuthLogin):
     token = create_token(user["id"], bool(user["is_admin"]))
     refresh = _create_refresh_token_for_user(user["id"])
     log.info("User logged in: %s", body.email)
+    log_analytics_event("login", user["id"])
     return {
         "token": token,
         "refresh_token": refresh,
@@ -814,7 +828,17 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     if is_blocked_either(msg.from_id, msg.to_id):
         raise HTTPException(status_code=403, detail="Cannot message this user")
-    msg_id = send_message(msg.from_id, msg.to_id, msg.content.strip())
+    content_text = msg.content.strip()
+    # Content filter
+    filtered_text, was_filtered = filter_message(content_text)
+    if was_filtered:
+        log_content_filter("message", None, msg.from_id, content_text, "profanity", "profanity", "censored")
+        content_text = filtered_text
+    spam_check = check_content(content_text)
+    if not spam_check["clean"] and spam_check.get("type") == "spam":
+        log_content_filter("message", None, msg.from_id, content_text, spam_check["reason"], "spam", "blocked")
+        raise HTTPException(status_code=400, detail="Message flagged as spam")
+    msg_id = send_message(msg.from_id, msg.to_id, content_text)
     # Notify recipient
     sender = get_profile(msg.from_id)
     sender_name = sender["name"] if sender else "Someone"
@@ -826,7 +850,7 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
         create_notification(
             row["id"], "message",
             f"New message from {sender_name}",
-            msg.content.strip()[:100],
+            content_text[:100],
             f"/messages/{msg.from_id}"
         )
     # Real-time push via WebSocket
@@ -834,9 +858,10 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
         "type": "message",
         "from": msg.from_id,
         "from_name": sender_name,
-        "content": msg.content.strip(),
+        "content": content_text,
         "id": msg_id,
     })
+    log_analytics_event("message_sent", msg.from_id)
     return {"id": msg_id, "status": "sent"}
 
 
@@ -1728,6 +1753,247 @@ def kick_member(group_id: str, target_id: str, user: dict = Depends(require_user
 
 
 # ---------------------------------------------------------------------------
+# Message Reactions
+# ---------------------------------------------------------------------------
+
+class ReactionCreate(BaseModel):
+    reaction: str
+
+
+@app.post("/api/messages/{message_id}/reactions")
+def react_to_message(message_id: str, body: ReactionCreate,
+                     user: dict = Depends(require_user)):
+    if body.reaction not in ("❤️", "👍", "😂", "😮", "😢"):
+        raise HTTPException(status_code=400, detail="Invalid reaction")
+    rid = add_message_reaction(message_id, user.get("profile_id", ""), body.reaction)
+    return {"id": rid, "reaction": body.reaction}
+
+
+@app.delete("/api/messages/{message_id}/reactions/{reaction}")
+def unreact_to_message(message_id: str, reaction: str,
+                       user: dict = Depends(require_user)):
+    remove_message_reaction(message_id, user.get("profile_id", ""), reaction)
+    return {"message": "Reaction removed"}
+
+
+@app.get("/api/messages/{message_id}/reactions")
+def list_reactions(message_id: str):
+    return {"reactions": get_message_reactions(message_id)}
+
+
+# ---------------------------------------------------------------------------
+# Daily Suggestions (Top Picks)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/suggestions/daily")
+def daily_suggestions(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        return {"suggestions": []}
+    existing = get_daily_suggestions(profile_id)
+    if existing:
+        return {"suggestions": existing}
+    # Generate fresh suggestions
+    target = get_profile(profile_id)
+    if not target:
+        return {"suggestions": []}
+    all_profiles = get_all_profiles()
+    if len(all_profiles) < 2:
+        return {"suggestions": []}
+    custom_weights = target.get("weight_prefs") or None
+    matches = find_matches(profile_id, all_profiles, DAILY_SUGGESTION_COUNT, custom_weights)
+    suggestions = [{"suggested_id": m["id"], "score": m["compatibility"]["total"]} for m in matches]
+    save_daily_suggestions(profile_id, suggestions)
+    log_analytics_event("daily_suggestions_generated", profile_id)
+    return {"suggestions": get_daily_suggestions(profile_id)}
+
+
+@app.post("/api/suggestions/{suggestion_id}/seen")
+def mark_seen(suggestion_id: str, user: dict = Depends(require_user)):
+    mark_suggestion_seen(suggestion_id)
+    return {"message": "Marked as seen"}
+
+
+# ---------------------------------------------------------------------------
+# Who Viewed Me
+# ---------------------------------------------------------------------------
+
+@app.get("/api/profile/{profile_id}/viewers")
+def profile_viewers(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only view your own viewers")
+    viewers = get_profile_viewers(profile_id)
+    return {"viewers": viewers}
+
+
+# ---------------------------------------------------------------------------
+# Who Liked You
+# ---------------------------------------------------------------------------
+
+@app.get("/api/profile/{profile_id}/liked-by")
+def who_liked_me(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only view your own likes")
+    likers = get_who_liked_me(profile_id)
+    # Premium gate: if not premium, only return count and blurred data
+    if PREMIUM_ENABLED and not is_premium(user["id"]):
+        return {
+            "likers": [{"id": l["id"], "name": "???", "photo": None, "blurred": True} for l in likers],
+            "count": len(likers),
+            "premium_required": True,
+        }
+    return {"likers": likers, "count": len(likers), "premium_required": False}
+
+
+# ---------------------------------------------------------------------------
+# 2FA (TOTP)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/auth/2fa/setup")
+def setup_2fa(user: dict = Depends(require_user)):
+    import base64
+    secret = base64.b32encode(secrets.token_bytes(20)).decode("utf-8").rstrip("=")
+    save_totp_secret(user["id"], secret)
+    # OTP Auth URI for authenticator apps
+    email = user.get("email", "user")
+    otp_uri = f"otpauth://totp/Kindred:{email}?secret={secret}&issuer=Kindred&digits=6&period=30"
+    return {"secret": secret, "otp_uri": otp_uri}
+
+
+@app.post("/api/auth/2fa/verify")
+def verify_2fa_setup(body: dict, user: dict = Depends(require_user)):
+    code = body.get("code", "")
+    totp = get_totp_secret(user["id"])
+    if not totp:
+        raise HTTPException(status_code=400, detail="2FA not set up")
+    # TOTP verification
+    import hmac, struct, time, base64, hashlib as _hashlib
+    secret_bytes = base64.b32decode(totp["secret"] + "=" * (-len(totp["secret"]) % 8))
+    counter = int(time.time()) // 30
+    valid = False
+    for offset in (-1, 0, 1):  # Allow 30s window
+        c = struct.pack(">Q", counter + offset)
+        h = hmac.new(secret_bytes, c, _hashlib.sha1).digest()
+        o = h[-1] & 0x0F
+        otp = str((struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF) % 1000000).zfill(6)
+        if hmac.compare_digest(otp, code):
+            valid = True
+            break
+    if not valid:
+        raise HTTPException(status_code=400, detail="Invalid code")
+    verify_totp_setup(user["id"])
+    return {"message": "2FA enabled successfully"}
+
+
+@app.get("/api/auth/2fa/status")
+def get_2fa_status(user: dict = Depends(require_user)):
+    totp = get_totp_secret(user["id"])
+    return {"enabled": bool(totp and totp.get("verified"))}
+
+
+@app.delete("/api/auth/2fa")
+def disable_2fa(user: dict = Depends(require_user)):
+    delete_totp_secret(user["id"])
+    return {"message": "2FA disabled"}
+
+
+# ---------------------------------------------------------------------------
+# Web Push Notifications
+# ---------------------------------------------------------------------------
+
+@app.get("/api/push/vapid-key")
+def get_vapid_key():
+    return {"publicKey": VAPID_PUBLIC_KEY}
+
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: dict
+
+
+@app.post("/api/push/subscribe")
+def subscribe_push(body: PushSubscription, user: dict = Depends(require_user)):
+    sub_id = save_push_subscription(
+        user["id"], body.endpoint,
+        body.keys.get("p256dh", ""), body.keys.get("auth", "")
+    )
+    return {"id": sub_id, "message": "Subscribed to push notifications"}
+
+
+@app.delete("/api/push/subscribe")
+def unsubscribe_push(body: PushSubscription, user: dict = Depends(require_user)):
+    delete_push_subscription(body.endpoint)
+    return {"message": "Unsubscribed from push notifications"}
+
+
+# ---------------------------------------------------------------------------
+# Group Chat
+# ---------------------------------------------------------------------------
+
+class GroupMessageCreate(BaseModel):
+    content: str
+
+
+@app.post("/api/groups/{group_id}/messages")
+def post_group_message(group_id: str, body: GroupMessageCreate,
+                       user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id or not is_group_member(group_id, profile_id):
+        raise HTTPException(status_code=403, detail="Must be a group member")
+    content, was_filtered = filter_message(body.content.strip())
+    if was_filtered:
+        log_content_filter("group_message", None, profile_id, body.content.strip(), "profanity", "profanity", "censored")
+    spam = check_content(content)
+    if not spam["clean"] and spam.get("type") == "spam":
+        raise HTTPException(status_code=400, detail="Message flagged as spam")
+    msg_id = send_group_message(group_id, profile_id, content)
+    return {"id": msg_id, "content": content}
+
+
+@app.get("/api/groups/{group_id}/messages")
+def list_group_messages(group_id: str, limit: int = 100, before: str = "",
+                        user: dict = Depends(require_user)):
+    msgs = get_group_messages(group_id, limit, before or None)
+    return {"messages": msgs, "has_more": len(msgs) == limit}
+
+
+# ---------------------------------------------------------------------------
+# Premium Subscription
+# ---------------------------------------------------------------------------
+
+@app.get("/api/subscription")
+def get_sub(user: dict = Depends(require_user)):
+    sub = get_subscription(user["id"])
+    return sub
+
+
+@app.post("/api/subscription/upgrade")
+def upgrade_sub(body: dict, user: dict = Depends(require_user)):
+    tier = body.get("tier", "premium")
+    if tier not in ("premium", "plus"):
+        raise HTTPException(status_code=400, detail="Invalid tier")
+    # In production, this would integrate with a payment provider
+    update_subscription(user["id"], tier)
+    log_analytics_event("subscription_upgrade", user["id"], {"tier": tier})
+    return {"message": f"Upgraded to {tier}", "tier": tier}
+
+
+# ---------------------------------------------------------------------------
+# Onboarding
+# ---------------------------------------------------------------------------
+
+@app.post("/api/onboarding/complete")
+def complete_onboarding(user: dict = Depends(require_user)):
+    mark_onboarding_completed(user["id"])
+    return {"message": "Onboarding completed"}
+
+
+@app.get("/api/onboarding/status")
+def onboarding_status(user: dict = Depends(require_user)):
+    return {"completed": has_completed_onboarding(user["id"])}
+
+
+# ---------------------------------------------------------------------------
 # WebSocket Real-time
 # ---------------------------------------------------------------------------
 
@@ -1746,6 +2012,10 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str):
                 to_id = msg.get("to")
                 content = msg.get("content", "").strip()
                 if to_id and content:
+                    content, _ = filter_message(content)
+                    spam = check_content(content)
+                    if not spam["clean"] and spam.get("type") == "spam":
+                        continue
                     msg_id = send_message(profile_id, to_id, content)
                     # Send to recipient in real-time
                     sender = get_profile(profile_id)
@@ -1771,6 +2041,39 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str):
                         "type": "typing",
                         "from": profile_id,
                     })
+
+            elif msg_type == "group_message":
+                group_id = msg.get("group_id")
+                content = msg.get("content", "").strip()
+                if group_id and content and is_group_member(group_id, profile_id):
+                    content, _ = filter_message(content)
+                    gm_id = send_group_message(group_id, profile_id, content)
+                    sender = get_profile(profile_id)
+                    members = get_group_members(group_id)
+                    for member in members:
+                        if member["profile_id"] != profile_id:
+                            await ws_manager.send_to(member["profile_id"], {
+                                "type": "group_message",
+                                "group_id": group_id,
+                                "from": profile_id,
+                                "from_name": sender["name"] if sender else "Unknown",
+                                "content": content,
+                                "id": gm_id,
+                            })
+
+            elif msg_type == "reaction":
+                message_id = msg.get("message_id")
+                reaction = msg.get("reaction")
+                to_id = msg.get("to")
+                if message_id and reaction:
+                    add_message_reaction(message_id, profile_id, reaction)
+                    if to_id:
+                        await ws_manager.send_to(to_id, {
+                            "type": "reaction",
+                            "message_id": message_id,
+                            "from": profile_id,
+                            "reaction": reaction,
+                        })
 
             elif msg_type == "heartbeat":
                 update_last_seen(profile_id)
