@@ -1,5 +1,5 @@
 """
-Kindred v1.3.0 - Admin Server
+Kindred v1.4.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from app.config import (
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
     ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS,
+    BCRYPT_ROUNDS,
 )
 from app.database import (
     init_db, get_profile, get_all_profiles, delete_profile,
@@ -32,10 +33,11 @@ from app.database import (
     get_all_groups, get_group, get_group_members, delete_group,
     get_all_events, get_event, get_event_rsvps, delete_event,
     get_pending_verifications, review_verification,
+    get_pending_photo_moderations, review_photo_moderation,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="1.3.0")
+admin_app = FastAPI(title="Kindred Admin", version="1.4.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -87,7 +89,7 @@ def startup():
     row = conn.execute("SELECT 1 FROM users WHERE is_admin=1").fetchone()
     conn.close()
     if not row:
-        pw_hash = bcrypt.hash(ADMIN_PASSWORD)
+        pw_hash = bcrypt.using(rounds=BCRYPT_ROUNDS).hash(ADMIN_PASSWORD)
         create_user(ADMIN_EMAIL, pw_hash, "Admin", is_admin=True)
 
 
@@ -297,6 +299,26 @@ def reject_verification(verification_id: str):
     if not review_verification(verification_id, approved=False):
         raise HTTPException(status_code=404, detail="Verification not found")
     return {"message": "Verification rejected"}
+
+
+# ─── Photo Moderation (admin review) ───
+@admin_app.get("/api/admin/photo-moderation")
+def list_photo_moderations(admin: dict = Depends(require_admin)):
+    return {"photos": get_pending_photo_moderations()}
+
+
+@admin_app.post("/api/admin/photo-moderation/{mod_id}/approve")
+def approve_photo(mod_id: str, admin: dict = Depends(require_admin)):
+    if not review_photo_moderation(mod_id, approved=True, reviewer_id=admin["id"]):
+        raise HTTPException(status_code=404, detail="Photo moderation entry not found")
+    return {"message": "Photo approved"}
+
+
+@admin_app.post("/api/admin/photo-moderation/{mod_id}/reject")
+def reject_photo(mod_id: str, admin: dict = Depends(require_admin)):
+    if not review_photo_moderation(mod_id, approved=False, reviewer_id=admin["id"]):
+        raise HTTPException(status_code=404, detail="Photo moderation entry not found")
+    return {"message": "Photo rejected"}
 
 
 # ─── Static Files ───

@@ -1,4 +1,4 @@
-# Kindred v1.3.0
+# Kindred v1.4.0
 
 Compatibility-first dating + social platform. Open source, privacy-first.
 
@@ -51,7 +51,7 @@ Copy `.env.example` to `.env` and customize. Key vars:
 - `KINDRED_RATE_LIMIT` / `KINDRED_RATE_LIMIT_AUTH` - Rate limiting
 
 ## Database Tables
-profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions
+profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress
 
 ## Key Features
 - **8-dimension matching**: Personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker
@@ -89,6 +89,8 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - Pillow for auto-thumbnail generation
 
 ## Version History
+
+- **v1.4.0** - Security: refresh token rotation, configurable bcrypt rounds, email verification flow, photo moderation queue. Infrastructure: structured JSON/text logging, new DB tables (refresh_tokens, email_verifications, photo_moderation, questionnaire_progress), schema v3 migration. Backend: questionnaire progress save/restore endpoints, logout/logout-all, refresh token endpoint. Admin: photo moderation review (approve/reject). Frontend: OpenGraph/description meta tags, theme-color, expanded mobile responsive (768px + 400px breakpoints), ARIA roles (banner/main/status+live), keyboard focus-visible outlines, sr-only utility, questionnaire progress persistence (save/load via API), skeleton loading states for Matches/Feed/Discover/Groups/Events
 - **v1.3.0** - Security hardening (env config, auth on all endpoints, rate limiting, CORS, file magic validation), architecture (connection pooling, config module, schema versioning), features (profile blocking, read receipts, notification prefs, password reset/change, profile deactivation, auto-thumbnails, message pagination, group moderation), UX (toast stacking, loading skeletons, optimistic messaging, empty state CTAs), deployment (Docker, .env config)
 - **v1.2.0** - Video intros (upload/view/delete), music preferences (add songs, compute compatibility between pairs), music compatibility on match detail view
 - **v1.1.0** - Compatibility games ("This or That" with paired scoring), selfie verification (upload + admin approve/reject), admin verification review tab

@@ -1,5 +1,5 @@
 """
-Kindred v1.3.0 - Database Layer
+Kindred v1.4.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -395,6 +395,44 @@ def init_db():
             version INTEGER PRIMARY KEY,
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS email_verifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            verified INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS photo_moderation (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            photo_filename TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            reviewed_by TEXT,
+            reviewed_at TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS questionnaire_progress (
+            user_id TEXT PRIMARY KEY,
+            progress_data TEXT NOT NULL,
+            current_index INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -442,6 +480,9 @@ def _migrate(conn):
         "ALTER TABLE messages ADD COLUMN read_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN deactivated INTEGER DEFAULT 0",
         "ALTER TABLE groups ADD COLUMN moderators TEXT DEFAULT '[]'",
+        # v1.4.0
+        "ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0",
     ]
     for sql in migrations:
         try:
@@ -2281,3 +2322,134 @@ def is_group_moderator(group_id: str, profile_id: str) -> bool:
         return True
     mods = json.loads(group["moderators"] or "[]")
     return profile_id in mods
+
+
+# ---------------------------------------------------------------------------
+# Refresh Tokens
+# ---------------------------------------------------------------------------
+
+def create_refresh_token(user_id: str, token_hash: str, expires_at: str) -> str:
+    token_id = str(uuid.uuid4())
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
+        (token_id, user_id, token_hash, expires_at),
+    )
+    conn.commit()
+    return token_id
+
+
+def get_refresh_token(token_hash: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM refresh_tokens WHERE token_hash = ? AND revoked = 0 AND expires_at > datetime('now')",
+        (token_hash,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def revoke_refresh_token(token_hash: str):
+    conn = get_db()
+    conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?", (token_hash,))
+    conn.commit()
+
+
+def revoke_all_user_tokens(user_id: str):
+    conn = get_db()
+    conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Email Verification
+# ---------------------------------------------------------------------------
+
+def create_email_verification(user_id: str, token: str, expires_at: str) -> str:
+    vid = str(uuid.uuid4())
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO email_verifications (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)",
+        (vid, user_id, token, expires_at),
+    )
+    conn.commit()
+    return vid
+
+
+def verify_email_token(token: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM email_verifications WHERE token = ? AND verified = 0 AND expires_at > datetime('now')",
+        (token,),
+    ).fetchone()
+    if row:
+        conn.execute("UPDATE email_verifications SET verified = 1 WHERE id = ?", (row["id"],))
+        conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (row["user_id"],))
+        conn.commit()
+        return dict(row)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Photo Moderation
+# ---------------------------------------------------------------------------
+
+def submit_photo_for_moderation(profile_id: str, filename: str) -> str:
+    mod_id = str(uuid.uuid4())
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO photo_moderation (id, profile_id, photo_filename) VALUES (?, ?, ?)",
+        (mod_id, profile_id, filename),
+    )
+    conn.commit()
+    return mod_id
+
+
+def get_pending_photo_moderations() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT pm.*, p.name as profile_name FROM photo_moderation pm
+           LEFT JOIN profiles p ON pm.profile_id = p.id
+           WHERE pm.status = 'pending' ORDER BY pm.created_at ASC"""
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def review_photo_moderation(mod_id: str, approved: bool, reviewer_id: str = None) -> bool:
+    conn = get_db()
+    status = "approved" if approved else "rejected"
+    cur = conn.execute(
+        "UPDATE photo_moderation SET status = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?",
+        (status, reviewer_id, mod_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Questionnaire Progress
+# ---------------------------------------------------------------------------
+
+def save_questionnaire_progress(user_id: str, progress_data: str, current_index: int):
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO questionnaire_progress (user_id, progress_data, current_index, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(user_id) DO UPDATE SET progress_data=excluded.progress_data,
+           current_index=excluded.current_index, updated_at=datetime('now')""",
+        (user_id, progress_data, current_index),
+    )
+    conn.commit()
+
+
+def get_questionnaire_progress(user_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM questionnaire_progress WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_questionnaire_progress(user_id: str):
+    conn = get_db()
+    conn.execute("DELETE FROM questionnaire_progress WHERE user_id = ?", (user_id,))
+    conn.commit()

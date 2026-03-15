@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v1.3.0 - Find Your Match</title>
+<title>Kindred v1.4.0 - Find Your Match</title>
+<meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
+<meta property="og:title" content="Kindred - Find Your Match">
+<meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/static/logo.svg">
+<meta name="theme-color" content="#1e1e2e">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <script src="https://js.puter.com/v2/"></script>
 <style>
@@ -433,29 +439,62 @@ textarea::placeholder { color:var(--surface2); }
 .theme-ocean { background:linear-gradient(135deg,#1b1b2d,#1e1e3a,#232345) !important; }
 .theme-aurora { background:linear-gradient(135deg,#1a2e2e,#1e3a3a,#0f4545) !important; }
 
-@media(max-width:600px) {
-    .container{padding:12px;}
-    .card{padding:16px;}
+@media(max-width:768px) {
+    .container{padding:12px 8px;}
+    .card{padding:16px 12px;}
     .choice-grid,.multi-grid,.breakdown,.stat-grid{grid-template-columns:1fr;}
     .header{flex-wrap:wrap;gap:8px;padding:10px 12px;}
-    .nav-tabs{width:100%;justify-content:center;}
+    .header h1{font-size:18px;}
+    .nav-tabs{width:100%;justify-content:center;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+    .nav-tabs::-webkit-scrollbar{display:none;}
+    .nav-tab{padding:5px 10px;font-size:12px;white-space:nowrap;flex-shrink:0;}
     .tradeoff-opts{grid-template-columns:1fr;}
     .likert-opts{gap:3px;}
     .likert-opt label{padding:10px 2px;font-size:10px;}
     .ms-profile{grid-template-columns:1fr;}
-    .ms-photo-card img,.ms-photo-placeholder{width:160px;height:160px;}
+    .ms-photo-card img,.ms-photo-placeholder{width:140px;height:140px;}
     .ms-friends-grid{grid-template-columns:repeat(4,1fr);}
     .msg-list{max-height:50vh;}
-    .search-cards{grid-template-columns:1fr;}
-    .photo-gallery-grid{grid-template-columns:repeat(2,1fr);}
-    .group-card,.event-card{padding:16px;}
-    .nav-tab{padding:5px 10px;font-size:12px;}
+    .msg-bubble{max-width:85%;}
+    .search-results{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));}
+    .photo-gallery{grid-template-columns:repeat(2,1fr);}
+    .group-grid,.event-grid{grid-template-columns:1fr;}
+    .match-card{flex-wrap:wrap;gap:10px;}
+    .match-tags{margin-left:0;margin-top:4px;}
+    .q-text{font-size:16px;}
+    .modal{width:95%;padding:20px;}
+    .date-banner{flex-direction:column;gap:8px;text-align:center;}
+    .music-add-form{grid-template-columns:1fr;}
+    .comp-row{flex-direction:column;gap:2px;padding:6px 0;}
+    .comp-row .cm{text-align:left;}
+    .detail-grid{grid-template-columns:1fr;}
+    .search-bar{flex-direction:column;}
+    .search-bar input,.search-bar select{width:100%;}
+    .btn-row{flex-direction:column;}
+    .btn-row .btn{width:100%;text-align:center;}
+    .convo-item{padding:10px 12px;}
+    .game-choices{grid-template-columns:1fr;}
+    .status-header{flex-wrap:wrap;}
+    .ms-actions{flex-direction:row;flex-wrap:wrap;}
+    .ms-actions .btn{width:auto;flex:1;min-width:0;}
 }
+@media(max-width:400px) {
+    .nav-tab{padding:4px 8px;font-size:11px;}
+    .ms-photo-card img,.ms-photo-placeholder{width:120px;height:120px;}
+    .ms-friends-grid{grid-template-columns:repeat(3,1fr);}
+    .match-score{font-size:22px;min-width:50px;}
+    .card{padding:12px 10px;}
+}
+
+/* Accessibility */
+.btn:focus-visible,.nav-tab:focus-visible,.choice-card:focus-visible,.tradeoff-card:focus-visible,.scenario-opt:focus-visible,.multi-opt:focus-visible,.game-choice:focus-visible,.convo-item:focus-visible,.match-card:focus-visible,.group-card:focus-visible,.event-card:focus-visible,.search-card:focus-visible{outline:2px solid var(--mauve);outline-offset:2px;}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+*:focus:not(:focus-visible){outline:none;}
 </style>
 </head>
 <body>
-<div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.2.0</span></div>
+<div class="header" role="banner">
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.4.0</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <div id="notif-bell" style="display:none;position:relative;cursor:pointer" onclick="toggleNotifications()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--subtext0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -465,8 +504,8 @@ textarea::placeholder { color:var(--surface2); }
     </div>
 </div>
 <div id="notif-panel" style="display:none;position:fixed;top:52px;right:16px;width:340px;max-height:400px;overflow-y:auto;background:var(--base);border:1px solid var(--surface0);border-radius:var(--radius);box-shadow:var(--shadow);z-index:200;padding:12px"></div>
-<div class="container" id="app"></div>
-<div class="toast-container" id="toastContainer"></div>
+<div class="container" id="app" role="main"></div>
+<div class="toast-container" id="toastContainer" role="status" aria-live="polite"></div>
 
 <script>
 const API='';
@@ -683,7 +722,7 @@ async function init(){
     }
     renderNav();
     if(activeProfile) showView('myprofile');
-    else if(authToken&&!activeProfile) showView('questionnaire');
+    else if(authToken&&!activeProfile){loadProgress().then(()=>showView('questionnaire'));}
     else showView('welcome');
     if(authToken) pollNotifications();
     if(activeProfile) connectWS();
@@ -892,6 +931,29 @@ function renderQuestion(){
 
 function autoAdvance(){setTimeout(nextQ,250);}
 
+// ─── Questionnaire Progress Persistence ───
+async function saveProgress(){
+    if(!authToken)return;
+    try{
+        await authFetch(API+'/api/questionnaire/progress',{method:'PUT',headers:authHeaders(),body:JSON.stringify({progress:F,index:qi})});
+    }catch(e){}
+}
+async function loadProgress(){
+    if(!authToken)return false;
+    try{
+        const r=await authFetch(API+'/api/questionnaire/progress');
+        if(r.ok){
+            const d=await r.json();
+            if(d.progress){
+                Object.assign(F,d.progress);
+                qi=d.index||0;
+                return true;
+            }
+        }
+    }catch(e){}
+    return false;
+}
+
 function renderQuestionBody(q){
     let h=`<div class="q-text">${q.text}</div>`;
     if(q.hint) h+=`<div class="q-hint">${q.hint}</div>`;
@@ -976,7 +1038,7 @@ function renderReview(){
     return h;
 }
 
-function nextQ(){ if(qi<questions.length-1){ qi++; renderQuestion(); }}
+function nextQ(){ if(qi<questions.length-1){ qi++; saveProgress(); renderQuestion(); }}
 function prevQ(){ if(qi>0){ qi--; renderQuestion(); }}
 function jumpTo(idx){ qi=idx; renderQuestion(); }
 
@@ -1358,7 +1420,7 @@ async function viewAllFriends(pid){
 async function renderMyMatches(){
     if(!activeProfile){showView('welcome');return;}
     const app=document.getElementById('app');
-    app.innerHTML=`<div class="card"><h2>Your Matches</h2><p class="subtitle">People you're most compatible with</p><div id="mres"><div class="loading"><div class="spinner"></div>Finding your matches...</div></div></div>`;
+    app.innerHTML='<div class="card"><div class="skeleton skeleton-line" style="width:40%"></div><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>';
     showMatchesFor(activeProfile);
 }
 
@@ -1873,9 +1935,9 @@ async function renderFeed(){
     app.innerHTML=`<div class="card"><h2>Feed</h2><p class="subtitle">Status updates from you and your friends</p>
         <div style="margin-bottom:16px;display:flex;gap:8px"><input type="text" id="status-input" placeholder="What's on your mind?" style="flex:1" onkeydown="if(event.key==='Enter')postStatus()"><button class="btn btn-primary" onclick="postStatus()" style="padding:8px 20px">Post</button></div>
         <div id="online-bar" style="margin-bottom:12px"></div>
-        <div id="feed-list"><div class="loading"><div class="spinner"></div></div></div>
+        <div id="feed-list"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
     </div>
-    <div class="card" style="animation-delay:.1s"><h2>Activity</h2><p class="subtitle">What your friends have been up to</p><div id="activity-list"><div class="loading"><div class="spinner"></div></div></div></div>`;
+    <div class="card" style="animation-delay:.1s"><h2>Activity</h2><p class="subtitle">What your friends have been up to</p><div id="activity-list"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
     loadOnlineBar();
     loadFeed();
     loadActivityFeed();
@@ -1969,8 +2031,8 @@ async function renderDiscover(){
         </div>
         <div id="search-results"></div>
     </div>
-    <div class="card" style="animation-delay:.1s"><h2>Featured Profiles</h2><p class="subtitle">Popular members in the community</p><div id="explore-featured"><div class="loading"><div class="spinner"></div></div></div></div>
-    <div class="card" style="animation-delay:.15s"><h2>New Members</h2><p class="subtitle">Recently joined</p><div id="explore-recent"><div class="loading"><div class="spinner"></div></div></div></div>`;
+    <div class="card" style="animation-delay:.1s"><h2>Featured Profiles</h2><p class="subtitle">Popular members in the community</p><div id="explore-featured"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>
+    <div class="card" style="animation-delay:.15s"><h2>New Members</h2><p class="subtitle">Recently joined</p><div id="explore-recent"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
     doSearch();
     loadExplore();
 }
@@ -2086,8 +2148,8 @@ async function renderGroups(){
     if(!activeProfile){showView('welcome');return;}
     const app=document.getElementById('app');
     app.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div><h2>Groups</h2><p class="subtitle">Communities of like-minded people</p></div><button class="btn btn-primary" onclick="showCreateGroupForm()" style="padding:8px 16px;font-size:13px">Create Group</button></div><div id="create-group-area"></div>
-    <h3 style="font-size:14px;color:var(--subtext1);margin-bottom:10px">My Groups</h3><div id="my-groups"><div class="loading"><div class="spinner"></div></div></div>
-    <h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">All Groups</h3><div id="all-groups"><div class="loading"><div class="spinner"></div></div></div></div>`;
+    <h3 style="font-size:14px;color:var(--subtext1);margin-bottom:10px">My Groups</h3><div id="my-groups"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
+    <h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">All Groups</h3><div id="all-groups"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
     loadGroups();
 }
 
@@ -2180,8 +2242,8 @@ async function renderEvents(){
     if(!activeProfile){showView('welcome');return;}
     const app=document.getElementById('app');
     app.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div><h2>Events</h2><p class="subtitle">Find and create meetups</p></div><button class="btn btn-primary" onclick="showCreateEventForm()" style="padding:8px 16px;font-size:13px">Create Event</button></div><div id="create-event-area"></div>
-    <h3 style="font-size:14px;color:var(--subtext1);margin-bottom:10px">My Events</h3><div id="my-events"><div class="loading"><div class="spinner"></div></div></div>
-    <h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">Upcoming Events</h3><div id="all-events"><div class="loading"><div class="spinner"></div></div></div></div>`;
+    <h3 style="font-size:14px;color:var(--subtext1);margin-bottom:10px">My Events</h3><div id="my-events"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
+    <h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">Upcoming Events</h3><div id="all-events"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
     loadEvents();
 }
 

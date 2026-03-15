@@ -1,8 +1,10 @@
 """
-Kindred v1.3.0 - FastAPI Backend (User Server)
+Kindred v1.4.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
+import hashlib
+import secrets
 import shutil
 import uuid
 from collections import defaultdict
@@ -10,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -27,7 +29,9 @@ from app.config import (
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
     CORS_ORIGINS, RATE_LIMIT_DEFAULT, RATE_LIMIT_AUTH,
     PHOTO_REVEAL_THRESHOLD, MAX_UPLOAD_MB,
+    BCRYPT_ROUNDS, REFRESH_TOKEN_DAYS,
 )
+from app.logging_config import setup_logging, get_logger
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
     update_profile_field, send_message, get_conversation, get_conversations_for,
@@ -64,6 +68,10 @@ from app.database import (
     get_conversation_paginated, mark_messages_read_with_timestamp,
     deactivate_profile, reactivate_profile,
     add_group_moderator, remove_group_moderator, is_group_moderator,
+    create_refresh_token, get_refresh_token, revoke_refresh_token, revoke_all_user_tokens,
+    create_email_verification, verify_email_token,
+    submit_photo_for_moderation,
+    save_questionnaire_progress, get_questionnaire_progress, delete_questionnaire_progress,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -80,7 +88,10 @@ from app.engine import (
     DEFAULT_WEIGHTS,
 )
 
-app = FastAPI(title="Kindred", version="1.3.0")
+logger = setup_logging()
+log = get_logger("api")
+
+app = FastAPI(title="Kindred", version="1.4.0")
 
 # CORS middleware
 app.add_middleware(
@@ -335,10 +346,17 @@ def register(request: Request, body: AuthRegister):
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     if get_user_by_email(body.email):
         raise HTTPException(status_code=409, detail="Email already registered")
-    pw_hash = bcrypt.hash(body.password)
+    pw_hash = bcrypt.using(rounds=BCRYPT_ROUNDS).hash(body.password)
     user_id = create_user(body.email, pw_hash, body.display_name)
     token = create_token(user_id)
-    return {"token": token, "user_id": user_id, "display_name": body.display_name or body.email.split("@")[0]}
+    refresh = _create_refresh_token_for_user(user_id)
+    log.info("User registered: %s", body.email)
+    return {
+        "token": token,
+        "refresh_token": refresh,
+        "user_id": user_id,
+        "display_name": body.display_name or body.email.split("@")[0],
+    }
 
 
 @app.post("/api/auth/login")
@@ -350,8 +368,11 @@ def login(request: Request, body: AuthLogin):
     if user.get("deactivated"):
         raise HTTPException(status_code=403, detail="Account deactivated")
     token = create_token(user["id"], bool(user["is_admin"]))
+    refresh = _create_refresh_token_for_user(user["id"])
+    log.info("User logged in: %s", body.email)
     return {
         "token": token,
+        "refresh_token": refresh,
         "user_id": user["id"],
         "profile_id": user["profile_id"],
         "display_name": user["display_name"],
@@ -386,7 +407,7 @@ def request_password_reset(request: Request, body: PasswordResetRequest):
 def confirm_password_reset(request: Request, body: PasswordResetConfirm):
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    pw_hash = bcrypt.hash(body.new_password)
+    pw_hash = bcrypt.using(rounds=BCRYPT_ROUNDS).hash(body.new_password)
     if not use_password_reset(body.token, pw_hash):
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
     return {"message": "Password reset successful"}
@@ -401,9 +422,107 @@ def change_password(body: PasswordChange, user: dict = Depends(require_user)):
     from app.database import get_db
     conn = get_db()
     conn.execute("UPDATE users SET password_hash=? WHERE id=?",
-                 (bcrypt.hash(body.new_password), user["id"]))
+                 (bcrypt.using(rounds=BCRYPT_ROUNDS).hash(body.new_password), user["id"]))
     conn.commit()
     return {"message": "Password changed successfully"}
+
+
+# ---------------------------------------------------------------------------
+# Refresh Tokens
+# ---------------------------------------------------------------------------
+
+def _create_refresh_token_for_user(user_id: str) -> str:
+    raw = secrets.token_urlsafe(48)
+    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    expires = (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_DAYS)).isoformat()
+    create_refresh_token(user_id, token_hash, expires)
+    return raw
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+@app.post("/api/auth/refresh")
+@limiter.limit(RATE_LIMIT_AUTH)
+def refresh_access_token(request: Request, body: RefreshTokenRequest):
+    token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
+    stored = get_refresh_token(token_hash)
+    if not stored:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    # Rotate: revoke old, issue new
+    revoke_refresh_token(token_hash)
+    user = get_user_by_id(stored["user_id"])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    token = create_token(user["id"], bool(user["is_admin"]))
+    new_refresh = _create_refresh_token_for_user(user["id"])
+    return {"token": token, "refresh_token": new_refresh}
+
+
+@app.post("/api/auth/logout")
+def logout(body: RefreshTokenRequest, user: dict = Depends(require_user)):
+    token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
+    revoke_refresh_token(token_hash)
+    return {"message": "Logged out"}
+
+
+@app.post("/api/auth/logout-all")
+def logout_all(user: dict = Depends(require_user)):
+    revoke_all_user_tokens(user["id"])
+    return {"message": "All sessions revoked"}
+
+
+# ---------------------------------------------------------------------------
+# Email Verification
+# ---------------------------------------------------------------------------
+
+@app.get("/api/auth/verify-email/{token}")
+def verify_email(token: str):
+    result = verify_email_token(token)
+    if not result:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+    log.info("Email verified for user: %s", result["user_id"])
+    return {"message": "Email verified successfully"}
+
+
+# ---------------------------------------------------------------------------
+# Questionnaire Progress
+# ---------------------------------------------------------------------------
+
+class QuestionnaireProgressUpdate(BaseModel):
+    progress_data: dict
+    current_index: int
+
+
+@app.get("/api/questionnaire/progress")
+def get_progress(user: dict = Depends(require_user)):
+    progress = get_questionnaire_progress(user["id"])
+    if not progress:
+        return {"progress": None}
+    import json as _json
+    return {
+        "progress_data": _json.loads(progress["progress_data"]) if isinstance(progress["progress_data"], str) else progress["progress_data"],
+        "current_index": progress["current_index"],
+    }
+
+
+@app.put("/api/questionnaire/progress")
+def save_progress(body: QuestionnaireProgressUpdate, user: dict = Depends(require_user)):
+    import json as _json
+    save_questionnaire_progress(
+        user["id"],
+        _json.dumps(body.progress_data),
+        body.current_index,
+    )
+    return {"message": "Progress saved"}
+
+
+@app.delete("/api/questionnaire/progress")
+def clear_progress(user: dict = Depends(require_user)):
+    delete_questionnaire_progress(user["id"])
+    return {"message": "Progress cleared"}
+
 
 # ---------------------------------------------------------------------------
 # Notifications
@@ -515,9 +634,10 @@ def create_profile(submission: ProfileSubmission,
     if submission.invite_code:
         use_invite(submission.invite_code, profile_id)
 
-    # Link profile to authenticated user
+    # Link profile to authenticated user and clear questionnaire progress
     if user:
         link_profile_to_user(user["id"], profile_id)
+        delete_questionnaire_progress(user["id"])
 
     return {
         "id": profile_id,
@@ -586,6 +706,7 @@ async def upload_photo(profile_id: str, file: UploadFile = File(...),
 
     _generate_thumbnail(filepath, profile_id)
     update_profile_field(profile_id, "photo", filename)
+    submit_photo_for_moderation(profile_id, filename)
     return {"photo": filename}
 
 
@@ -1144,6 +1265,7 @@ async def upload_gallery_photo(profile_id: str, file: UploadFile = File(...),
     photo_id = add_photo(profile_id, filename, caption, is_primary)
     if is_primary:
         update_profile_field(profile_id, "photo", filename)
+    submit_photo_for_moderation(profile_id, filename)
     return {"id": photo_id, "filename": filename}
 
 

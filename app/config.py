@@ -1,5 +1,5 @@
 """
-Kindred v1.3.0 - Configuration
+Kindred v1.4.0 - Configuration
 Loads settings from environment variables or .env file.
 """
 
@@ -43,5 +43,23 @@ RATE_LIMIT_AUTH = os.getenv("KINDRED_RATE_LIMIT_AUTH", "10/minute")
 # --- Photo reveal ---
 PHOTO_REVEAL_THRESHOLD = float(os.getenv("KINDRED_PHOTO_REVEAL_THRESHOLD", "60.0"))
 
+# --- Logging ---
+LOG_LEVEL = os.getenv("KINDRED_LOG_LEVEL", "INFO")
+LOG_FORMAT = os.getenv("KINDRED_LOG_FORMAT", "json")  # "json" or "text"
+
+# --- Email (stub - configure for production) ---
+SMTP_HOST = os.getenv("KINDRED_SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("KINDRED_SMTP_PORT", "587"))
+SMTP_USER = os.getenv("KINDRED_SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("KINDRED_SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("KINDRED_SMTP_FROM", "noreply@kindred.app")
+
+# --- Security ---
+BCRYPT_ROUNDS = int(os.getenv("KINDRED_BCRYPT_ROUNDS", "12"))
+REFRESH_TOKEN_DAYS = int(os.getenv("KINDRED_REFRESH_TOKEN_DAYS", "30"))
+
+# --- Background tasks ---
+EMBEDDING_WORKERS = int(os.getenv("KINDRED_EMBEDDING_WORKERS", "2"))
+
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
