@@ -1310,7 +1310,7 @@ function connectWS(){
             } else if(msg.type==='notification'){
                 const notif=msg.data;
                 toast(notif.title||notif.body||'New notification','info');
-                if(typeof updateNotificationBadge==='function') updateNotificationBadge();
+                if(typeof updateUnreadBadges==='function') updateUnreadBadges();
                 if(typeof playNotifSound==='function') playNotifSound();
             } else if(msg.type==='video_call'){
                 showIncomingCallModal(msg);
@@ -1474,7 +1474,7 @@ function setAnswer(q,val){
 
 // ─── Init ───
 async function init(){
-    try{ const r=await fetch(API+'/api/questionnaire'); Q=await r.json(); }
+    try{ const r=await authFetch(API+'/api/questionnaire'); Q=await r.json(); }
     catch(e){ document.getElementById('app').innerHTML='<div class="empty"><h3>Cannot connect to server</h3><p>Make sure the backend is running on port 8000</p></div>'; return; }
     questions=buildQuestions(Q);
     // Restore auth session
@@ -1509,8 +1509,10 @@ async function pollNotifications(){
             const bell=document.getElementById('notif-bell');
             const countEl=document.getElementById('notif-count');
             if(bell) bell.style.display='block';
-            if(d.unread>0){ countEl.style.display='block'; countEl.textContent=d.unread; }
-            else { countEl.style.display='none'; }
+            if(countEl){
+                if(d.unread>0){ countEl.style.display='block'; countEl.textContent=d.unread; }
+                else { countEl.style.display='none'; }
+            }
             window._notifData=d.notifications;
         }
     }catch(e){}
@@ -1652,7 +1654,7 @@ async function doLogin(){
     const errEl=document.getElementById('auth-error');
     if(!email||!pass){errEl.textContent='Email and password required';return;}
     try{
-        const r=await fetch(API+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass})});
+        const r=await authFetch(API+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass})});
         const d=await r.json();
         if(!r.ok){errEl.textContent=d.detail||'Login failed';return;}
         authToken=d.token;
@@ -1672,7 +1674,7 @@ async function doRegister(){
     if(!email||!pass){errEl.textContent='Email and password required';return;}
     if(pass.length<6){errEl.textContent='Password must be at least 6 characters';return;}
     try{
-        const r=await fetch(API+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,display_name:name})});
+        const r=await authFetch(API+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,display_name:name})});
         const d=await r.json();
         if(!r.ok){errEl.textContent=d.detail||'Registration failed';return;}
         authToken=d.token;
@@ -1860,7 +1862,7 @@ function resetForm(){
 
 async function uploadPhoto(id,file){
     if(!file)return;const fd=new FormData();fd.append('file',file);
-    const r=await fetch(API+'/api/profile/'+id+'/photo',{method:'POST',body:fd});
+    const r=await authFetch(API+'/api/profile/'+id+'/photo',{method:'POST',body:fd});
     if(r.ok){toast('Photo uploaded','success');viewProfilePage(id,id);}
     else toast('Upload failed','error');
 }
@@ -1872,7 +1874,7 @@ async function viewProfilePage(pid,viewer){
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading profile...</div>';
     const v=viewer||activeProfile||'';
     try{
-        const r=await fetch(API+'/api/profile/'+pid+'/page'+(v?'?viewer='+v:''));
+        const r=await authFetch(API+'/api/profile/'+pid+'/page'+(v?'?viewer='+v:''));
         const p=await r.json();
         const isOwner=v===pid;
 
@@ -1993,7 +1995,7 @@ async function viewProfilePage(pid,viewer){
 
         // Friend Requests (owner only)
         if(isOwner){
-            const reqR=await fetch(API+'/api/profile/'+pid+'/friend-requests');
+            const reqR=await authFetch(API+'/api/profile/'+pid+'/friend-requests');
             const reqD=await reqR.json();
             if(reqD.requests&&reqD.requests.length){
                 right+=`<div class="ms-section"><h2>Friend Requests (${reqD.requests.length})</h2>`;
@@ -2158,7 +2160,7 @@ async function viewProfilePage(pid,viewer){
         // Load like button state
         if(!isOwner&&v){
             try{
-                const lr=await fetch(API+'/api/likes/profile/'+pid+'?viewer='+v);
+                const lr=await authFetch(API+'/api/likes/profile/'+pid+'?viewer='+v);
                 const ld=await lr.json();
                 const likeBtn=document.getElementById('profile-like-btn');
                 if(likeBtn){likeBtn.className=ld.viewer_liked?'like-btn liked':'like-btn';likeBtn.innerHTML=(ld.viewer_liked?'&#9829;':'&#9825;')+' '+ld.count;}
@@ -2184,22 +2186,22 @@ function renderEmbed(url){
 
 // Profile page actions
 async function addFriend(from,to){
-    await fetch(API+'/api/profile/'+from+'/friend/'+to,{method:'POST'});
+    await authFetch(API+'/api/profile/'+from+'/friend/'+to,{method:'POST'});
     toast('Friend request sent!','success');
     viewProfilePage(to,from);
 }
 async function removeFriend(from,to){
-    await fetch(API+'/api/profile/'+from+'/friend/'+to,{method:'DELETE'});
+    await authFetch(API+'/api/profile/'+from+'/friend/'+to,{method:'DELETE'});
     toast('Friend removed','success');
     viewProfilePage(to,from);
 }
 async function acceptFriend(pid,fromId){
-    await fetch(API+'/api/profile/'+pid+'/friend/'+fromId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({accept:true})});
+    await authFetch(API+'/api/profile/'+pid+'/friend/'+fromId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({accept:true})});
     toast('Friend accepted!','success');
     viewProfilePage(pid,pid);
 }
 async function declineFriend(pid,fromId){
-    await fetch(API+'/api/profile/'+pid+'/friend/'+fromId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({accept:false})});
+    await authFetch(API+'/api/profile/'+pid+'/friend/'+fromId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({accept:false})});
     toast('Request declined','success');
     viewProfilePage(pid,pid);
 }
@@ -2208,11 +2210,11 @@ async function postComment(profileId,fromId){
     const inp=document.getElementById('comment-input');
     const txt=inp?.value?.trim();if(!txt)return;
     inp.value='';
-    await fetch(API+'/api/profile/'+profileId+'/comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:fromId,content:txt})});
+    await authFetch(API+'/api/profile/'+profileId+'/comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:fromId,content:txt})});
     viewProfilePage(profileId,fromId);
 }
 async function deleteComment(commentId,profileId){
-    await fetch(API+'/api/comment/'+commentId+'?profile_id='+profileId,{method:'DELETE'});
+    await authFetch(API+'/api/comment/'+commentId+'?profile_id='+profileId,{method:'DELETE'});
     toast('Comment deleted','success');
     viewProfilePage(profileId,activeProfile);
 }
@@ -2225,12 +2227,12 @@ async function submitBlogPost(pid){
     const title=document.getElementById('blog-title')?.value?.trim();
     const content=document.getElementById('blog-content')?.value?.trim();
     if(!title||!content){toast('Title and content required','error');return;}
-    await fetch(API+'/api/profile/'+pid+'/blog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,content})});
+    await authFetch(API+'/api/profile/'+pid+'/blog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,content})});
     toast('Blog post published!','success');
     viewProfilePage(pid,pid);
 }
 async function deleteBlogPost(postId,pid){
-    await fetch(API+'/api/blog/'+postId+'?profile_id='+pid,{method:'DELETE'});
+    await authFetch(API+'/api/blog/'+postId+'?profile_id='+pid,{method:'DELETE'});
     toast('Post deleted','success');
     viewProfilePage(pid,activeProfile);
 }
@@ -2238,7 +2240,7 @@ async function deleteBlogPost(postId,pid){
 function editProfilePage(pid){
     const app=document.getElementById('app');
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading...</div>';
-    fetch(API+'/api/profile/'+pid+'/page?viewer='+pid).then(r=>r.json()).then(p=>{
+    authFetch(API+'/api/profile/'+pid+'/page?viewer='+pid).then(r=>r.json()).then(p=>{
         app.innerHTML=`<div class="card"><h2>Edit Your Profile Page</h2><p class="subtitle">Customize your MySpace-style profile</p>
         <div class="ms-edit-group"><label>Location</label><input type="text" id="ep-location" value="${escHtml(p.location||'')}" placeholder="City, State"></div>
         <div class="ms-edit-group"><label>Headline</label><input type="text" id="ep-headline" value="${escHtml(p.headline||'')}" placeholder="Your witty one-liner..."></div>
@@ -2274,7 +2276,7 @@ async function saveProfilePage(pid){
         music_embeds:musicRaw.split('\n').map(s=>s.trim()).filter(Boolean),
         video_embeds:videoRaw.split('\n').map(s=>s.trim()).filter(Boolean),
     };
-    await fetch(API+'/api/profile/'+pid+'/page',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await authFetch(API+'/api/profile/'+pid+'/page',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     toast('Profile page saved!','success');
     viewProfilePage(pid,pid);
 }
@@ -2282,8 +2284,8 @@ async function saveProfilePage(pid){
 async function viewAllFriends(pid){
     const app=document.getElementById('app');
     app.innerHTML='<div class="loading"><div class="spinner"></div></div>';
-    const r=await fetch(API+'/api/profile/'+pid+'/friends');const d=await r.json();
-    const pr=await(await fetch(API+'/api/profile/'+pid)).json();
+    const r=await authFetch(API+'/api/profile/'+pid+'/friends');const d=await r.json();
+    const pr=await(await authFetch(API+'/api/profile/'+pid)).json();
     let html=`<div class="card"><h2>${escHtml(pr.name)}'s Friends (${d.friends.length})</h2><button class="btn btn-secondary" onclick="viewProfilePage('${pid}')" style="margin-bottom:12px;font-size:12px;padding:6px 12px">Back to Profile</button><div class="ms-friends-grid">`;
     for(const f of d.friends){
         html+=`<div class="ms-friend" onclick="viewProfilePage('${f.friend_id}')">${f.photo?`<img src="/uploads/${f.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${escHtml(f.name)}</div></div>`;
@@ -2321,7 +2323,7 @@ async function showMatchesFor(pid){
     const c=document.getElementById('matches-area')||document.getElementById('mres')||document.getElementById('app');
     c.innerHTML='<div class="loading"><div class="spinner"></div>Computing compatibility...</div>';
     try{
-        const r=await fetch(API+'/api/matches/'+pid);const d=await r.json();
+        const r=await authFetch(API+'/api/matches/'+pid);const d=await r.json();
         if(!d.matches||!d.matches.length){c.innerHTML='<div class="empty"><h3>No compatible matches found</h3><p>No profiles match the seeking criteria, or dealbreaker conflicts exist.</p></div>';return;}
         c.innerHTML=d.matches.map((m,i)=>{
             const s=m.compatibility.total;
@@ -2349,7 +2351,7 @@ async function showDetail(a,b){
     const app=document.getElementById('app');
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading details...</div>';
     try{
-        const [cr,ar,br]=await Promise.all([fetch(API+'/api/compatibility/'+a+'/'+b),fetch(API+'/api/profile/'+a),fetch(API+'/api/profile/'+b)]);
+        const [cr,ar,br]=await Promise.all([authFetch(API+'/api/compatibility/'+a+'/'+b),authFetch(API+'/api/profile/'+a),authFetch(API+'/api/profile/'+b)]);
         const comp=await cr.json(),pa=await ar.json(),pb=await br.json();
         const s=comp.total,sc=comp.dealbreaker_conflict?'score-fail':s>=70?'score-high':s>=45?'score-mid':'score-low';
         const bc=(v)=>v>=70?'var(--green)':v>=45?'var(--yellow)':'var(--peach)';
@@ -2494,13 +2496,13 @@ async function createPlan(a,b){
     const sug=document.getElementById('dp-suggestion')?.value?.trim();
     if(!sug){toast('Add a suggestion','error');return;}
     const time=document.getElementById('dp-time')?.value?.trim()||null;
-    await fetch(API+'/api/date-plans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_a:a,profile_b:b,proposed_by:a,suggestion:sug,proposed_time:time})});
+    await authFetch(API+'/api/date-plans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_a:a,profile_b:b,proposed_by:a,suggestion:sug,proposed_time:time})});
     toast('Date proposed!','success');
     showDetail(a,b);
 }
 
 async function updatePlan(planId,status){
-    await fetch(API+'/api/date-plans/'+planId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+    await authFetch(API+'/api/date-plans/'+planId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     toast('Plan '+status,'success');
 }
 
@@ -2509,7 +2511,7 @@ async function loadCompatGame(a,b){
     const el=document.getElementById('compat-game');
     if(!el)return;
     try{
-        const r=await fetch(API+'/api/games/'+a+'/'+b);const d=await r.json();
+        const r=await authFetch(API+'/api/games/'+a+'/'+b);const d=await r.json();
         const score=d.score||{total:0,matched:0,pct:0};
         let html='';
         if(score.total>0){
@@ -2543,7 +2545,7 @@ async function submitGameAnswer(gameId,profileId,answer,btn){
     btn.classList.add('selected');
     btn.parentElement.querySelectorAll('.game-choice').forEach(c=>{if(c!==btn)c.style.pointerEvents='none';c.style.opacity=c===btn?'1':'0.5';});
     try{
-        const r=await fetch(API+'/api/games/'+gameId+'/answer/'+profileId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answer})});
+        const r=await authFetch(API+'/api/games/'+gameId+'/answer/'+profileId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answer})});
         const d=await r.json();
         if(d.game&&d.game.answer_a&&d.game.answer_b){
             // Both answered - show result
@@ -2566,7 +2568,7 @@ async function submitGameAnswer(gameId,profileId,answer,btn){
 async function showGameHistory(a,b){
     const el=document.getElementById('game-history');
     if(!el)return;
-    const r=await fetch(API+'/api/games/'+a+'/'+b+'/history');const d=await r.json();
+    const r=await authFetch(API+'/api/games/'+a+'/'+b+'/history');const d=await r.json();
     if(!d.history.length){el.innerHTML='<div style="color:var(--overlay0);text-align:center;padding:8px">No history yet</div>';return;}
     el.innerHTML=`<div style="margin-top:12px">${d.history.map(g=>{
         const icon=g.matched?'&#10003;':'&#10007;';
@@ -2578,7 +2580,7 @@ async function showGameHistory(a,b){
 // ─── Selfie Verification ───
 async function loadVerifyStatus(pid){
     try{
-        const r=await fetch(API+'/api/verify/status/'+pid);const d=await r.json();
+        const r=await authFetch(API+'/api/verify/status/'+pid);const d=await r.json();
         const el=document.getElementById('verify-status');
         if(!el)return;
         if(d.status==='approved') el.innerHTML='<span class="verify-badge verify-approved">&#10003; Verified</span>';
@@ -2591,7 +2593,7 @@ async function submitSelfie(pid,file){
     if(!file)return;
     const fd=new FormData();fd.append('file',file);
     try{
-        const r=await fetch(API+'/api/verify/selfie/'+pid,{method:'POST',body:fd});
+        const r=await authFetch(API+'/api/verify/selfie/'+pid,{method:'POST',body:fd});
         if(r.ok){toast('Selfie submitted for verification!','success');loadVerifyStatus(pid);}
         else toast('Upload failed','error');
     }catch(e){toast('Upload error','error');}
@@ -2602,7 +2604,7 @@ async function loadVideoIntro(pid,isOwner){
     const el=document.getElementById('video-intro-container');
     if(!el)return;
     try{
-        const r=await fetch(API+'/api/video-intro/'+pid);const d=await r.json();
+        const r=await authFetch(API+'/api/video-intro/'+pid);const d=await r.json();
         if(d.intro){
             el.innerHTML=`<div class="video-intro-container"><video controls preload="metadata" playsinline><source src="/uploads/${d.intro.filename}" type="video/mp4"></video>${isOwner?`<button class="btn-sm btn-delete" style="position:absolute;top:8px;right:8px" onclick="deleteVideoIntro('${pid}')">Remove</button>`:''}</div>`;
         } else {
@@ -2616,14 +2618,14 @@ async function uploadVideoIntro(pid,file){
     const fd=new FormData();fd.append('file',file);
     toast('Uploading video...','');
     try{
-        const r=await fetch(API+'/api/video-intro/'+pid,{method:'POST',body:fd});
+        const r=await authFetch(API+'/api/video-intro/'+pid,{method:'POST',body:fd});
         if(r.ok){toast('Video intro uploaded!','success');loadVideoIntro(pid,true);}
         else{const d=await r.json();toast(d.detail||'Upload failed','error');}
     }catch(e){toast('Upload error','error');}
 }
 
 async function deleteVideoIntro(pid){
-    await fetch(API+'/api/video-intro/'+pid,{method:'DELETE'});
+    await authFetch(API+'/api/video-intro/'+pid,{method:'DELETE'});
     toast('Video removed','success');
     loadVideoIntro(pid,true);
 }
@@ -2633,7 +2635,7 @@ async function loadMusicPrefs(pid,isOwner){
     const el=document.getElementById('music-list');
     if(!el)return;
     try{
-        const r=await fetch(API+'/api/music/'+pid);const d=await r.json();
+        const r=await authFetch(API+'/api/music/'+pid);const d=await r.json();
         if(!d.music.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">'+(isOwner?'Add your favorite songs!':'No music added yet')+'</div>';return;}
         el.innerHTML=`<div class="music-list">${d.music.map(m=>`<div class="music-item"><span class="music-note">&#9835;</span><div class="music-info"><div class="title">${escHtml(m.song_title)}</div><div class="artist">${escHtml(m.artist)}</div></div>${m.genre?`<span class="music-genre-tag">${escHtml(m.genre)}</span>`:''}${m.spotify_url?`<a href="${m.spotify_url}" target="_blank" style="color:var(--green);font-size:12px">Spotify</a>`:''}${isOwner?`<button class="btn-sm btn-delete" onclick="removeMusicPref('${m.id}','${pid}')">x</button>`:''}</div>`).join('')}</div>`;
     }catch(e){el.innerHTML='';}
@@ -2644,7 +2646,7 @@ async function addMusicPref(pid){
     const artist=document.getElementById('ma-artist')?.value?.trim();
     const genre=document.getElementById('ma-genre')?.value?.trim()||'';
     if(!song||!artist){toast('Song title and artist required','error');return;}
-    await fetch(API+'/api/music/'+pid,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({song_title:song,artist,genre})});
+    await authFetch(API+'/api/music/'+pid,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({song_title:song,artist,genre})});
     document.getElementById('ma-song').value='';document.getElementById('ma-artist').value='';document.getElementById('ma-genre').value='';
     toast('Song added!','success');
     loadMusicPrefs(pid,true);
@@ -2654,7 +2656,7 @@ async function loadMusicCompat(a,b){
     const el=document.getElementById('music-compat');
     if(!el)return;
     try{
-        const r=await fetch(API+'/api/music-compat/'+a+'/'+b);const d=await r.json();
+        const r=await authFetch(API+'/api/music-compat/'+a+'/'+b);const d=await r.json();
         if(!d.a_count&&!d.b_count){el.innerHTML='<div style="color:var(--overlay0);text-align:center;padding:12px">Neither of you have added music yet! Add songs to your profile to see your music compatibility.</div>';return;}
         if(!d.a_count||!d.b_count){el.innerHTML='<div style="color:var(--overlay0);text-align:center;padding:12px">One of you hasn\'t added music yet. Both need songs to calculate compatibility.</div>';return;}
         const scoreColor=d.score>=60?'var(--green)':d.score>=30?'var(--yellow)':'var(--peach)';
@@ -2666,7 +2668,7 @@ async function loadMusicCompat(a,b){
 }
 
 async function removeMusicPref(prefId,pid){
-    await fetch(API+'/api/music/'+prefId+'/'+pid,{method:'DELETE'});
+    await authFetch(API+'/api/music/'+prefId+'/'+pid,{method:'DELETE'});
     toast('Removed','success');
     loadMusicPrefs(pid,true);
 }
@@ -2730,7 +2732,7 @@ function showReportModal(reportedId, reportedName){
 
 // ─── Behavioral Events ───
 function logEvent(profileId,eventType,targetId){
-    fetch(API+'/api/behavioral',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:profileId,event_type:eventType,target_id:targetId})}).catch(()=>{});
+    authFetch(API+'/api/behavioral',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:profileId,event_type:eventType,target_id:targetId})}).catch(()=>{});
 }
 
 // ─── Radar Chart ───
@@ -2898,7 +2900,7 @@ function renderMsgStatus(msg, isSender) {
     if (msg.deleted) return '';
     let icon = '&#9675;'; // sent
     let cls = '';
-    if (msg.read_at || msg.read) { icon = msg.read_at ? '&#10003;&#10003;' : '&#10003;&#10003;'; cls = 'read'; }
+    if (msg.read_at || msg.read) { icon = msg.read_at ? '&#10003;&#10003;' : '&#10003;'; cls = 'read'; }
     else if (msg.delivered) { icon = '&#10003;'; cls = 'delivered'; }
     return `<span class="msg-status ${cls}">${icon}</span>`;
 }
@@ -3266,11 +3268,11 @@ async function renderFeed(){
 async function loadFeed(){
     const el=document.getElementById('feed-list');if(!el)return;
     try{
-        const r=await fetch(API+'/api/feed/status?profile_id='+activeProfile);const d=await r.json();
+        const r=await authFetch(API+'/api/feed/status?profile_id='+activeProfile);const d=await r.json();
         if(!d.feed.length){showEmpty(el,'&#128227;','No updates yet','Post a status or add friends to see their updates!','Explore Profiles',"showView('discover')");return;}
         let html='';
         for(const s of d.feed){
-            const likeR=await fetch(API+'/api/likes/status/'+s.id+'?viewer='+activeProfile);
+            const likeR=await authFetch(API+'/api/likes/status/'+s.id+'?viewer='+activeProfile);
             const likeD=await likeR.json();
             html+=`<div class="status-card" style="animation-delay:${d.feed.indexOf(s)*.04}s">
                 <div class="status-header">
@@ -3293,7 +3295,7 @@ async function loadFeed(){
 async function loadOnlineBar(){
     const el=document.getElementById('online-bar');if(!el)return;
     try{
-        const r=await fetch(API+'/api/online/'+activeProfile);const d=await r.json();
+        const r=await authFetch(API+'/api/online/'+activeProfile);const d=await r.json();
         if(d.online.length){
             el.innerHTML=`<div style="font-size:12px;color:var(--overlay0);margin-bottom:6px">Online now</div><div style="display:flex;gap:8px;flex-wrap:wrap">${d.online.map(f=>`<div style="display:flex;align-items:center;gap:4px;background:var(--surface0);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:12px" onclick="viewProfilePage('${f.id}')"><span class="online-dot"></span>${escHtml(f.name)}</div>`).join('')}</div>`;
         } else { el.innerHTML=''; }
@@ -3304,22 +3306,22 @@ async function postStatus(){
     const inp=document.getElementById('status-input');
     const txt=inp?.value?.trim();if(!txt)return;
     inp.value='';
-    await fetch(API+'/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:activeProfile,content:txt})});
+    await authFetch(API+'/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:activeProfile,content:txt})});
     loadFeed();
 }
 
 async function deleteStatus(id){
-    await fetch(API+'/api/status/'+id+'?profile_id='+activeProfile,{method:'DELETE'});
+    await authFetch(API+'/api/status/'+id+'?profile_id='+activeProfile,{method:'DELETE'});
     loadFeed();
 }
 
 async function toggleStatusLike(targetId,el){
-    await fetch(API+'/api/likes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:activeProfile,target_type:'status',target_id:targetId})});
+    await authFetch(API+'/api/likes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:activeProfile,target_type:'status',target_id:targetId})});
     loadFeed();
 }
 
 async function toggleProfileLike(targetId,el){
-    const r=await fetch(API+'/api/likes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:activeProfile,target_type:'profile',target_id:targetId})});
+    const r=await authFetch(API+'/api/likes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:activeProfile,target_type:'profile',target_id:targetId})});
     const d=await r.json();
     if(el){
         el.className=d.liked?'like-btn liked':'like-btn';
@@ -3368,7 +3370,7 @@ async function doSearch(){
     const amax=document.getElementById('s-age-max')?.value;if(amax)params.set('age_max',amax);
     const loc=document.getElementById('s-location')?.value?.trim();if(loc)params.set('location',loc);
     try{
-        const r=await fetch(API+'/api/search?'+params.toString());const d=await r.json();
+        const r=await authFetch(API+'/api/search?'+params.toString());const d=await r.json();
         if(!d.results.length){el.innerHTML='<div class="empty" style="padding:24px"><h3>No results found</h3><p>Try broadening your search criteria</p></div>';return;}
         el.innerHTML='<div class="search-results">'+d.results.filter(p=>p.id!==activeProfile).map((p,i)=>`<div class="search-card" style="animation-delay:${i*.04}s" onclick="viewProfilePage('${p.id}')">
             <button class="super-like-btn" onclick="event.stopPropagation();superLike('${p.id}',this)" title="Super Like">&#11088;</button>
@@ -3398,7 +3400,7 @@ async function doSearch(){
 async function loadPhotoGallery(profileId,isOwner){
     const el=document.getElementById('photo-gallery');if(!el)return;
     try{
-        const r=await fetch(API+'/api/profile/'+profileId+'/photos');const d=await r.json();
+        const r=await authFetch(API+'/api/profile/'+profileId+'/photos');const d=await r.json();
         if(!d.photos.length){el.innerHTML=isOwner?'<div style="color:var(--overlay0);font-size:13px">No photos yet. Upload some!</div>':'<div style="color:var(--overlay0);font-size:13px">No photos yet.</div>';return;}
         el.innerHTML='<div class="photo-gallery">'+d.photos.map(p=>`<div class="photo-gallery-item" onclick="openLightbox('/uploads/${p.filename}')">
             <img src="/uploads/${p.filename}" alt="${escHtml(p.caption||'')}">
@@ -3412,14 +3414,14 @@ async function uploadGalleryPhoto(profileId,files){
     if(!files||!files.length)return;
     for(const file of files){
         const fd=new FormData();fd.append('file',file);
-        await fetch(API+'/api/profile/'+profileId+'/photos',{method:'POST',body:fd});
+        await authFetch(API+'/api/profile/'+profileId+'/photos',{method:'POST',body:fd});
     }
     toast('Photos uploaded!','success');
     viewProfilePage(profileId,profileId);
 }
 
 async function deleteGalleryPhoto(photoId,profileId){
-    await fetch(API+'/api/photo/'+photoId+'?profile_id='+profileId,{method:'DELETE'});
+    await authFetch(API+'/api/photo/'+photoId+'?profile_id='+profileId,{method:'DELETE'});
     toast('Photo deleted','success');
     loadPhotoGallery(profileId,true);
 }
@@ -3443,7 +3445,7 @@ function closeLightbox(){
 // ─── Explore ───
 async function loadExplore(){
     try{
-        const r=await fetch(API+'/api/explore');const d=await r.json();
+        const r=await authFetch(API+'/api/explore');const d=await r.json();
         const fel=document.getElementById('explore-featured');
         const rel=document.getElementById('explore-recent');
         if(fel&&d.featured.length){
@@ -3468,7 +3470,7 @@ async function loadExplore(){
 async function loadActivityFeed(){
     const el=document.getElementById('activity-list');if(!el)return;
     try{
-        const r=await fetch(API+'/api/activity/'+activeProfile);const d=await r.json();
+        const r=await authFetch(API+'/api/activity/'+activeProfile);const d=await r.json();
         if(!d.activity.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:12px">No recent activity</div>';return;}
         el.innerHTML=d.activity.map(a=>{
             const actionText={
@@ -3497,7 +3499,7 @@ async function renderGroups(){
 
 async function loadGroups(){
     try{
-        const [mr,ar]=await Promise.all([authFetch(API+'/api/groups/mine'),fetch(API+'/api/groups')]);
+        const [mr,ar]=await Promise.all([authFetch(API+'/api/groups/mine'),authFetch(API+'/api/groups')]);
         const myD=await mr.json(),allD=await ar.json();
         const myEl=document.getElementById('my-groups');
         const allEl=document.getElementById('all-groups');
@@ -3535,7 +3537,7 @@ async function viewGroup(gid){
     const app=document.getElementById('app');
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading group...</div>';
     try{
-        const r=await fetch(API+'/api/groups/'+gid+'?viewer='+activeProfile);const g=await r.json();
+        const r=await authFetch(API+'/api/groups/'+gid+'?viewer='+activeProfile);const g=await r.json();
         let html=`<div class="card"><button class="btn btn-secondary" onclick="renderGroups()" style="margin-bottom:12px;font-size:12px;padding:6px 12px">Back to Groups</button>
         <h2>${escHtml(g.name)}</h2><p class="subtitle">${escHtml(g.description||'')}</p>
         <div style="margin-bottom:12px;font-size:12px;color:var(--overlay0)">${g.member_count} members &bull; ${g.privacy}</div>`;
@@ -3610,7 +3612,7 @@ async function renderEvents(){
 
 async function loadEvents(){
     try{
-        const [mr,ar]=await Promise.all([authFetch(API+'/api/events/mine'),fetch(API+'/api/events')]);
+        const [mr,ar]=await Promise.all([authFetch(API+'/api/events/mine'),authFetch(API+'/api/events')]);
         const myD=await mr.json(),allD=await ar.json();
         const myEl=document.getElementById('my-events');
         const allEl=document.getElementById('all-events');
@@ -3658,7 +3660,7 @@ async function viewEvent(eid){
     const app=document.getElementById('app');
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading event...</div>';
     try{
-        const r=await fetch(API+'/api/events/'+eid);const e=await r.json();
+        const r=await authFetch(API+'/api/events/'+eid);const e=await r.json();
         let html=`<div class="card"><button class="btn btn-secondary" onclick="renderEvents()" style="margin-bottom:12px;font-size:12px;padding:6px 12px">Back to Events</button>
         <h2>${escHtml(e.title)}</h2>
         ${e.event_date?`<div style="font-size:14px;color:var(--sapphire);font-weight:600;margin-bottom:4px">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}
@@ -3694,7 +3696,7 @@ async function rsvpAction(eid,status){
 }
 
 // ─── Heartbeat ───
-window._heartbeatInterval=setInterval(()=>{if(activeProfile)fetch(API+'/api/heartbeat/'+activeProfile,{method:'POST'}).catch(()=>{});},60000);
+window._heartbeatInterval=setInterval(()=>{if(activeProfile)authFetch(API+'/api/heartbeat/'+activeProfile,{method:'POST'}).catch(()=>{});},60000);
 
 // ─── Toast ───
 function toast(m,t=''){const c=document.getElementById('toastContainer');while(c.children.length>=5)c.removeChild(c.firstChild);const e=document.createElement('div');e.className='toast '+t;e.textContent=m;c.appendChild(e);requestAnimationFrame(()=>e.classList.add('show'));setTimeout(()=>{e.classList.remove('show');setTimeout(()=>e.remove(),300);},3500);announceToScreenReader(m);}
@@ -3905,7 +3907,7 @@ async function renderEventsCalendar(){
     const app=document.getElementById('app');
     app.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div><h2>Events Calendar</h2><p class="subtitle">View events by date</p></div><div class="view-toggle"><button class="active" onclick="renderEventsCalendar()">Calendar</button><button onclick="showView('events')">List</button></div></div><div id="cal-area"><div class="loading"><div class="spinner"></div></div></div><div id="cal-day-events"></div></div>`;
     try{
-        const r=await fetch(API+'/api/events');const d=await r.json();
+        const r=await authFetch(API+'/api/events');const d=await r.json();
         buildCalendar(d.events||[]);
     }catch(e){document.getElementById('cal-area').innerHTML='<div class="empty"><h3>Could not load events</h3></div>';}
 }
@@ -4965,7 +4967,7 @@ function connectWSEnhanced(){
             } else if(msg.type==='notification'){
                 const notif=msg.data;
                 toast(notif.title||notif.body||'New notification','info');
-                if(typeof updateNotificationBadge==='function') updateNotificationBadge();
+                if(typeof updateUnreadBadges==='function') updateUnreadBadges();
                 if(typeof playNotifSound==='function') playNotifSound();
             } else if(msg.type==='video_call'){
                 showIncomingCallModal(msg);
@@ -6183,7 +6185,7 @@ if(_savedLocale&&_savedLocale!=='en')loadTranslations(_savedLocale);
             if(delta>0){
                 // Swipe right = like
                 card.classList.add('swipe-dismiss-right');
-                if(profileId)setTimeout(()=>superLike(profileId),150);
+                if(profileId)setTimeout(()=>toggleProfileLike(profileId,null),150);
             } else {
                 // Swipe left = pass
                 card.classList.add('swipe-dismiss-left');
@@ -6221,7 +6223,7 @@ async function loadActivityFeed(){
         _feedLoading=true;
         sentinel.innerHTML='<div class="feed-load-spinner"></div>';
         try{
-            const r=await fetch(API+'/api/feed?offset='+_feedOffset+'&limit=20');
+            const r=await authFetch(API+'/api/feed?offset='+_feedOffset+'&limit=20');
             const d=await r.json();
             const items=d.activity||d.feed||[];
             if(items.length<20)_feedDone=true;
@@ -6543,7 +6545,7 @@ function renderGroupPostReactions(post,gid){
     }
     for(const key of Object.keys(grouped)){
         const g=grouped[key];
-        html+='<button class="gp-reaction'+(g.active?' active':'')+'" onclick="toggleGroupReaction(\''+gid+'\',\''+post.id+'\',\''+escHtml(g.emoji)+'\')">'+g.emoji+' <span>'+g.count+'</span></button>';
+        html+='<button class="gp-reaction'+(g.active?' active':'')+'" onclick="toggleGroupReaction(\''+gid+'\',\''+post.id+'\',\''+g.emoji+'\')">'+g.emoji+' <span>'+g.count+'</span></button>';
     }
     // Add reaction button with emoji picker
     html+='<button class="gp-react-add" onclick="showGpReactPicker(this,\''+gid+'\',\''+post.id+'\')">+</button>';
@@ -6977,7 +6979,7 @@ function showVideoCallModal(roomUrl, matchName, callId){
         <p style="color:var(--subtext1);font-size:14px;margin-bottom:20px;line-height:1.5">Your video call with <strong>${escHtml(matchName)}</strong> is ready.<br>It will open in a new tab via Jitsi Meet.</p>
         <div style="background:var(--mantle);border-radius:8px;padding:8px 12px;margin-bottom:16px;font-size:12px;color:var(--overlay0);word-break:break-all">${escHtml(roomUrl||'No room URL provided')}</div>
         <div style="display:flex;gap:8px;justify-content:center">
-            <button class="btn btn-primary" onclick="${roomUrl?`window.open('${escHtml(roomUrl)}','_blank');`:''}this.closest('.modal-overlay').remove()">Open Call</button>
+            <button class="btn btn-primary" onclick="${roomUrl?`window.open('${roomUrl.replace(/'/g,"\\'")}','_blank');`:''}this.closest('.modal-overlay').remove()">Open Call</button>
             <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
         </div>
     </div>`;
@@ -7085,7 +7087,7 @@ async function loadAISuggestions(meId, partnerId){
     // Try Puter.js if server gave nothing
     if(!suggestions.length&&typeof puter!=='undefined'){
         try{
-            const resp=await puter.ai.txt2txt('Generate 3 short, friendly conversation starter questions for a dating app. Return only a JSON array of strings, no explanations.',{model:'gpt-4o-mini'});
+            const resp=await puter.ai.chat('Generate 3 short, friendly conversation starter questions for a dating app. Return only a JSON array of strings, no explanations.',{model:'gpt-4o-mini'});
             const parsed=JSON.parse(resp.replace(/```json|```/g,'').trim());
             if(Array.isArray(parsed)) suggestions=parsed.slice(0,3);
         }catch(e){}
@@ -7095,7 +7097,7 @@ async function loadAISuggestions(meId, partnerId){
         const shuffled=[..._AI_SUGGEST_TEMPLATES].sort(()=>Math.random()-.5);
         suggestions=shuffled.slice(0,3);
     }
-    area.innerHTML=`<div class="suggestion-chips">${suggestions.map((s,i)=>`<span class="suggestion-chip" data-suggest-id="${i}" onclick="applySuggestion('${escHtml(s.replace(/'/g,"\\'"))}','${partnerId}')">${escHtml(s)}</span>`).join('')}</div>`;
+    area.innerHTML=`<div class="suggestion-chips">${suggestions.map((s,i)=>`<span class="suggestion-chip" data-suggest-id="${i}" onclick="applySuggestion('${(s.suggestion_text||s).replace(/'/g,"\\'")}','${partnerId}')">${escHtml(s.suggestion_text||s)}</span>`).join('')}</div>`;
 }
 
 async function applySuggestion(text, partnerId){

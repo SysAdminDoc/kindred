@@ -15,6 +15,7 @@
     --green: #a6e3a1; --peach: #fab387; --red: #f38ba8;
     --mauve: #cba6f7; --pink: #f5c2e7; --yellow: #f9e2af;
     --rosewater: #f5e0dc; --flamingo: #f2cdcd; --teal: #94e2d5;
+    --accent: #f38ba8;
     --radius: 12px; --shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -562,8 +563,8 @@ async function renderProfiles(){
         html+=ps.map(p=>{
             const badges=[];
             if(p.verified) badges.push('<span class="badge-verified">Verified</span>');
-            if(p.dating_energy) badges.push(`<span class="badge-energy">${p.dating_energy}</span>`);
-            if(p.relationship_intent) badges.push(`<span class="badge-intent">${p.relationship_intent}</span>`);
+            if(p.dating_energy) badges.push(`<span class="badge-energy">${escHtml(p.dating_energy)}</span>`);
+            if(p.relationship_intent) badges.push(`<span class="badge-intent">${escHtml(p.relationship_intent)}</span>`);
             return `<div class="profile-item">
                 <div style="display:flex;align-items:center;gap:10px">
                     <input type="checkbox" data-pid="${p.id}" onchange="toggleBulkSelect('${p.id}',this.checked)" style="accent-color:var(--red);width:16px;height:16px;cursor:pointer;flex-shrink:0">
@@ -653,7 +654,7 @@ async function viewProfile(id){
         // Friends
         html+=`<div class="section-head">Friends (${fr.friends?.length||0})</div>`;
         if(fr.friends&&fr.friends.length){
-            html+=fr.friends.map(f=>`<span style="display:inline-block;background:var(--mantle);padding:4px 10px;border-radius:6px;font-size:12px;margin:2px">${f.name}</span>`).join('');
+            html+=fr.friends.map(f=>`<span style="display:inline-block;background:var(--mantle);padding:4px 10px;border-radius:6px;font-size:12px;margin:2px">${escHtml(f.name)}</span>`).join('');
         } else { html+=`<span style="color:var(--overlay0);font-size:13px">No friends</span>`; }
 
         // Blog posts
@@ -2304,7 +2305,7 @@ async function loadRequestStats() {
             <div style="font-size:.75rem;color:var(--subtext0)">Errors</div>
         </div>
         <div style="background:var(--surface0);border-radius:10px;padding:12px;text-align:center">
-            <div style="font-size:1.4rem;font-weight:700;color:var(--teal)">${stats.avg_duration_ms.toFixed(0)}ms</div>
+            <div style="font-size:1.4rem;font-weight:700;color:var(--teal)">${(stats.avg_duration_ms ?? 0).toFixed(0)}ms</div>
             <div style="font-size:.75rem;color:var(--subtext0)">Avg Response</div>
         </div>
     </div>`;
@@ -2478,7 +2479,7 @@ async function revokeApiKey(keyId){
 // ─── v2.5.0: AI Suggestion Stats ───
 async function loadAISuggestionStats(){
     try{
-        const r=await adminFetch(API+'/api/admin/suggestion-stats');
+        const r=await adminFetch(API+'/api/admin/ai-suggestion-stats');
         const d=await r.json();
         const total=d.total||0,used=d.used||0;
         const rate=total>0?((used/total)*100).toFixed(1)+'%':'0%';
@@ -2496,7 +2497,7 @@ async function loadAISuggestionStats(){
 // ─── v2.5.0: Active Boosts Admin ───
 async function loadActiveBoostsAdmin(){
     try{
-        const r=await adminFetch(API+'/api/admin/boosts/active');
+        const r=await adminFetch(API+'/api/admin/active-boosts');
         const d=await r.json();
         const boosts=d.boosts||[];
         const countEl=document.getElementById('boost-stat-count');
@@ -2526,7 +2527,7 @@ async function loadActiveBoostsAdmin(){
 
 async function deactivateExpiredBoosts(){
     try{
-        const r=await adminFetch(API+'/api/admin/boosts/deactivate-expired',{method:'POST'});
+        const r=await adminFetch(API+'/api/admin/deactivate-expired-boosts',{method:'POST'});
         const d=await r.json();
         toast(`Deactivated ${d.deactivated||0} expired boost(s)`,'success');
         loadActiveBoostsAdmin();
@@ -2534,7 +2535,7 @@ async function deactivateExpiredBoosts(){
 }
 
 // ─── Utils ───
-function escHtml(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function escHtml(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML.replace(/'/g,'&#39;');}
 function toast(m,t=''){const e=document.getElementById('toast');e.textContent=m;e.className='toast show '+t;setTimeout(()=>e.className='toast',3500);}
 function showToast(m,t=''){toast(m,t);}
 

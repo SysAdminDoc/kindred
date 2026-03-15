@@ -1,5 +1,5 @@
 """
-Kindred v2.5.0 - Database Layer
+Kindred v2.5.1 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -1202,12 +1202,12 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v2.5.0
+        # v2.5.1
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
         # Phase 3
         "ALTER TABLE notification_preferences ADD COLUMN read_receipts_enabled INTEGER DEFAULT 1",
-        # v2.5.0
+        # v2.5.1
         "ALTER TABLE safety_reports ADD COLUMN status TEXT DEFAULT 'open'",
         "ALTER TABLE safety_reports ADD COLUMN reason_category TEXT",
         "ALTER TABLE safety_reports ADD COLUMN reviewed_by TEXT",
@@ -1217,7 +1217,7 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN avg_reply_minutes REAL",
         "ALTER TABLE profiles ADD COLUMN last_message_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN suspended INTEGER DEFAULT 0",
-        # v2.5.0
+        # v2.5.1
         "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN edit_grace_until TIMESTAMP",
@@ -1226,7 +1226,7 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN profile_completeness INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN last_email_digest TIMESTAMP",
         "ALTER TABLE users ADD COLUMN email_digest_enabled INTEGER DEFAULT 1",
-        # v2.5.0
+        # v2.5.1
         "ALTER TABLE users ADD COLUMN shadow_banned INTEGER DEFAULT 0",
         "ALTER TABLE profiles ADD COLUMN ip_fingerprint TEXT",
     ]
@@ -2624,7 +2624,7 @@ def get_or_create_game(profile_a: str, profile_b: str) -> dict:
            AND ((profile_a=? AND answer_a IS NULL) OR (profile_b=? AND answer_b IS NULL))
            ORDER BY created_at LIMIT 1""",
         (profile_a, profile_b, profile_b, profile_a,
-         profile_a, profile_a)
+         profile_a, profile_b)
     ).fetchone()
 
     if pending:
@@ -4184,6 +4184,17 @@ def delete_account(user_id: str) -> bool:
                 ("passed_profiles", "profile_id"), ("passed_profiles", "passed_id"),
                 ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),
                 ("date_schedules", "profile_a"), ("date_schedules", "profile_b"),
+                ("date_feedback", "profile_id"), ("date_feedback", "partner_id"),
+                ("endorsements", "endorser_id"), ("endorsements", "endorsed_id"),
+                ("profile_reveal_stages", "viewer_id"), ("profile_reveal_stages", "target_id"),
+                ("availability_status", "profile_id"),
+                ("saved_searches", "profile_id"),
+                ("group_post_reactions", "profile_id"),
+                ("conversation_starters", "from_id"), ("conversation_starters", "to_id"),
+                ("video_calls", "caller_id"), ("video_calls", "callee_id"),
+                ("ai_suggestions", "user_id"),
+                ("compatibility_recalcs", "user_id"),
+                ("profile_boosts", "user_id"),
             ]
             for table, col in tables_with_profile:
                 try:
@@ -4276,7 +4287,7 @@ def get_expiring_matches(profile_id: str, expiry_days: int = 7) -> list[dict]:
                FROM likes l
                JOIN profiles p ON p.id = l.target_id
                WHERE l.from_id = ? AND l.target_type = 'profile'
-                 AND l.created_at >= datetime('now', ? || ' days')
+                 AND l.created_at <= datetime('now', ? || ' days')
            ) WHERE message_count = 0
            ORDER BY matched_at ASC""",
         (profile_id, f"-{expiry_days}"),
@@ -4655,7 +4666,7 @@ def react_to_story(story_id: str, profile_id: str, reaction: str) -> bool:
     sr_id = uuid.uuid4().hex
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO story_reactions (id, story_id, profile_id, reaction) VALUES (?,?,?,?)",
+            "INSERT INTO story_reactions (id, story_id, profile_id, reaction) VALUES (?,?,?,?) ON CONFLICT(story_id, profile_id) DO UPDATE SET reaction=excluded.reaction",
             (sr_id, story_id, profile_id, reaction),
         )
         conn.commit()
@@ -4964,6 +4975,7 @@ def run_vacuum() -> dict:
     import os as _os
     conn = get_db()
     db_size_before = _os.path.getsize(str(DB_PATH))
+    conn.commit()
     conn.execute("VACUUM")
     db_size_after = _os.path.getsize(str(DB_PATH))
     conn.execute(
@@ -5747,7 +5759,7 @@ def bulk_delete_profiles(profile_ids: list[str]) -> int:
         )
         conn.commit()
     except Exception:
-        conn.rollback()
+        conn.execute("ROLLBACK")
         raise
     return len(profile_ids)
 
@@ -5793,7 +5805,7 @@ def export_safety_reports_csv() -> list[dict]:
     conn = get_db()
     rows = conn.execute(
         """SELECT id, reporter_id, reported_id, report_type as reason,
-                  'reported' as status, created_at
+                  status, created_at
            FROM safety_reports ORDER BY created_at DESC"""
     ).fetchall()
     return [dict(r) for r in rows]
@@ -6037,6 +6049,7 @@ def check_suspension_expired() -> int:
     if expired_users:
         placeholders = ",".join("?" * len(expired_users))
         conn.execute(f"UPDATE users SET suspended = 0 WHERE id IN ({placeholders})", expired_users)
+        conn.execute(f"UPDATE suspensions SET appeal_result = 'expired' WHERE user_id IN ({placeholders}) AND suspension_type = 'temporary' AND expires_at <= ? AND appeal_result IS NULL", expired_users + [now])
         conn.commit()
     return len(expired_users)
 
@@ -6202,7 +6215,7 @@ def get_recently_active_profiles(hours: int = 24, limit: int = 50) -> list[dict]
                p.response_rate, p.avg_reply_minutes, p.created_at,
                p.headline, p.profile_theme
         FROM profiles p
-        WHERE p.deactivated = 0
+        WHERE (p.deactivated IS NULL OR p.deactivated = 0)
           AND p.last_active >= datetime('now', '-' || ? || ' hours')
         ORDER BY p.last_active DESC
         LIMIT ?
@@ -6216,7 +6229,7 @@ def get_new_profiles(days: int = 7, limit: int = 50) -> list[dict]:
         SELECT p.id, p.name, p.age, p.gender, p.photo, p.verified,
                p.headline, p.profile_theme, p.created_at
         FROM profiles p
-        WHERE p.deactivated = 0
+        WHERE (p.deactivated IS NULL OR p.deactivated = 0)
           AND p.created_at >= datetime('now', '-' || ? || ' days')
         ORDER BY p.created_at DESC
         LIMIT ?
@@ -6239,7 +6252,7 @@ def get_ghost_matches(profile_id: str, days_silent: int = 7) -> list[dict]:
             (m.from_id = l1.target_id AND m.to_id = ?)
         )
         WHERE l1.from_id = ?
-          AND p.deactivated = 0
+          AND (p.deactivated IS NULL OR p.deactivated = 0)
         GROUP BY l1.target_id
         HAVING last_msg IS NULL OR last_msg < datetime('now', '-' || ? || ' days')
     """, (profile_id, profile_id, profile_id, days_silent)).fetchall()
@@ -6401,6 +6414,7 @@ def get_inactive_users(days: int = 7) -> list[dict]:
                (SELECT COUNT(*) FROM likes l1 JOIN likes l2
                 ON l1.from_id=l2.target_id AND l1.target_id=l2.from_id
                 AND l1.target_type='profile' AND l2.target_type='profile'
+                AND l1.from_id < l1.target_id
                 WHERE (l1.from_id=p.id OR l1.target_id=p.id)
                 AND l1.created_at > datetime('now', '-' || ? || ' days')) as new_matches
         FROM users u
@@ -6759,7 +6773,7 @@ def get_funnel_data() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Video Calls (v2.5.0)
+# Video Calls (v2.5.1)
 # ---------------------------------------------------------------------------
 
 def create_video_call(caller_id: str, callee_id: str) -> dict:
@@ -6811,7 +6825,7 @@ def get_user_call_history(user_id: str, limit: int = 20) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# AI Suggestions (v2.5.0)
+# AI Suggestions (v2.5.1)
 # ---------------------------------------------------------------------------
 
 def save_ai_suggestion(user_id: str, conversation_id: str, suggestion_text: str, suggestion_type: str = "reply") -> dict:
@@ -6842,7 +6856,7 @@ def get_ai_suggestion_stats() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Compatibility Recalculation (v2.5.0)
+# Compatibility Recalculation (v2.5.1)
 # ---------------------------------------------------------------------------
 
 def log_compatibility_recalc(user_id: str, old_scores: str, new_scores: str, triggered_by: str = "questionnaire_update") -> dict:
@@ -6869,7 +6883,7 @@ def get_recalc_history(user_id: str, limit: int = 10) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# OAuth Accounts (v2.5.0)
+# OAuth Accounts (v2.5.1)
 # ---------------------------------------------------------------------------
 
 def link_oauth_account(user_id: str, provider: str, provider_user_id: str, email: str = None) -> dict:
@@ -6880,6 +6894,7 @@ def link_oauth_account(user_id: str, provider: str, provider_user_id: str, email
     conn.execute("""
         INSERT INTO oauth_accounts (id, user_id, provider, provider_user_id, email, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(provider, provider_user_id) DO UPDATE SET user_id=excluded.user_id, email=excluded.email
     """, (oid, user_id, provider, provider_user_id, email, now))
     conn.commit()
     return {"id": oid, "provider": provider}
@@ -6911,7 +6926,7 @@ def find_user_by_oauth(provider: str, provider_user_id: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Profile Boosts (v2.5.0)
+# Profile Boosts (v2.5.1)
 # ---------------------------------------------------------------------------
 
 def create_profile_boost(user_id: str, boost_type: str = "standard", duration_hours: int = 1) -> dict:
@@ -6961,7 +6976,7 @@ def deactivate_expired_boosts() -> int:
 
 
 # ---------------------------------------------------------------------------
-# API Keys (v2.5.0)
+# API Keys (v2.5.1)
 # ---------------------------------------------------------------------------
 
 def create_api_key(name: str, permissions: str = "read", rate_limit: str = "100/hour") -> dict:

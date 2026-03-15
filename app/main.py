@@ -1,5 +1,5 @@
 """
-Kindred v2.5.0 - FastAPI Backend (User Server)
+Kindred v2.5.1 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -167,7 +167,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="2.5.0")
+app = FastAPI(title="Kindred", version="2.5.1")
 
 # CORS middleware
 app.add_middleware(
@@ -896,6 +896,20 @@ def create_profile(submission: ProfileSubmission,
     }
 
 
+@app.get("/api/profile/completeness")
+def profile_completeness(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        return {"score": 0, "tips": []}
+    return get_profile_completeness(profile_id, user["id"])
+
+
+@app.get("/api/profile/boost")
+async def get_boost_status(user=Depends(require_user)):
+    from app.database import get_active_boost
+    return {"boost": get_active_boost(user["id"])}
+
+
 @app.get("/api/profile/{profile_id}")
 def read_profile(profile_id: str):
     profile = get_profile(profile_id)
@@ -972,6 +986,14 @@ def _generate_thumbnail(filepath: Path, profile_id: str, size: tuple = (200, 200
 # ---------------------------------------------------------------------------
 # Matching
 # ---------------------------------------------------------------------------
+
+@app.get("/api/matches/expiring")
+def expiring_matches(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    return {"matches": get_expiring_matches(profile_id, MATCH_EXPIRY_DAYS)}
+
 
 @app.get("/api/matches/{profile_id}")
 def get_matches(profile_id: str, top_n: int = 20):
@@ -1088,7 +1110,6 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
     from app.database import get_db
     conn = get_db()
     row = conn.execute("SELECT id FROM users WHERE profile_id=?", (msg.to_id,)).fetchone()
-    conn.close()
     if row:
         create_notification(
             row["id"], "message",
@@ -1113,6 +1134,14 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
     })
     log_analytics_event("message_sent", msg.from_id)
     return {"id": msg_id, "status": "sent"}
+
+
+@app.get("/api/messages/search")
+def msg_search(q: str = "", user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id or not q.strip():
+        return {"results": []}
+    return {"results": search_messages(profile_id, q.strip())}
 
 
 @app.get("/api/messages/{profile_id}")
@@ -1177,7 +1206,6 @@ async def send_photo_message(from_id: str, to_id: str,
     from app.database import get_db
     conn = get_db()
     row = conn.execute("SELECT id FROM users WHERE profile_id=?", (to_id,)).fetchone()
-    conn.close()
     if row:
         create_notification(
             row["id"], "message",
@@ -1374,7 +1402,9 @@ def list_blog(profile_id: str):
 
 
 @app.delete("/api/blog/{post_id}")
-def del_blog(post_id: str, profile_id: str = ""):
+def del_blog(post_id: str, profile_id: str = "", user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not profile_id:
         raise HTTPException(status_code=400, detail="profile_id required")
     if not delete_blog_post(post_id, profile_id):
@@ -1432,7 +1462,6 @@ async def add_friend(profile_id: str, friend_id: str, user: dict = Depends(requi
     from app.database import get_db
     conn = get_db()
     row = conn.execute("SELECT id FROM users WHERE profile_id=?", (friend_id,)).fetchone()
-    conn.close()
     if row and sender:
         create_notification(
             row["id"], "friend_request",
@@ -1489,7 +1518,6 @@ async def like_toggle(body: LikeToggle, user: dict = Depends(require_user)):
         sender = get_profile(body.from_id)
         conn = get_db()
         row = conn.execute("SELECT id FROM users WHERE profile_id=?", (body.target_id,)).fetchone()
-        conn.close()
         if row and sender:
             create_notification(row["id"], "like", f"{sender['name']} liked your profile", "", f"/profile/{body.from_id}")
             await ws_manager.send_notification_to_profile(body.target_id, {
@@ -2169,7 +2197,7 @@ def setup_2fa(user: dict = Depends(require_user)):
 
 
 @app.post("/api/auth/2fa/verify")
-def verify_2fa_setup(body: dict, user: dict = Depends(require_user)):
+def verify_2fa_setup(body: dict = Body(...), user: dict = Depends(require_user)):
     code = body.get("code", "")
     totp = get_totp_secret(user["id"])
     if not totp:
@@ -2200,7 +2228,7 @@ def get_2fa_status(user: dict = Depends(require_user)):
 
 
 @app.delete("/api/auth/2fa")
-def disable_2fa(body: dict, user: dict = Depends(require_user)):
+def disable_2fa(body: dict = Body(...), user: dict = Depends(require_user)):
     password = body.get("password", "")
     if not password or not bcrypt.verify(password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Password verification required")
@@ -2279,13 +2307,13 @@ def get_sub(user: dict = Depends(require_user)):
 
 
 @app.post("/api/subscription/upgrade")
-def upgrade_sub(body: dict, user: dict = Depends(require_user)):
+def upgrade_sub(body: dict = Body(...), user: dict = Depends(require_user)):
     tier = body.get("tier", "premium")
     if tier not in ("premium", "plus"):
         raise HTTPException(status_code=400, detail="Invalid tier")
     # In production, this would integrate with a payment provider
     update_subscription(user["id"], tier)
-    log_analytics_event("subscription_upgrade", user["id"], {"tier": tier})
+    log_analytics_event("subscription_upgrade", user["id"], json_stdlib.dumps({"tier": tier}))
     return {"message": f"Upgraded to {tier}", "tier": tier}
 
 
@@ -2311,12 +2339,14 @@ def onboarding_status(user: dict = Depends(require_user)):
 @app.websocket("/ws/{profile_id}")
 async def websocket_endpoint(websocket: WebSocket, profile_id: str, token: str = None):
     if not token:
+        await websocket.accept()
         await websocket.close(code=4001, reason="Token required")
         return
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user = get_user_by_id(payload.get("user_id") or payload.get("sub"))
         if not user or user.get("profile_id") != profile_id:
+            await websocket.accept()
             await websocket.close(code=4003, reason="Forbidden")
             return
     except jwt.PyJWTError:
@@ -2432,7 +2462,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.5.0",
+        "version": "2.5.1",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -2558,18 +2588,6 @@ def received_super_likes(user: dict = Depends(require_user)):
 def check_super_liked(target_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
     return {"super_liked": has_super_liked(profile_id, target_id) if profile_id else False}
-
-
-# ---------------------------------------------------------------------------
-# Match Expiry
-# ---------------------------------------------------------------------------
-
-@app.get("/api/matches/expiring")
-def expiring_matches(user: dict = Depends(require_user)):
-    profile_id = user.get("profile_id")
-    if not profile_id:
-        raise HTTPException(status_code=400, detail="No profile linked")
-    return {"matches": get_expiring_matches(profile_id, MATCH_EXPIRY_DAYS)}
 
 
 # ---------------------------------------------------------------------------
@@ -2777,18 +2795,6 @@ def mutual_friends(profile_id: str, user: dict = Depends(require_user)):
         return {"mutual_friends": [], "count": 0}
     friends = get_mutual_friends(my_profile, profile_id)
     return {"mutual_friends": friends, "count": len(friends)}
-
-
-# ---------------------------------------------------------------------------
-# Message Search
-# ---------------------------------------------------------------------------
-
-@app.get("/api/messages/search")
-def msg_search(q: str = "", user: dict = Depends(require_user)):
-    profile_id = user.get("profile_id")
-    if not profile_id or not q.strip():
-        return {"results": []}
-    return {"results": search_messages(profile_id, q.strip())}
 
 
 # ---------------------------------------------------------------------------
@@ -3168,18 +3174,6 @@ def my_checkins(user: dict = Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Profile Completeness
-# ---------------------------------------------------------------------------
-
-@app.get("/api/profile/completeness")
-def profile_completeness(user: dict = Depends(require_user)):
-    profile_id = user.get("profile_id", "")
-    if not profile_id:
-        return {"score": 0, "tips": []}
-    return get_profile_completeness(profile_id, user["id"])
-
-
-# ---------------------------------------------------------------------------
 # Theme & Typing Preview Settings
 # ---------------------------------------------------------------------------
 
@@ -3513,7 +3507,7 @@ def notification_digest(since_hours: int = 24,
 
 
 # ---------------------------------------------------------------------------
-# Report with categories (v2.5.0)
+# Report with categories (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class ReportRequest(BaseModel):
@@ -3536,7 +3530,7 @@ async def report_user(req: ReportRequest, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Appeal suspension (v2.5.0)
+# Appeal suspension (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class AppealRequest(BaseModel):
@@ -3556,7 +3550,7 @@ async def get_my_suspensions(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Response stats (v2.5.0)
+# Response stats (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/response-stats/{profile_id}")
@@ -3572,7 +3566,7 @@ async def get_my_ghost_matches(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Saved searches (v2.5.0)
+# Saved searches (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class SaveSearchRequest(BaseModel):
@@ -3606,7 +3600,7 @@ async def remove_saved_search(search_id: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Discovery: recently active, new users (v2.5.0)
+# Discovery: recently active, new users (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/discover/recently-active")
@@ -3619,7 +3613,7 @@ async def discover_new_users(days: int = 7, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Message Edit & Delete (v2.5.0)
+# Message Edit & Delete (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class EditMessageRequest(BaseModel):
@@ -3667,7 +3661,7 @@ async def mark_delivered(message_id: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Photo Reorder (v2.5.0)
+# Photo Reorder (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class PhotoOrderRequest(BaseModel):
@@ -3690,7 +3684,7 @@ async def get_photo_display_order(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Profile Completeness (v2.5.0)
+# Profile Completeness (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/profile-completeness")
@@ -3704,7 +3698,7 @@ async def get_completeness(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Retention: Email digest toggle (v2.5.0)
+# Retention: Email digest toggle (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.put("/api/settings/email-digest")
@@ -3717,7 +3711,7 @@ async def toggle_email_digest(enabled: bool = True, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Admin Messages for users (v2.5.0)
+# Admin Messages for users (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/admin-messages")
@@ -3735,7 +3729,7 @@ async def check_feature_flag(flag_name: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Video Calling (v2.5.0)
+# Video Calling (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/video-call/{match_user_id}")
@@ -3770,7 +3764,7 @@ async def get_call_history(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# AI Conversation Suggestions (v2.5.0)
+# AI Conversation Suggestions (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/conversation/{match_id}/suggest")
@@ -3797,7 +3791,7 @@ async def mark_suggestion_as_used(suggestion_id: str, user=Depends(require_user)
 
 
 # ---------------------------------------------------------------------------
-# Compatibility Recalculation (v2.5.0)
+# Compatibility Recalculation (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/compatibility/recalculate")
@@ -3835,7 +3829,7 @@ async def get_recalc_history_endpoint(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# OAuth / Social Login (v2.5.0)
+# OAuth / Social Login (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/oauth/accounts")
@@ -3853,7 +3847,7 @@ async def unlink_oauth(provider: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Profile Boost (v2.5.0)
+# Profile Boost (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/profile/boost")
@@ -3870,14 +3864,8 @@ async def boost_profile(body: dict = Body(...), user=Depends(require_user)):
     return {"boost": boost}
 
 
-@app.get("/api/profile/boost")
-async def get_boost_status(user=Depends(require_user)):
-    from app.database import get_active_boost
-    return {"boost": get_active_boost(user["id"])}
-
-
 # ---------------------------------------------------------------------------
-# Public API (v2.5.0)
+# Public API (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/public/profiles")
@@ -3889,8 +3877,8 @@ async def public_profiles(request: Request, limit: int = 20, offset: int = 0):
         raise HTTPException(401, detail="Invalid or missing API key")
     conn = _get_db()
     rows = conn.execute("""
-        SELECT p.id, p.display_name, p.age, p.gender, p.bio, p.created_at
-        FROM profiles p JOIN users u ON u.id = p.user_id
+        SELECT p.id, p.name, p.age, p.gender, p.created_at
+        FROM profiles p JOIN users u ON u.profile_id = p.id
         WHERE u.is_active = 1 AND (u.shadow_banned IS NULL OR u.shadow_banned = 0)
         ORDER BY p.created_at DESC LIMIT ? OFFSET ?
     """, (min(limit, 100), offset)).fetchall()
@@ -3907,7 +3895,7 @@ async def public_events(request: Request, limit: int = 20, offset: int = 0):
     conn = _get_db()
     now = datetime.now(timezone.utc).isoformat()
     rows = conn.execute("""
-        SELECT id, name, description, event_date, location, created_at
+        SELECT id, title, description, event_date, location, created_at
         FROM events WHERE event_date >= ?
         ORDER BY event_date ASC LIMIT ? OFFSET ?
     """, (now, min(limit, 100), offset)).fetchall()
@@ -3923,7 +3911,7 @@ async def public_stats(request: Request):
         raise HTTPException(401, detail="Invalid or missing API key")
     conn = _get_db()
     users = conn.execute("SELECT COUNT(*) FROM users WHERE is_active = 1").fetchone()[0]
-    matches = conn.execute("SELECT COUNT(*) FROM likes WHERE mutual = 1").fetchone()[0]
+    matches = conn.execute("SELECT COUNT(*) FROM likes l1 JOIN likes l2 ON l1.from_id=l2.target_id AND l1.target_id=l2.from_id AND l1.target_type='profile' AND l2.target_type='profile' WHERE l1.from_id < l1.target_id").fetchone()[0]
     events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
     groups = conn.execute("SELECT COUNT(*) FROM groups").fetchone()[0]
     return {"users": users, "matches": matches, "events": events, "groups": groups}

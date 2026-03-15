@@ -1,5 +1,5 @@
 """
-Kindred v2.5.0 - Admin Server
+Kindred v2.5.1 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -69,7 +69,7 @@ from app.database import (
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="2.5.0")
+admin_app = FastAPI(title="Kindred Admin", version="2.5.1")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -141,7 +141,6 @@ def startup():
     from app.database import get_db
     conn = get_db()
     row = conn.execute("SELECT 1 FROM users WHERE is_admin=1").fetchone()
-    conn.close()
     if not row:
         pw_hash = bcrypt.using(rounds=BCRYPT_ROUNDS).hash(ADMIN_PASSWORD)
         create_user(ADMIN_EMAIL, pw_hash, "Admin", is_admin=True)
@@ -263,8 +262,8 @@ def list_safety_reports(admin: dict = Depends(require_admin)):
 
 # ─── Invites ───
 @admin_app.post("/api/invites")
-def gen_invite(admin: dict = Depends(require_admin), created_by: str = "admin"):
-    code = create_invite(created_by)
+def gen_invite(admin: dict = Depends(require_admin)):
+    code = create_invite(admin["id"])
     return {"code": code}
 
 
@@ -398,7 +397,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.4.0",
+        "version": "2.5.1",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
@@ -451,8 +450,8 @@ def admin_revoke_session(session_id: str, admin: dict = Depends(require_admin)):
 
 
 class RevokeRequest(BaseModel):
-    email: str = None
-    user_id: str = None
+    email: str | None = None
+    user_id: str | None = None
 
 @admin_app.post("/api/admin/sessions/revoke-user")
 def admin_revoke_user_sessions(req: RevokeRequest, admin: dict = Depends(require_admin)):
@@ -476,7 +475,7 @@ def admin_list_stories(admin: dict = Depends(require_admin)):
 
 @admin_app.delete("/api/admin/stories/{story_id}")
 def admin_delete_story(story_id: str, admin: dict = Depends(require_admin)):
-    if not delete_story(story_id):
+    if not delete_story(story_id, admin["id"]):
         raise HTTPException(status_code=404, detail="Story not found")
     return {"message": "Story removed"}
 
@@ -539,8 +538,8 @@ class WebhookCreate(BaseModel):
     secret: str = ""
 
 class WebhookUpdate(BaseModel):
-    enabled: bool = None
-    name: str = None
+    enabled: bool | None = None
+    name: str | None = None
 
 @admin_app.post("/api/admin/webhooks")
 def admin_create_webhook(req: WebhookCreate, admin: dict = Depends(require_admin)):
@@ -764,7 +763,7 @@ def admin_extended_stats(admin: dict = Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Safety Reports Queue (v2.5.0)
+# Safety Reports Queue (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/reports-queue")
@@ -786,14 +785,14 @@ async def admin_review_report(report_id: str, req: ReviewReportRequest, admin=De
 
 
 # ---------------------------------------------------------------------------
-# Suspensions (v2.5.0)
+# Suspensions (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class SuspendRequest(BaseModel):
     user_id: str
     reason: str
     suspension_type: str = "temporary"
-    duration_days: int = None
+    duration_days: int | None = None
 
 @admin_app.post("/api/admin/suspend")
 async def admin_suspend_user(req: SuspendRequest, admin=Depends(require_admin)):
@@ -834,7 +833,7 @@ async def admin_check_expired(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Retention (v2.5.0)
+# Retention (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/inactive-users")
@@ -848,17 +847,17 @@ async def admin_send_digest(admin=Depends(require_admin)):
     for u in users:
         log_retention_email(u["id"], "weekly_digest")
     from app.audit import log_audit
-    log_audit(admin["id"], "send_digest", details=f"Sent to {len(users)} users")
+    log_audit(admin["id"], "send_digest", "users", None, f"Sent to {len(users)} users")
     return {"sent": len(users)}
 
 
 # ---------------------------------------------------------------------------
-# Shadow Bans (v2.5.0)
+# Shadow Bans (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class ShadowBanRequest(BaseModel):
     user_id: str
-    reason: str = None
+    reason: str | None = None
 
 @admin_app.post("/api/admin/shadow-ban")
 async def admin_shadow_ban(req: ShadowBanRequest, admin=Depends(require_admin)):
@@ -880,7 +879,7 @@ async def admin_list_shadow_bans(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Canned Responses (v2.5.0)
+# Canned Responses (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class CannedResponseRequest(BaseModel):
@@ -904,13 +903,13 @@ async def admin_delete_canned(response_id: str, admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Feature Flags (v2.5.0)
+# Feature Flags (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class FeatureFlagRequest(BaseModel):
     name: str
     enabled: bool
-    description: str = None
+    description: str | None = None
 
 @admin_app.post("/api/admin/feature-flags")
 async def admin_set_flag(req: FeatureFlagRequest, admin=Depends(require_admin)):
@@ -926,7 +925,7 @@ async def admin_list_flags(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Request Stats & Error Rate (v2.5.0)
+# Request Stats & Error Rate (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/request-stats")
@@ -940,7 +939,7 @@ async def admin_cleanup_logs(days: int = 7, admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Admin Messaging (v2.5.0)
+# Admin Messaging (v2.5.1)
 # ---------------------------------------------------------------------------
 
 class AdminMessageRequest(BaseModel):
@@ -964,12 +963,12 @@ async def admin_send_msg(req: AdminMessageRequest, admin=Depends(require_admin))
 async def admin_batch_msg(req: BatchMessageRequest, admin=Depends(require_admin)):
     count = batch_send_admin_message(admin["id"], req.user_ids, req.subject, req.content)
     from app.audit import log_audit
-    log_audit(admin["id"], "batch_message", details=f"Sent to {count} users")
+    log_audit(admin["id"], "batch_message", "users", None, f"Sent to {count} users")
     return {"sent": count}
 
 
 # ---------------------------------------------------------------------------
-# Analytics (v2.5.0)
+# Analytics (v2.5.1)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/retention-cohorts")
@@ -982,10 +981,10 @@ async def admin_funnel(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# API Key Management (v2.5.0)
+# API Key Management (v2.5.1)
 # ---------------------------------------------------------------------------
 
-@admin_app.post("/admin/api-keys")
+@admin_app.post("/api/admin/api-keys")
 async def create_api_key_endpoint(body: dict = Body(...), admin=Depends(require_admin)):
     from app.database import create_api_key
     from app.audit import log_audit
@@ -997,13 +996,13 @@ async def create_api_key_endpoint(body: dict = Body(...), admin=Depends(require_
     return {"key": key}
 
 
-@admin_app.get("/admin/api-keys")
+@admin_app.get("/api/admin/api-keys")
 async def list_api_keys(admin=Depends(require_admin)):
     from app.database import get_api_keys
     return {"keys": get_api_keys()}
 
 
-@admin_app.delete("/admin/api-keys/{key_id}")
+@admin_app.delete("/api/admin/api-keys/{key_id}")
 async def revoke_api_key_endpoint(key_id: str, admin=Depends(require_admin)):
     from app.database import revoke_api_key
     from app.audit import log_audit
@@ -1014,20 +1013,20 @@ async def revoke_api_key_endpoint(key_id: str, admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# AI Suggestion Stats (v2.5.0)
+# AI Suggestion Stats (v2.5.1)
 # ---------------------------------------------------------------------------
 
-@admin_app.get("/admin/ai-suggestion-stats")
+@admin_app.get("/api/admin/ai-suggestion-stats")
 async def ai_suggestion_stats(admin=Depends(require_admin)):
     from app.database import get_ai_suggestion_stats
     return get_ai_suggestion_stats()
 
 
 # ---------------------------------------------------------------------------
-# Boost Management (v2.5.0)
+# Boost Management (v2.5.1)
 # ---------------------------------------------------------------------------
 
-@admin_app.get("/admin/active-boosts")
+@admin_app.get("/api/admin/active-boosts")
 async def get_active_boosts(admin=Depends(require_admin)):
     from app.database import get_db
     conn = get_db()
@@ -1041,7 +1040,7 @@ async def get_active_boosts(admin=Depends(require_admin)):
     return {"boosts": [dict(r) for r in rows]}
 
 
-@admin_app.post("/admin/deactivate-expired-boosts")
+@admin_app.post("/api/admin/deactivate-expired-boosts")
 async def deactivate_boosts(admin=Depends(require_admin)):
     from app.database import deactivate_expired_boosts
     count = deactivate_expired_boosts()
