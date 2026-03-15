@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v1.8.0 - Find Your Match</title>
+<title>Kindred v1.9.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -950,12 +950,12 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .link-safe { display:inline-flex; align-items:center; gap:3px; background:rgba(166,227,161,.1); border:1px solid var(--green); border-radius:4px; padding:1px 5px; font-size:11px; color:var(--green); }
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v1.8.0 — Unread Badge Counts
+   Phase 1 v1.9.0 — Unread Badge Counts
    ═══════════════════════════════════════════════════ */
 .tab-badge{position:absolute;top:-4px;right:-4px;background:var(--red);color:var(--base);font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v1.8.0 — Emoji Picker
+   Phase 1 v1.9.0 — Emoji Picker
    ═══════════════════════════════════════════════════ */
 .emoji-picker-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;opacity:0.7;transition:opacity 0.2s}
 .emoji-picker-btn:hover{opacity:1}
@@ -965,18 +965,80 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .emoji-picker-popup button:hover{background:var(--surface2)}
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v1.8.0 — Announcement Banner
+   Phase 1 v1.9.0 — Announcement Banner
    ═══════════════════════════════════════════════════ */
 .announcement-banner{background:var(--surface0);border-left:4px solid var(--blue);padding:10px 16px;margin-bottom:12px;border-radius:0 var(--radius) var(--radius) 0;display:flex;align-items:center;gap:10px}
 .announcement-banner.warning{border-left-color:var(--yellow)}
 .announcement-banner.maintenance{border-left-color:var(--peach)}
 .announcement-banner .ann-close{background:none;border:none;color:var(--subtext0);cursor:pointer;font-size:18px;margin-left:auto}
+
+/* ═══════════════════════════════════════════════════
+   Phase 2 — Swipe Gestures on Discover Cards
+   ═══════════════════════════════════════════════════ */
+.search-card{transition:transform 0.3s ease,opacity 0.3s ease;touch-action:pan-y;}
+.search-card.swiping-left{transform:translateX(-40px) rotate(-4deg);opacity:0.6;}
+.search-card.swiping-right{transform:translateX(40px) rotate(4deg);opacity:0.6;}
+.search-card.swipe-dismiss-left{transition:transform 0.3s ease,opacity 0.3s ease;transform:translateX(-200px) rotate(-15deg);opacity:0;}
+.search-card.swipe-dismiss-right{transition:transform 0.3s ease,opacity 0.3s ease;transform:translateX(200px) rotate(15deg);opacity:0;}
+
+/* ═══════════════════════════════════════════════════
+   Phase 2 — Infinite Scroll Feed Spinner
+   ═══════════════════════════════════════════════════ */
+.feed-scroll-sentinel{display:flex;justify-content:center;padding:16px 0;min-height:1px;}
+.feed-load-spinner{width:24px;height:24px;border:3px solid var(--surface1);border-top-color:var(--mauve);border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ═══════════════════════════════════════════════════
+   Phase 2 — Image Lightbox
+   ═══════════════════════════════════════════════════ */
+.lightbox-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer;animation:fadeIn 0.2s ease;}
+.lightbox-overlay .lightbox-img{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;box-shadow:0 0 60px rgba(0,0,0,0.6);cursor:default;touch-action:pinch-zoom;}
+.lightbox-overlay .lightbox-close{position:fixed;top:16px;right:20px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:28px;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;z-index:10000;}
+.lightbox-overlay .lightbox-close:hover{background:rgba(255,255,255,0.3);}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ═══════════════════════════════════════════════════
+   Phase 2 — Pull-to-Refresh
+   ═══════════════════════════════════════════════════ */
+.pull-indicator{position:absolute;top:0;left:50%;transform:translateX(-50%) translateY(-60px);display:flex;align-items:center;gap:8px;background:var(--surface0);border:1px solid var(--surface1);border-radius:20px;padding:8px 16px;font-size:13px;color:var(--subtext0);z-index:50;transition:transform 0.25s ease,opacity 0.25s ease;opacity:0;pointer-events:none;}
+.pull-indicator.visible{transform:translateX(-50%) translateY(8px);opacity:1;}
+.pull-indicator.refreshing .pull-spinner{animation:spin 0.8s linear infinite;}
+.pull-spinner{width:16px;height:16px;border:2px solid var(--surface2);border-top-color:var(--mauve);border-radius:50%;}
+
+/* ═══════════════════════════════════════════════════
+   Phase 2 — Onboarding Progress Bar
+   ═══════════════════════════════════════════════════ */
+.q-progress-bar{height:4px;background:var(--surface1);border-radius:2px;overflow:hidden;margin-bottom:4px;}
+.q-progress-fill{height:100%;background:linear-gradient(90deg,var(--mauve),var(--pink));border-radius:2px;transition:width 0.3s ease;}
+.q-progress-text{font-size:12px;color:var(--overlay0);text-align:center;margin-bottom:12px;}
+
+/* ═══════════════════════════════════════════════════
+   Phase 2 — Skeleton Loading Improvements
+   ═══════════════════════════════════════════════════ */
+.skeleton-text{height:14px;margin-bottom:8px;border-radius:4px;}
+.skeleton-match{display:flex;align-items:center;gap:16px;padding:16px 20px;margin-bottom:10px;background:var(--base);border:1px solid var(--surface0);border-radius:var(--radius);}
+.skeleton-match .skeleton-avatar{flex-shrink:0;}
+.skeleton-match-info{flex:1;}
+.skeleton-feed-item{display:flex;align-items:flex-start;gap:10px;padding:12px;margin-bottom:8px;background:var(--base);border:1px solid var(--surface0);border-radius:var(--radius);}
+.skeleton-discover-card{width:100%;height:160px;border-radius:var(--radius);margin-bottom:12px;}
+
+/* ═══════════════════════════════════════════════════
+   Phase 2 — Dealbreaker Quiz UI
+   ═══════════════════════════════════════════════════ */
+.db-quiz-modal{background:var(--base);border:1px solid var(--surface0);border-radius:var(--radius);padding:24px;margin-top:16px;animation:fadeUp 0.3s ease forwards;opacity:0;transform:translateY(16px);}
+.db-quiz-modal h3{font-size:16px;color:var(--lavender);margin-bottom:16px;}
+.db-shared{border-left:3px solid var(--green);padding:10px 14px;margin-bottom:8px;background:rgba(166,227,161,0.06);border-radius:0 8px 8px 0;display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);}
+.db-shared::before{content:'\\2713';color:var(--green);font-weight:700;font-size:16px;}
+.db-conflict{border-left:3px solid var(--red);padding:10px 14px;margin-bottom:8px;background:rgba(243,139,168,0.06);border-radius:0 8px 8px 0;display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);}
+.db-conflict::before{content:'\\2717';color:var(--red);font-weight:700;font-size:16px;}
+.db-unique{border-left:3px solid var(--surface2);padding:10px 14px;margin-bottom:8px;background:var(--mantle);border-radius:0 8px 8px 0;font-size:14px;color:var(--subtext0);}
+.db-unique .db-owner{font-size:11px;color:var(--overlay0);margin-left:auto;}
 </style>
 </head>
 <body>
 <script>try{if(localStorage.getItem('kindred_theme')==='latte')document.body.classList.add('theme-latte')}catch(e){}</script>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.8.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.9.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0" aria-label="Toggle theme">&#9790;</button>
         <div id="ws-status-dot" title="Connected" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s" aria-label="Connection status"></div>
@@ -1303,7 +1365,7 @@ function loginAs(id){
     showView('myprofile');
     if(authToken) pollNotifications();
     connectWS();
-    // Phase 1 v1.8.0: Start unread polling + announcements + availability
+    // Phase 1 v1.9.0: Start unread polling + announcements + availability
     pollUnreadCounts();
     if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
     loadAnnouncements();
@@ -1412,7 +1474,9 @@ function renderQuestion(){
     const pct=(qi/(total-1))*100;
     const app=document.getElementById('app');
 
-    let html=`<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+    let html=`<div class="q-progress-bar"><div class="q-progress-fill" style="width:${pct}%"></div></div>
+        <div class="q-progress-text">${qi+1} of ${total} questions</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
         <div class="progress-label"><span class="cat">${q.cat}</span><span class="count">${qi+1} / ${total}</span></div>
         <div class="card"><div class="q-card">`;
 
@@ -1979,7 +2043,7 @@ async function viewAllFriends(pid){
 async function renderMyMatches(){
     if(!activeProfile){showView('welcome');return;}
     const app=document.getElementById('app');
-    app.innerHTML='<div class="card" id="top-picks-card"><h2>Today\'s Top Picks</h2><p class="subtitle">Your best matches for today</p><div id="top-picks-area"><div style="color:var(--overlay0);font-size:13px;padding:12px 0">Generating your daily picks...</div></div></div><div id="matches-area"><div class="card"><div class="skeleton skeleton-line" style="width:40%"></div><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>';
+    app.innerHTML='<div class="card" id="top-picks-card"><h2>Today\'s Top Picks</h2><p class="subtitle">Your best matches for today</p><div id="top-picks-area"><div style="color:var(--overlay0);font-size:13px;padding:12px 0">Generating your daily picks...</div></div></div><div id="matches-area"><div class="skeleton-match"><div class="skeleton skeleton-avatar"></div><div class="skeleton-match-info"><div class="skeleton skeleton-text" style="width:50%"></div><div class="skeleton skeleton-text" style="width:30%"></div></div></div><div class="skeleton-match"><div class="skeleton skeleton-avatar"></div><div class="skeleton-match-info"><div class="skeleton skeleton-text" style="width:60%"></div><div class="skeleton skeleton-text" style="width:25%"></div></div></div><div class="skeleton-match"><div class="skeleton skeleton-avatar"></div><div class="skeleton-match-info"><div class="skeleton skeleton-text" style="width:45%"></div><div class="skeleton skeleton-text" style="width:35%"></div></div></div></div>';
     loadTopPicks();
     showMatchesFor(activeProfile);
 }
@@ -2545,9 +2609,9 @@ async function renderFeed(){
         <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--overlay0);margin-bottom:6px;font-weight:500">Stories</div><div class="stories-bar" id="stories-bar"><div class="loading" style="padding:8px 0"><div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0"></div></div></div></div>
         <div style="margin-bottom:16px;display:flex;gap:8px"><input type="text" id="status-input" placeholder="What's on your mind?" style="flex:1" onkeydown="if(event.key==='Enter')postStatus()"><button class="btn btn-primary" onclick="postStatus()" style="padding:8px 20px">Post</button></div>
         <div id="online-bar" style="margin-bottom:12px"></div>
-        <div id="feed-list"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
+        <div id="feed-list"><div class="skeleton-feed-item"><div class="skeleton skeleton-avatar"></div><div style="flex:1"><div class="skeleton skeleton-text" style="width:40%"></div><div class="skeleton skeleton-text" style="width:80%"></div></div></div><div class="skeleton-feed-item"><div class="skeleton skeleton-avatar"></div><div style="flex:1"><div class="skeleton skeleton-text" style="width:50%"></div><div class="skeleton skeleton-text" style="width:70%"></div></div></div><div class="skeleton-feed-item"><div class="skeleton skeleton-avatar"></div><div style="flex:1"><div class="skeleton skeleton-text" style="width:35%"></div><div class="skeleton skeleton-text" style="width:90%"></div></div></div></div>
     </div>
-    <div class="card" style="animation-delay:.1s"><h2>Activity</h2><p class="subtitle">What your friends have been up to</p><div id="activity-list"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
+    <div class="card" style="animation-delay:.1s"><h2>Activity</h2><p class="subtitle">What your friends have been up to</p><div id="activity-list"><div class="skeleton-feed-item"><div class="skeleton skeleton-avatar" style="width:32px;height:32px"></div><div style="flex:1"><div class="skeleton skeleton-text" style="width:60%"></div><div class="skeleton skeleton-text" style="width:40%"></div></div></div><div class="skeleton-feed-item"><div class="skeleton skeleton-avatar" style="width:32px;height:32px"></div><div style="flex:1"><div class="skeleton skeleton-text" style="width:55%"></div><div class="skeleton skeleton-text" style="width:45%"></div></div></div></div></div>`;
     loadStoriesBar();
     loadOnlineBar();
     loadFeed();
@@ -2642,8 +2706,8 @@ async function renderDiscover(){
         </div>
         <div id="search-results"></div>
     </div>
-    <div class="card" style="animation-delay:.1s"><h2>Featured Profiles</h2><p class="subtitle">Popular members in the community</p><div id="explore-featured"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>
-    <div class="card" style="animation-delay:.15s"><h2>New Members</h2><p class="subtitle">Recently joined</p><div id="explore-recent"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
+    <div class="card" style="animation-delay:.1s"><h2>Featured Profiles</h2><p class="subtitle">Popular members in the community</p><div id="explore-featured"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px"><div class="skeleton skeleton-discover-card"></div><div class="skeleton skeleton-discover-card"></div><div class="skeleton skeleton-discover-card"></div></div></div></div>
+    <div class="card" style="animation-delay:.15s"><h2>New Members</h2><p class="subtitle">Recently joined</p><div id="explore-recent"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px"><div class="skeleton skeleton-discover-card"></div><div class="skeleton skeleton-discover-card"></div><div class="skeleton skeleton-discover-card"></div></div></div></div>`;
     doSearch();
     loadExplore();
 }
@@ -2710,10 +2774,19 @@ async function deleteGalleryPhoto(photoId,profileId){
 }
 
 function openLightbox(src){
-    const lb=document.createElement('div');lb.className='lightbox';
-    lb.innerHTML=`<img src="${src}">`;
-    lb.onclick=()=>lb.remove();
+    const existing=document.querySelector('.lightbox-overlay');
+    if(existing)existing.remove();
+    const lb=document.createElement('div');
+    lb.className='lightbox-overlay';
+    lb.innerHTML=`<button class="lightbox-close" onclick="event.stopPropagation();closeLightbox()">&times;</button><img class="lightbox-img" src="${src}" onclick="event.stopPropagation()">`;
+    lb.onclick=()=>closeLightbox();
     document.body.appendChild(lb);
+    const escHandler=e=>{if(e.key==='Escape'){closeLightbox();document.removeEventListener('keydown',escHandler);}};
+    document.addEventListener('keydown',escHandler);
+}
+function closeLightbox(){
+    const lb=document.querySelector('.lightbox-overlay');
+    if(lb)lb.remove();
 }
 
 // ─── Explore ───
@@ -4247,7 +4320,7 @@ function connectWSEnhanced(){
         window._wsReconnectTimeout=wsReconnectTimer;
     };
     ws.onerror=()=>{ws?.close();};
-    // Phase 1 v1.8.0: heartbeat + ping
+    // Phase 1 v1.9.0: heartbeat + ping
     if(window._wsPingInterval)clearInterval(window._wsPingInterval);
     window._wsPingInterval=setInterval(()=>{
         if(ws&&ws.readyState===WebSocket.OPEN){
@@ -4807,7 +4880,7 @@ function showShortcutsPanel(){
     document.body.appendChild(overlay);
 }
 function closeOpenModals(){
-    document.querySelectorAll('.modal-overlay,.shortcuts-overlay,.lightbox,.story-overlay,.crop-overlay,.shortcuts-overlay').forEach(e=>e.remove());
+    document.querySelectorAll('.modal-overlay,.shortcuts-overlay,.lightbox,.lightbox-overlay,.story-overlay,.crop-overlay,.shortcuts-overlay').forEach(e=>e.remove());
 }
 
 // ══════════════════════════════════════════════════════
@@ -5030,7 +5103,7 @@ async function openChat(meId,themId){
     // Load async extras
     loadPinnedMessages(meId,themId);
     loadProfileBadges(themId,'chat-badges-'+themId);
-    // Phase 1 v1.8.0: Attach emoji picker to chat input
+    // Phase 1 v1.9.0: Attach emoji picker to chat input
     setTimeout(()=>{
         const msgInput=document.getElementById('msg-in');
         if(msgInput&&msgInput.parentElement){
@@ -5039,7 +5112,7 @@ async function openChat(meId,themId){
             msgInput.parentElement.appendChild(picker);
         }
     },100);
-    // Phase 1 v1.8.0: Conversation starters for empty chats
+    // Phase 1 v1.9.0: Conversation starters for empty chats
     loadConversationStarters(themId,md.messages.length);
 }
 
@@ -5190,7 +5263,7 @@ function showStoryOverlay(stories,idx,profileId,profileName,profilePhoto){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.8.0: Unread Badge Counts ───
+// ─── Phase 1 v1.9.0: Unread Badge Counts ───
 // ══════════════════════════════════════════════════════
 let _unreadCounts={total:0,per_conversation:{}};
 let _unreadInterval=null;
@@ -5231,7 +5304,7 @@ function updateUnreadBadges(){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.8.0: Emoji Picker ───
+// ─── Phase 1 v1.9.0: Emoji Picker ───
 // ══════════════════════════════════════════════════════
 const EMOJI_LIST=['😀','😂','🥰','😍','😊','😎','🤔','😅','😭','🥺','❤️','🔥','👍','👎','🎉','✨','💯','🙏','😘','🤗','😤','😱','🤣','💀','👀','🙌','💕','😏','🥳','😴','🤷','👋','💪','🌟','🎵','☕','🍕','🌈','⭐','💬'];
 
@@ -5267,7 +5340,7 @@ function createEmojiPicker(inputId){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.8.0: Conversation Starters ───
+// ─── Phase 1 v1.9.0: Conversation Starters ───
 // ══════════════════════════════════════════════════════
 async function loadConversationStarters(partnerId,messagesLen){
     if(messagesLen!==0)return;
@@ -5301,7 +5374,7 @@ async function useStarter(starterId,text,partnerId){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.8.0: Availability Status ───
+// ─── Phase 1 v1.9.0: Availability Status ───
 // ══════════════════════════════════════════════════════
 async function updateAvailability(){
     const sel=document.getElementById('availability-select');
@@ -5328,7 +5401,7 @@ async function loadAvailability(){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.8.0: Announcement Banner ───
+// ─── Phase 1 v1.9.0: Announcement Banner ───
 // ══════════════════════════════════════════════════════
 async function loadAnnouncements(){
     try{
@@ -5371,13 +5444,13 @@ async function init(){
     if(activeProfile){
         disconnectWS();
         connectWSEnhanced();
-        // Phase 1 v1.8.0: Start unread count polling
+        // Phase 1 v1.9.0: Start unread count polling
         pollUnreadCounts();
         if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
-        // Phase 1 v1.8.0: Load availability
+        // Phase 1 v1.9.0: Load availability
         loadAvailability();
     }
-    // Phase 1 v1.8.0: Load announcements
+    // Phase 1 v1.9.0: Load announcements
     if(authToken)loadAnnouncements();
 }
 
@@ -5389,6 +5462,211 @@ if(safeGet('kindred_token','')&&!safeGet('kindred_onboarded','')){
 // Load locale from storage
 const _savedLocale=safeGet('kindred_locale','');
 if(_savedLocale&&_savedLocale!=='en')loadTranslations(_savedLocale);
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 2: Swipe Gestures on Discover Cards ───
+// ══════════════════════════════════════════════════════
+(function initSwipeGestures(){
+    let _swipeCard=null,_swipeStartX=0,_swipeStartY=0,_swipeDelta=0,_swiping=false;
+    const SWIPE_THRESHOLD=80;
+    document.addEventListener('touchstart',function(e){
+        const card=e.target.closest('.search-card');
+        if(!card)return;
+        _swipeCard=card;_swipeStartX=e.touches[0].clientX;_swipeStartY=e.touches[0].clientY;_swipeDelta=0;_swiping=false;
+    },{passive:true});
+    document.addEventListener('touchmove',function(e){
+        if(!_swipeCard)return;
+        const dx=e.touches[0].clientX-_swipeStartX;
+        const dy=e.touches[0].clientY-_swipeStartY;
+        if(!_swiping&&Math.abs(dy)>Math.abs(dx))return; // vertical scroll
+        _swiping=true;_swipeDelta=dx;
+        _swipeCard.classList.remove('swiping-left','swiping-right');
+        if(dx<-30)_swipeCard.classList.add('swiping-left');
+        else if(dx>30)_swipeCard.classList.add('swiping-right');
+        _swipeCard.style.transform='translateX('+dx+'px) rotate('+(dx*0.05)+'deg)';
+        _swipeCard.style.opacity=Math.max(0.4,1-Math.abs(dx)/250);
+    },{passive:true});
+    document.addEventListener('touchend',function(e){
+        if(!_swipeCard)return;
+        const card=_swipeCard;
+        const delta=_swipeDelta;
+        _swipeCard=null;_swipeDelta=0;_swiping=false;
+        card.classList.remove('swiping-left','swiping-right');
+        if(Math.abs(delta)>=SWIPE_THRESHOLD){
+            const profileId=card.getAttribute('onclick')?.match(/viewProfilePage\('([^']+)'\)/)?.[1];
+            if(delta>0){
+                // Swipe right = like
+                card.classList.add('swipe-dismiss-right');
+                if(profileId)setTimeout(()=>superLike(profileId),150);
+            } else {
+                // Swipe left = pass
+                card.classList.add('swipe-dismiss-left');
+            }
+            setTimeout(()=>{card.style.display='none';},350);
+        } else {
+            card.style.transform='';card.style.opacity='';
+        }
+    },{passive:true});
+})();
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 2: Infinite Scroll for Activity Feed ───
+// ══════════════════════════════════════════════════════
+let _feedOffset=0,_feedLoading=false,_feedDone=false,_feedObserver=null;
+const _origLoadActivityFeed=loadActivityFeed;
+async function loadActivityFeed(){
+    _feedOffset=0;_feedDone=false;_feedLoading=false;
+    if(_feedObserver){_feedObserver.disconnect();_feedObserver=null;}
+    await _origLoadActivityFeed();
+    const el=document.getElementById('activity-list');
+    if(!el)return;
+    // Count initial items to set offset
+    const items=el.querySelectorAll('.activity-item');
+    _feedOffset=items.length;
+    if(_feedOffset<20)_feedDone=true; // less than full page means no more
+    // Add sentinel
+    const sentinel=document.createElement('div');
+    sentinel.className='feed-scroll-sentinel';
+    sentinel.id='feed-sentinel';
+    el.appendChild(sentinel);
+    // Setup IntersectionObserver
+    _feedObserver=new IntersectionObserver(async(entries)=>{
+        if(!entries[0].isIntersecting||_feedLoading||_feedDone)return;
+        _feedLoading=true;
+        sentinel.innerHTML='<div class="feed-load-spinner"></div>';
+        try{
+            const r=await fetch(API+'/api/feed?offset='+_feedOffset+'&limit=20');
+            const d=await r.json();
+            const items=d.activity||d.feed||[];
+            if(items.length<20)_feedDone=true;
+            if(items.length){
+                const frag=document.createDocumentFragment();
+                for(const a of items){
+                    const actionText={'created_profile':'created a profile','joined_group':'joined a group','created_group':'created a group','created_event':'created an event','posted_status':'posted a status','added_friend':'made a new friend','liked_profile':'liked a profile','posted_blog':'wrote a blog post'}[a.action]||a.action;
+                    const div=document.createElement('div');
+                    div.className='activity-item';
+                    div.innerHTML=`${a.photo?'<img src="/uploads/'+a.photo+'">':'<div style="width:32px;height:32px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--overlay0);font-size:12px;flex-shrink:0">?</div>'}
+                        <div class="ai-text"><strong>${escHtml(a.name)}</strong> ${actionText}${a.detail?' &mdash; '+escHtml(a.detail):''}</div>
+                        <span class="ai-time">${timeAgo(a.created_at)}</span>`;
+                    frag.appendChild(div);
+                }
+                el.insertBefore(frag,sentinel);
+                _feedOffset+=items.length;
+            }
+        }catch(e){}
+        sentinel.innerHTML='';
+        _feedLoading=false;
+    },{rootMargin:'200px'});
+    _feedObserver.observe(sentinel);
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 2: Pull-to-Refresh ───
+// ══════════════════════════════════════════════════════
+(function initPullToRefresh(){
+    let _pullStart=0,_pulling=false,_pullDist=0;
+    const PULL_THRESHOLD=60;
+    const isTouchDevice=()=>'ontouchstart' in window;
+    // Create indicator once
+    const indicator=document.createElement('div');
+    indicator.className='pull-indicator';
+    indicator.innerHTML='<div class="pull-spinner"></div><span class="pull-text">Pull to refresh</span>';
+    document.body.appendChild(indicator);
+    document.addEventListener('touchstart',function(e){
+        if(!isTouchDevice())return;
+        const app=document.getElementById('app');
+        if(!app)return;
+        // Only activate at scroll top
+        if(window.scrollY>0&&document.documentElement.scrollTop>0)return;
+        _pullStart=e.touches[0].clientY;_pulling=true;_pullDist=0;
+    },{passive:true});
+    document.addEventListener('touchmove',function(e){
+        if(!_pulling)return;
+        if(window.scrollY>0){_pulling=false;return;}
+        const dy=e.touches[0].clientY-_pullStart;
+        if(dy<0){_pulling=false;return;}
+        _pullDist=dy;
+        if(dy>20){
+            indicator.classList.add('visible');
+            indicator.querySelector('.pull-text').textContent=dy>PULL_THRESHOLD?'Release to refresh':'Pull to refresh';
+        }
+    },{passive:true});
+    document.addEventListener('touchend',function(){
+        if(!_pulling){indicator.classList.remove('visible');return;}
+        if(_pullDist>=PULL_THRESHOLD){
+            indicator.querySelector('.pull-text').textContent='Refreshing...';
+            indicator.classList.add('refreshing');
+            // Determine current tab and refresh
+            const activeTab=document.querySelector('.nav-tab.active');
+            const view=activeTab?.dataset?.v||'feed';
+            setTimeout(()=>{
+                showView(view);
+                indicator.classList.remove('visible','refreshing');
+            },600);
+        } else {
+            indicator.classList.remove('visible');
+        }
+        _pulling=false;_pullDist=0;
+    },{passive:true});
+})();
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 2: Dealbreaker Quiz UI ───
+// ══════════════════════════════════════════════════════
+async function loadDealbreakerQuiz(targetId,containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div>Comparing dealbreakers...</div>';
+    try{
+        const r=await authFetch(API+'/api/dealbreaker-quiz/'+targetId);
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        let html='<div class="db-quiz-modal"><h3>Dealbreaker Comparison</h3>';
+        // Shared
+        if(d.shared&&d.shared.length){
+            html+='<div style="font-size:12px;color:var(--overlay0);margin-bottom:6px;font-weight:500">Shared Values</div>';
+            for(const item of d.shared)html+='<div class="db-shared">'+escHtml(item)+'</div>';
+        }
+        // Conflicts
+        if(d.conflicts&&d.conflicts.length){
+            html+='<div style="font-size:12px;color:var(--overlay0);margin:12px 0 6px;font-weight:500">Conflicts</div>';
+            for(const item of d.conflicts)html+='<div class="db-conflict">'+escHtml(typeof item==='string'?item:item.description||JSON.stringify(item))+'</div>';
+        }
+        // Unique to user
+        if(d.unique_to_you&&d.unique_to_you.length){
+            html+='<div style="font-size:12px;color:var(--overlay0);margin:12px 0 6px;font-weight:500">Your Dealbreakers Only</div>';
+            for(const item of d.unique_to_you)html+='<div class="db-unique">'+escHtml(item)+'<span class="db-owner">You</span></div>';
+        }
+        // Unique to them
+        if(d.unique_to_them&&d.unique_to_them.length){
+            html+='<div style="font-size:12px;color:var(--overlay0);margin:12px 0 6px;font-weight:500">Their Dealbreakers Only</div>';
+            for(const item of d.unique_to_them)html+='<div class="db-unique">'+escHtml(item)+'<span class="db-owner">Them</span></div>';
+        }
+        if(!d.shared?.length&&!d.conflicts?.length&&!d.unique_to_you?.length&&!d.unique_to_them?.length){
+            html+='<div style="color:var(--overlay0);font-size:13px;padding:12px;text-align:center">No dealbreaker data available yet.</div>';
+        }
+        html+='</div>';
+        el.innerHTML=html;
+    }catch(e){
+        el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:8px">Could not load dealbreaker comparison.</div>';
+    }
+}
+
+// ── Patch showDetail to inject Dealbreaker Quiz button ──
+const _origShowDetail=showDetail;
+async function showDetail(a,b){
+    await _origShowDetail(a,b);
+    // Find the breakdown section and add Compare Dealbreakers button after it
+    const app=document.getElementById('app');
+    if(!app)return;
+    const breakdownEl=app.querySelector('.breakdown');
+    if(breakdownEl){
+        const dbBtnDiv=document.createElement('div');
+        dbBtnDiv.style.cssText='margin-top:12px;text-align:center;';
+        dbBtnDiv.innerHTML='<button class="btn btn-secondary" style="font-size:13px;padding:8px 16px" onclick="this.disabled=true;this.textContent=\'Loading...\';loadDealbreakerQuiz(\''+b+'\',\'db-quiz-result-'+b+'\')">Compare Dealbreakers</button><div id="db-quiz-result-'+b+'"></div>';
+        breakdownEl.parentElement.appendChild(dbBtnDiv);
+    }
+}
 </script>
 </body>
 </html>

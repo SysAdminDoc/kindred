@@ -1,5 +1,5 @@
 """
-Kindred v1.8.0 - Database Layer
+Kindred v1.9.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -954,7 +954,7 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v1.8.0
+        # v1.9.0
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
     ]
@@ -5040,3 +5040,92 @@ def deactivate_announcement(ann_id: str) -> bool:
 def get_total_date_feedback_count() -> int:
     conn = get_db()
     return conn.execute("SELECT COUNT(*) FROM date_feedback").fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Dealbreaker Quiz Comparison
+# ---------------------------------------------------------------------------
+
+def get_dealbreaker_comparison(profile_id_1: str, profile_id_2: str) -> dict:
+    """Compare dealbreaker answers between two profiles."""
+    conn = get_db()
+    p1 = conn.execute("SELECT dealbreakers FROM profiles WHERE id=?", (profile_id_1,)).fetchone()
+    p2 = conn.execute("SELECT dealbreakers FROM profiles WHERE id=?", (profile_id_2,)).fetchone()
+
+    try:
+        d1 = json.loads(p1["dealbreakers"]) if p1 and p1["dealbreakers"] else []
+        d2 = json.loads(p2["dealbreakers"]) if p2 and p2["dealbreakers"] else []
+    except (json.JSONDecodeError, TypeError):
+        d1, d2 = [], []
+
+    set1 = set(d1) if isinstance(d1, list) else set()
+    set2 = set(d2) if isinstance(d2, list) else set()
+
+    shared = [
+        {"question": item, "answer_1": item, "answer_2": item}
+        for item in sorted(set1 & set2)
+    ]
+    conflicts = []  # Both flagged same topic — already captured in shared
+    profile_1_only = [
+        {"question": item, "answer_1": item, "answer_2": None}
+        for item in sorted(set1 - set2)
+    ]
+    profile_2_only = [
+        {"question": item, "answer_1": None, "answer_2": item}
+        for item in sorted(set2 - set1)
+    ]
+
+    return {
+        "shared": shared,
+        "conflicts": conflicts,
+        "profile_1_only": profile_1_only,
+        "profile_2_only": profile_2_only,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Paginated Feed & Conversations
+# ---------------------------------------------------------------------------
+
+def get_activity_feed_paginated(profile_id: str, offset: int = 0,
+                                limit: int = 20) -> list[dict]:
+    """Get activity feed with LIMIT/OFFSET pagination."""
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT a.*, p.name, p.photo FROM activity_feed a
+           JOIN profiles p ON p.id = a.profile_id
+           WHERE a.profile_id IN (
+               SELECT friend_id FROM profile_friends
+               WHERE profile_id=? AND status='accepted'
+           ) OR a.profile_id=?
+           ORDER BY a.created_at DESC LIMIT ? OFFSET ?""",
+        (profile_id, profile_id, limit, offset)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_conversations_paginated(profile_id: str, offset: int = 0,
+                                limit: int = 20) -> list[dict]:
+    """Get conversations list with LIMIT/OFFSET pagination."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT m.content as last_message, m.from_id as last_sender,
+               m.created_at as last_time, latest.partner_id,
+               (SELECT COUNT(*) FROM messages
+                WHERE from_id=latest.partner_id AND to_id=? AND read=0) as unread
+        FROM messages m
+        INNER JOIN (
+            SELECT
+                CASE WHEN from_id=? THEN to_id ELSE from_id END as partner_id,
+                MAX(created_at) as max_created
+            FROM messages WHERE from_id=? OR to_id=?
+            GROUP BY partner_id
+        ) latest ON (
+            ((m.from_id=? AND m.to_id=latest.partner_id) OR (m.from_id=latest.partner_id AND m.to_id=?))
+            AND m.created_at = latest.max_created
+        )
+        ORDER BY m.created_at DESC
+        LIMIT ? OFFSET ?
+    """, (profile_id, profile_id, profile_id, profile_id,
+          profile_id, profile_id, limit, offset)).fetchall()
+    return [dict(r) for r in rows]

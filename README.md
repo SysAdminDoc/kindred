@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-1.8.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.9.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -83,6 +83,13 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Availability status (active/away/busy/offline with profile badges)
 - Announcement banners (platform-wide dismissible notices)
 - Link preview scanning (suspicious URL warnings)
+- Swipe gestures on discover cards (touch left/right for pass/like)
+- Infinite scroll with lazy loading for activity feed
+- Image lightbox (full-screen photo viewer with pinch-zoom)
+- Pull-to-refresh on mobile
+- Onboarding progress bar during questionnaire
+- Skeleton shimmer loading placeholders
+- Dealbreaker quiz comparison between matches
 
 **Trust & Safety**
 - Two-factor authentication (TOTP) with recovery codes

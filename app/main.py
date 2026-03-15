@@ -1,5 +1,5 @@
 """
-Kindred v1.8.0 - FastAPI Backend (User Server)
+Kindred v1.9.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -123,6 +123,9 @@ from app.database import (
     submit_date_feedback, get_date_feedback, get_feedback_stats,
     get_unread_counts,
     get_active_announcements,
+    get_dealbreaker_comparison,
+    get_activity_feed_paginated,
+    get_conversations_paginated,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -142,7 +145,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="1.8.0")
+app = FastAPI(title="Kindred", version="1.9.0")
 
 # CORS middleware
 app.add_middleware(
@@ -2355,7 +2358,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "1.8.0",
+        "version": "1.9.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -3229,6 +3232,42 @@ async def get_my_unread_counts(user: dict = Depends(require_user)):
 @app.get("/api/announcements")
 async def get_announcements():
     return get_active_announcements()
+
+
+# ---------------------------------------------------------------------------
+# Dealbreaker Quiz Comparison
+# ---------------------------------------------------------------------------
+
+@app.get("/api/dealbreaker-quiz/{target_id}")
+def dealbreaker_quiz(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    return get_dealbreaker_comparison(profile_id, target_id)
+
+
+# ---------------------------------------------------------------------------
+# Paginated Feed & Conversations
+# ---------------------------------------------------------------------------
+
+@app.get("/api/feed")
+def paginated_feed(offset: int = 0, limit: int = 20,
+                   user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    limit = min(limit, 100)
+    return get_activity_feed_paginated(profile_id, offset=offset, limit=limit)
+
+
+@app.get("/api/conversations-paginated")
+def paginated_conversations(offset: int = 0, limit: int = 20,
+                            user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    limit = min(limit, 100)
+    return get_conversations_paginated(profile_id, offset=offset, limit=limit)
 
 
 # ---------------------------------------------------------------------------

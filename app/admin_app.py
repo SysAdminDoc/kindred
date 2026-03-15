@@ -1,5 +1,5 @@
 """
-Kindred v1.8.0 - Admin Server
+Kindred v1.9.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -55,7 +55,7 @@ from app.database import (
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="1.8.0")
+admin_app = FastAPI(title="Kindred Admin", version="1.9.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -368,7 +368,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "1.8.0",
+        "version": "1.9.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
