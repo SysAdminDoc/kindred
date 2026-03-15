@@ -1,5 +1,5 @@
 """
-Kindred v1.9.0 - Database Layer
+Kindred v2.0.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -891,6 +891,52 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS compatibility_history (
+            id TEXT PRIMARY KEY,
+            profile_id_1 TEXT NOT NULL,
+            profile_id_2 TEXT NOT NULL,
+            overall_score REAL,
+            dimension_scores TEXT,
+            recorded_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(profile_id_1, profile_id_2, recorded_at)
+        );
+
+        CREATE TABLE IF NOT EXISTS endorsements (
+            id TEXT PRIMARY KEY,
+            endorser_id TEXT NOT NULL,
+            endorsed_id TEXT NOT NULL,
+            trait TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(endorser_id, endorsed_id, trait)
+        );
+
+        CREATE TABLE IF NOT EXISTS group_post_reactions (
+            id TEXT PRIMARY KEY,
+            post_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            emoji TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(post_id, profile_id, emoji)
+        );
+
+        CREATE TABLE IF NOT EXISTS event_messages (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL,
+            sender_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_event_messages_event ON event_messages(event_id);
+
+        CREATE TABLE IF NOT EXISTS profile_reveal_stages (
+            id TEXT PRIMARY KEY,
+            viewer_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            stage INTEGER DEFAULT 0,
+            unlocked_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(viewer_id, target_id)
+        );
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -954,9 +1000,11 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v1.9.0
+        # v2.0.0
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
+        # Phase 3
+        "ALTER TABLE notification_preferences ADD COLUMN read_receipts_enabled INTEGER DEFAULT 1",
     ]
     for sql in migrations:
         try:
@@ -5129,3 +5177,271 @@ def get_conversations_paginated(profile_id: str, offset: int = 0,
     """, (profile_id, profile_id, profile_id, profile_id,
           profile_id, profile_id, limit, offset)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Compatibility History
+# ---------------------------------------------------------------------------
+
+def record_compatibility_snapshot(pid1: str, pid2: str, overall: float,
+                                  dimensions_json: str) -> str:
+    conn = get_db()
+    rec_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO compatibility_history
+           (id, profile_id_1, profile_id_2, overall_score, dimension_scores)
+           VALUES (?, ?, ?, ?, ?)""",
+        (rec_id, pid1, pid2, overall, dimensions_json),
+    )
+    conn.commit()
+    return rec_id
+
+
+def get_compatibility_history(pid1: str, pid2: str,
+                               limit: int = 10) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT * FROM compatibility_history
+           WHERE (profile_id_1=? AND profile_id_2=?)
+              OR (profile_id_1=? AND profile_id_2=?)
+           ORDER BY recorded_at DESC LIMIT ?""",
+        (pid1, pid2, pid2, pid1, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Endorsements
+# ---------------------------------------------------------------------------
+
+def add_endorsement(endorser_id: str, endorsed_id: str, trait: str) -> str:
+    conn = get_db()
+    eid = uuid.uuid4().hex
+    conn.execute(
+        """INSERT OR IGNORE INTO endorsements (id, endorser_id, endorsed_id, trait)
+           VALUES (?, ?, ?, ?)""",
+        (eid, endorser_id, endorsed_id, trait),
+    )
+    conn.commit()
+    return eid
+
+
+def get_endorsements(profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT trait, COUNT(*) as count
+           FROM endorsements WHERE endorsed_id=?
+           GROUP BY trait ORDER BY count DESC""",
+        (profile_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_endorsement_count(profile_id: str) -> int:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM endorsements WHERE endorsed_id=?",
+        (profile_id,),
+    ).fetchone()
+    return row["cnt"] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# Group Post Reactions
+# ---------------------------------------------------------------------------
+
+def add_group_post_reaction(post_id: str, profile_id: str, emoji: str) -> str:
+    conn = get_db()
+    rid = uuid.uuid4().hex
+    conn.execute(
+        """INSERT OR IGNORE INTO group_post_reactions (id, post_id, profile_id, emoji)
+           VALUES (?, ?, ?, ?)""",
+        (rid, post_id, profile_id, emoji),
+    )
+    conn.commit()
+    return rid
+
+
+def remove_group_post_reaction(post_id: str, profile_id: str, emoji: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "DELETE FROM group_post_reactions WHERE post_id=? AND profile_id=? AND emoji=?",
+        (post_id, profile_id, emoji),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_group_post_reactions(post_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT emoji, profile_id, created_at FROM group_post_reactions WHERE post_id=?",
+        (post_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Event Messages
+# ---------------------------------------------------------------------------
+
+def send_event_message(event_id: str, sender_id: str, content: str) -> str:
+    conn = get_db()
+    msg_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO event_messages (id, event_id, sender_id, content) VALUES (?, ?, ?, ?)",
+        (msg_id, event_id, sender_id, content),
+    )
+    conn.commit()
+    return msg_id
+
+
+def get_event_messages(event_id: str, limit: int = 50,
+                        offset: int = 0) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT em.*, p.name as sender_name, p.photo as sender_photo
+           FROM event_messages em
+           JOIN profiles p ON p.id = em.sender_id
+           WHERE em.event_id=?
+           ORDER BY em.created_at ASC LIMIT ? OFFSET ?""",
+        (event_id, limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Read Receipts Toggle
+# ---------------------------------------------------------------------------
+
+def set_read_receipts_enabled(profile_id: str, enabled: bool) -> None:
+    conn = get_db()
+    val = 1 if enabled else 0
+    conn.execute(
+        """INSERT INTO notification_preferences (user_id, read_receipts_enabled)
+           VALUES (?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET read_receipts_enabled=excluded.read_receipts_enabled""",
+        (profile_id, val),
+    )
+    conn.commit()
+
+
+def get_read_receipts_enabled(profile_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT read_receipts_enabled FROM notification_preferences WHERE user_id=?",
+        (profile_id,),
+    ).fetchone()
+    if not row:
+        return True
+    val = row["read_receipts_enabled"]
+    return bool(val) if val is not None else True
+
+
+# ---------------------------------------------------------------------------
+# Slow Reveal
+# ---------------------------------------------------------------------------
+
+def get_reveal_stage(viewer_id: str, target_id: str) -> int:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT stage FROM profile_reveal_stages WHERE viewer_id=? AND target_id=?",
+        (viewer_id, target_id),
+    ).fetchone()
+    return row["stage"] if row else 0
+
+
+def advance_reveal_stage(viewer_id: str, target_id: str) -> int:
+    conn = get_db()
+    current = get_reveal_stage(viewer_id, target_id)
+    if current >= 3:
+        return 3
+    new_stage = current + 1
+    rid = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO profile_reveal_stages (id, viewer_id, target_id, stage)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(viewer_id, target_id) DO UPDATE SET stage=excluded.stage,
+           unlocked_at=datetime('now')""",
+        (rid, viewer_id, target_id, new_stage),
+    )
+    conn.commit()
+    return new_stage
+
+
+def get_revealed_profile(target_id: str, stage: int) -> dict:
+    profile = get_profile(target_id)
+    if not profile:
+        return {}
+    # Stage 0: name, age, bio only
+    base = {"id": profile["id"], "name": profile["name"], "age": profile.get("age")}
+    bio = profile.get("about_me") or profile.get("headline") or ""
+    base["bio"] = bio
+    if stage < 1:
+        return base
+    # Stage 1: + interests, prompts
+    base["interests"] = profile.get("interests")
+    base["open_ended"] = profile.get("open_ended", {})
+    prompts = get_profile_prompts(target_id)
+    base["prompts"] = prompts
+    if stage < 2:
+        return base
+    # Stage 2: + photos
+    base["photo"] = profile.get("photo")
+    photos = get_photos(target_id)
+    base["photos"] = photos
+    if stage < 3:
+        return base
+    # Stage 3: full profile
+    return profile
+
+
+# ---------------------------------------------------------------------------
+# Shared Interests
+# ---------------------------------------------------------------------------
+
+def get_shared_interests(pid1: str, pid2: str) -> dict:
+    conn = get_db()
+    p1 = conn.execute("SELECT interests FROM profiles WHERE id=?", (pid1,)).fetchone()
+    p2 = conn.execute("SELECT interests FROM profiles WHERE id=?", (pid2,)).fetchone()
+    if not p1 or not p2:
+        return {"shared": [], "unique_1": [], "unique_2": []}
+    try:
+        i1_raw = p1["interests"] or ""
+        i2_raw = p2["interests"] or ""
+        # Interests may be JSON array or comma-separated string
+        try:
+            i1 = set(json.loads(i1_raw)) if i1_raw.startswith("[") else set(
+                s.strip() for s in i1_raw.split(",") if s.strip())
+        except (json.JSONDecodeError, TypeError):
+            i1 = set(s.strip() for s in i1_raw.split(",") if s.strip())
+        try:
+            i2 = set(json.loads(i2_raw)) if i2_raw.startswith("[") else set(
+                s.strip() for s in i2_raw.split(",") if s.strip())
+        except (json.JSONDecodeError, TypeError):
+            i2 = set(s.strip() for s in i2_raw.split(",") if s.strip())
+    except Exception:
+        return {"shared": [], "unique_1": [], "unique_2": []}
+    return {
+        "shared": sorted(i1 & i2),
+        "unique_1": sorted(i1 - i2),
+        "unique_2": sorted(i2 - i1),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Notification Digest
+# ---------------------------------------------------------------------------
+
+def get_notification_digest(profile_id: str, since_hours: int = 24) -> dict:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT type, COUNT(*) as count FROM notifications
+           WHERE user_id=? AND read=0
+             AND created_at >= datetime('now', '-' || ? || ' hours')
+           GROUP BY type""",
+        (profile_id, since_hours),
+    ).fetchall()
+    summary = {r["type"]: r["count"] for r in rows}
+    total = sum(summary.values())
+    return {"total_unread": total, "by_type": summary, "since_hours": since_hours}

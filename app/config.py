@@ -1,5 +1,5 @@
 """
-Kindred v1.9.0 - Configuration
+Kindred v2.0.0 - Configuration
 Loads settings from environment variables or .env file.
 """
 

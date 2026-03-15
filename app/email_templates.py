@@ -1,5 +1,5 @@
 """
-Kindred v1.9.0 - HTML Email Templates
+Kindred v2.0.0 - HTML Email Templates
 Templates for verification, password reset, match notifications.
 """
 

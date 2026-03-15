@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v1.9.0 - Find Your Match</title>
+<title>Kindred v2.0.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -950,12 +950,12 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .link-safe { display:inline-flex; align-items:center; gap:3px; background:rgba(166,227,161,.1); border:1px solid var(--green); border-radius:4px; padding:1px 5px; font-size:11px; color:var(--green); }
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v1.9.0 — Unread Badge Counts
+   Phase 1 v2.0.0 — Unread Badge Counts
    ═══════════════════════════════════════════════════ */
 .tab-badge{position:absolute;top:-4px;right:-4px;background:var(--red);color:var(--base);font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v1.9.0 — Emoji Picker
+   Phase 1 v2.0.0 — Emoji Picker
    ═══════════════════════════════════════════════════ */
 .emoji-picker-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;opacity:0.7;transition:opacity 0.2s}
 .emoji-picker-btn:hover{opacity:1}
@@ -965,7 +965,7 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .emoji-picker-popup button:hover{background:var(--surface2)}
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v1.9.0 — Announcement Banner
+   Phase 1 v2.0.0 — Announcement Banner
    ═══════════════════════════════════════════════════ */
 .announcement-banner{background:var(--surface0);border-left:4px solid var(--blue);padding:10px 16px;margin-bottom:12px;border-radius:0 var(--radius) var(--radius) 0;display:flex;align-items:center;gap:10px}
 .announcement-banner.warning{border-left-color:var(--yellow)}
@@ -1033,12 +1033,74 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .db-conflict::before{content:'\\2717';color:var(--red);font-weight:700;font-size:16px;}
 .db-unique{border-left:3px solid var(--surface2);padding:10px 14px;margin-bottom:8px;background:var(--mantle);border-radius:0 8px 8px 0;font-size:14px;color:var(--subtext0);}
 .db-unique .db-owner{font-size:11px;color:var(--overlay0);margin-left:auto;}
+
+/* ═══════════════════════════════════════════════════
+   Phase 3 — Compatibility Over Time Chart
+   ═══════════════════════════════════════════════════ */
+.compat-history-card{background:var(--surface0);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+.compat-chart{width:100%;height:150px;}
+
+/* ═══════════════════════════════════════════════════
+   Phase 3 — Profile Endorsements
+   ═══════════════════════════════════════════════════ */
+.endorsement-pill{display:inline-block;background:var(--surface1);border:1px solid var(--surface2);border-radius:16px;padding:4px 12px;margin:4px;font-size:13px;}
+.endorsement-pill .endorse-count{font-weight:700;color:var(--accent,var(--mauve));margin-left:4px;}
+.endorse-btn{background:var(--surface0);border:1px solid var(--surface1);border-radius:var(--radius);padding:6px 14px;cursor:pointer;color:var(--subtext0);font-size:13px;transition:all .2s;}
+.endorse-btn:hover{background:var(--surface1);color:var(--text);}
+.endorse-dropdown{position:absolute;background:var(--surface0);border:1px solid var(--surface2);border-radius:var(--radius);padding:6px;z-index:100;box-shadow:var(--shadow);display:none;}
+.endorse-dropdown.show{display:block;}
+.endorse-dropdown button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:6px 10px;cursor:pointer;font-size:13px;border-radius:6px;}
+.endorse-dropdown button:hover{background:var(--surface1);}
+
+/* ═══════════════════════════════════════════════════
+   Phase 3 — Shared Interests Tags
+   ═══════════════════════════════════════════════════ */
+.interest-tag{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;margin:3px;}
+.interest-shared{background:rgba(166,227,161,0.2);color:var(--green);border:1px solid var(--green);}
+.interest-unique{background:var(--surface1);color:var(--subtext0);}
+
+/* ═══════════════════════════════════════════════════
+   Phase 3 — Group Post Reactions
+   ═══════════════════════════════════════════════════ */
+.gp-reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;}
+.gp-reaction{background:var(--surface1);border:1px solid var(--surface2);border-radius:12px;padding:2px 8px;font-size:13px;cursor:pointer;transition:all .2s;}
+.gp-reaction:hover{background:var(--surface2);}
+.gp-reaction.active{border-color:var(--mauve);background:rgba(203,166,247,0.15);}
+.gp-react-add{background:var(--surface0);border:1px solid var(--surface1);border-radius:12px;padding:2px 8px;font-size:13px;cursor:pointer;color:var(--overlay0);transition:all .2s;}
+.gp-react-add:hover{background:var(--surface1);}
+
+/* ═══════════════════════════════════════════════════
+   Phase 3 — Event Chat
+   ═══════════════════════════════════════════════════ */
+.event-chat{max-height:300px;overflow-y:auto;background:var(--base);border-radius:var(--radius);padding:8px;}
+.event-msg{margin-bottom:6px;}
+.event-msg-sender{font-weight:600;font-size:12px;color:var(--mauve);}
+.event-msg-text{font-size:13px;}
+.event-msg-time{font-size:11px;color:var(--overlay0);}
+.event-chat-toggle{display:inline-flex;gap:4px;margin-bottom:12px;}
+.event-chat-toggle button{background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);padding:6px 14px;border-radius:var(--radius);cursor:pointer;font-size:13px;transition:all .2s;}
+.event-chat-toggle button.active{background:var(--mauve);color:var(--crust);border-color:var(--mauve);font-weight:600;}
+
+/* ═══════════════════════════════════════════════════
+   Phase 3 — Smart Notification Digest
+   ═══════════════════════════════════════════════════ */
+.digest-card{background:var(--surface0);border-radius:var(--radius);padding:12px;margin-bottom:8px;}
+.digest-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;}
+.digest-count{font-weight:700;color:var(--mauve);}
+
+/* ═══════════════════════════════════════════════════
+   Phase 3 — Slow Reveal Profiles
+   ═══════════════════════════════════════════════════ */
+.reveal-locked{filter:blur(8px);pointer-events:none;}
+.reveal-btn{background:linear-gradient(135deg,var(--mauve),var(--pink));color:var(--base);border:none;border-radius:var(--radius);padding:8px 16px;cursor:pointer;font-weight:600;transition:opacity .2s;}
+.reveal-btn:hover{opacity:0.9;}
+.reveal-stage{font-size:11px;color:var(--overlay0);margin-bottom:8px;}
 </style>
 </head>
 <body>
 <script>try{if(localStorage.getItem('kindred_theme')==='latte')document.body.classList.add('theme-latte')}catch(e){}</script>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.9.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.0.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0" aria-label="Toggle theme">&#9790;</button>
         <div id="ws-status-dot" title="Connected" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s" aria-label="Connection status"></div>
@@ -1312,10 +1374,13 @@ async function toggleNotifications(){
     await authFetch(API+'/api/notifications/read',{method:'POST'});
     document.getElementById('notif-count').style.display='none';
     const notifs=window._notifData||[];
-    if(!notifs.length){ panel.innerHTML='<div style="text-align:center;color:var(--overlay0);padding:20px;font-size:13px">No notifications</div>'; }
+    // Digest section at top
+    let panelHtml='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:14px;font-weight:600;color:var(--lavender)">Notifications</span><button style="background:var(--surface0);border:1px solid var(--surface1);border-radius:var(--radius);padding:4px 10px;cursor:pointer;color:var(--subtext0);font-size:12px" onclick="document.getElementById(\'notif-digest-area\').style.display=document.getElementById(\'notif-digest-area\').style.display===\'none\'?\'block\':\'none\';loadNotificationDigest()">Digest</button></div><div id="notif-digest-area" style="display:none"></div>';
+    if(!notifs.length){ panelHtml+='<div style="text-align:center;color:var(--overlay0);padding:20px;font-size:13px">No notifications</div>'; }
     else {
-        panel.innerHTML=notifs.slice(0,20).map(n=>`<div style="padding:10px;border-bottom:1px solid var(--surface0);cursor:pointer;opacity:${n.read?'0.6':'1'}" onclick="handleNotifClick('${n.link||''}')"><div style="font-size:13px;font-weight:${n.read?'400':'600'};color:var(--text)">${escHtml(n.title)}</div>${n.body?`<div style="font-size:12px;color:var(--overlay0);margin-top:2px">${escHtml(n.body).slice(0,80)}</div>`:''}<div style="font-size:10px;color:var(--surface2);margin-top:4px">${new Date(n.created_at).toLocaleString()}</div></div>`).join('');
+        panelHtml+=notifs.slice(0,20).map(n=>`<div style="padding:10px;border-bottom:1px solid var(--surface0);cursor:pointer;opacity:${n.read?'0.6':'1'}" onclick="handleNotifClick('${n.link||''}')"><div style="font-size:13px;font-weight:${n.read?'400':'600'};color:var(--text)">${escHtml(n.title)}</div>${n.body?`<div style="font-size:12px;color:var(--overlay0);margin-top:2px">${escHtml(n.body).slice(0,80)}</div>`:''}<div style="font-size:10px;color:var(--surface2);margin-top:4px">${new Date(n.created_at).toLocaleString()}</div></div>`).join('');
     }
+    panel.innerHTML=panelHtml;
     panel.style.display='block';
     // Close on outside click
     setTimeout(()=>document.addEventListener('click',closeNotifPanel,{once:true}),10);
@@ -1365,7 +1430,7 @@ function loginAs(id){
     showView('myprofile');
     if(authToken) pollNotifications();
     connectWS();
-    // Phase 1 v1.9.0: Start unread polling + announcements + availability
+    // Phase 1 v2.0.0: Start unread polling + announcements + availability
     pollUnreadCounts();
     if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
     loadAnnouncements();
@@ -1858,6 +1923,8 @@ async function viewProfilePage(pid,viewer){
                 <div style="padding:12px 0"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="notif-sounds-toggle" ${_notifSoundsEnabled?'checked':''} onchange="setNotifSounds(this.checked)" style="accent-color:var(--mauve)"> Enable Notification Sounds</label><p style="color:var(--overlay0);font-size:12px;margin-top:6px">Plays a subtle chime when new messages arrive.</p></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Typing Previews</summary>
                 <div style="padding:12px 0"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="typing-preview-toggle" ${typeof _typingPreviewEnabled!=='undefined'&&_typingPreviewEnabled?'checked':''} onchange="setTypingPreviewEnabled(this.checked)" style="accent-color:var(--mauve)"> Show typing previews to matches</label><p style="color:var(--overlay0);font-size:12px;margin-top:6px">Sends the first few characters of your message as a live preview. Both users must have this enabled.</p></div></details>
+                <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Read Receipts</summary>
+                <div id="read-receipts-area" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Language</summary>
                 <div style="padding:12px 0"><div class="form-group"><label style="font-size:12px;color:var(--overlay0)">Display Language</label><select id="lang-select" onchange="loadTranslations(this.value);toast('Language updated','success')" style="width:100%"><option value="en">English</option></select></div><p style="color:var(--overlay0);font-size:12px;margin-top:4px">More languages coming soon.</p></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Export My Data</summary>
@@ -1894,6 +1961,7 @@ async function viewProfilePage(pid,viewer){
             loadIncognitoStatus();
             loadSessions();
             loadLocationSettings();
+            loadReadReceiptsSetting();
             loadAvailableLocales('lang-select');
             loadProfilePrompts(pid,true);
         }
@@ -2739,6 +2807,12 @@ async function doSearch(){
         </div>`).join('')+'</div>';
         // Load mutual friends for each result (non-blocking)
         d.results.filter(p=>p.id!==activeProfile).forEach(p=>loadMutualFriends(p.id,'mutual-sc-'+p.id));
+        // Phase 3: Slow Reveal - apply to search cards
+        el.querySelectorAll('.search-card').forEach(card=>{
+            const onclick=card.getAttribute('onclick')||'';
+            const pidMatch=onclick.match(/viewProfilePage\('([^']+)'\)/);
+            if(pidMatch&&pidMatch[1]&&pidMatch[1]!==activeProfile)loadRevealState(pidMatch[1],card);
+        });
         staggerListItems(el);
     }catch(e){el.innerHTML='<div class="empty"><h3>Search error</h3></div>';}
 }
@@ -2913,7 +2987,7 @@ async function viewGroup(gid){
         // Posts
         if(g.posts&&g.posts.length){
             for(const p of g.posts){
-                html+=`<div class="status-card"><div class="status-header">${p.photo?`<img src="/uploads/${p.photo}">`:'<div style="width:36px;height:36px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--overlay0)">?</div>'}<span class="name" onclick="viewProfilePage('${p.profile_id}')">${escHtml(p.name)}</span><span class="time">${timeAgo(p.created_at)}</span></div><div class="status-body">${escHtml(p.content)}</div>${p.profile_id===activeProfile?`<div class="status-actions"><span onclick="deleteGroupPostAction('${gid}','${p.id}')">Delete</span></div>`:''}</div>`;
+                html+=`<div class="status-card"><div class="status-header">${p.photo?`<img src="/uploads/${p.photo}">`:'<div style="width:36px;height:36px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--overlay0)">?</div>'}<span class="name" onclick="viewProfilePage('${p.profile_id}')">${escHtml(p.name)}</span><span class="time">${timeAgo(p.created_at)}</span></div><div class="status-body">${escHtml(p.content)}</div>${p.profile_id===activeProfile?`<div class="status-actions"><span onclick="deleteGroupPostAction('${gid}','${p.id}')">Delete</span></div>`:''}${renderGroupPostReactions(p,gid)}</div>`;
             }
         } else if(!g.polls||!g.polls.length) {
             html+=`<div style="color:var(--overlay0);font-size:13px;padding:12px">No posts yet. Start the conversation!</div>`;
@@ -4320,7 +4394,7 @@ function connectWSEnhanced(){
         window._wsReconnectTimeout=wsReconnectTimer;
     };
     ws.onerror=()=>{ws?.close();};
-    // Phase 1 v1.9.0: heartbeat + ping
+    // Phase 1 v2.0.0: heartbeat + ping
     if(window._wsPingInterval)clearInterval(window._wsPingInterval);
     window._wsPingInterval=setInterval(()=>{
         if(ws&&ws.readyState===WebSocket.OPEN){
@@ -5103,7 +5177,7 @@ async function openChat(meId,themId){
     // Load async extras
     loadPinnedMessages(meId,themId);
     loadProfileBadges(themId,'chat-badges-'+themId);
-    // Phase 1 v1.9.0: Attach emoji picker to chat input
+    // Phase 1 v2.0.0: Attach emoji picker to chat input
     setTimeout(()=>{
         const msgInput=document.getElementById('msg-in');
         if(msgInput&&msgInput.parentElement){
@@ -5112,7 +5186,7 @@ async function openChat(meId,themId){
             msgInput.parentElement.appendChild(picker);
         }
     },100);
-    // Phase 1 v1.9.0: Conversation starters for empty chats
+    // Phase 1 v2.0.0: Conversation starters for empty chats
     loadConversationStarters(themId,md.messages.length);
 }
 
@@ -5185,6 +5259,14 @@ async function viewEvent(eid){
     </div>`;
     app.appendChild(photoDiv);
     loadEventPhotos(eid,'event-photos-'+eid,!!activeProfile);
+    // Phase 3: Event Chat
+    if(activeProfile){
+        const chatDiv=document.createElement('div');
+        chatDiv.className='card';
+        chatDiv.style.marginTop='8px';
+        chatDiv.innerHTML=`<div class="event-chat-toggle"><button class="active" onclick="this.classList.add('active');this.nextElementSibling.classList.remove('active');document.getElementById('event-chat-container-${eid}').style.display='none'">Details</button><button onclick="this.classList.add('active');this.previousElementSibling.classList.remove('active');document.getElementById('event-chat-container-${eid}').style.display='block';loadEventChat('${eid}','event-chat-container-${eid}')">Chat</button></div><div id="event-chat-container-${eid}" style="display:none"><div class="loading"><div class="spinner"></div></div></div>`;
+        app.appendChild(chatDiv);
+    }
 }
 
 // ── Patch renderDiscover to include blind date toggle + second look ──
@@ -5263,7 +5345,7 @@ function showStoryOverlay(stories,idx,profileId,profileName,profilePhoto){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.9.0: Unread Badge Counts ───
+// ─── Phase 1 v2.0.0: Unread Badge Counts ───
 // ══════════════════════════════════════════════════════
 let _unreadCounts={total:0,per_conversation:{}};
 let _unreadInterval=null;
@@ -5304,7 +5386,7 @@ function updateUnreadBadges(){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.9.0: Emoji Picker ───
+// ─── Phase 1 v2.0.0: Emoji Picker ───
 // ══════════════════════════════════════════════════════
 const EMOJI_LIST=['😀','😂','🥰','😍','😊','😎','🤔','😅','😭','🥺','❤️','🔥','👍','👎','🎉','✨','💯','🙏','😘','🤗','😤','😱','🤣','💀','👀','🙌','💕','😏','🥳','😴','🤷','👋','💪','🌟','🎵','☕','🍕','🌈','⭐','💬'];
 
@@ -5340,7 +5422,7 @@ function createEmojiPicker(inputId){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.9.0: Conversation Starters ───
+// ─── Phase 1 v2.0.0: Conversation Starters ───
 // ══════════════════════════════════════════════════════
 async function loadConversationStarters(partnerId,messagesLen){
     if(messagesLen!==0)return;
@@ -5374,7 +5456,7 @@ async function useStarter(starterId,text,partnerId){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.9.0: Availability Status ───
+// ─── Phase 1 v2.0.0: Availability Status ───
 // ══════════════════════════════════════════════════════
 async function updateAvailability(){
     const sel=document.getElementById('availability-select');
@@ -5401,7 +5483,7 @@ async function loadAvailability(){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v1.9.0: Announcement Banner ───
+// ─── Phase 1 v2.0.0: Announcement Banner ───
 // ══════════════════════════════════════════════════════
 async function loadAnnouncements(){
     try{
@@ -5444,13 +5526,13 @@ async function init(){
     if(activeProfile){
         disconnectWS();
         connectWSEnhanced();
-        // Phase 1 v1.9.0: Start unread count polling
+        // Phase 1 v2.0.0: Start unread count polling
         pollUnreadCounts();
         if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
-        // Phase 1 v1.9.0: Load availability
+        // Phase 1 v2.0.0: Load availability
         loadAvailability();
     }
-    // Phase 1 v1.9.0: Load announcements
+    // Phase 1 v2.0.0: Load announcements
     if(authToken)loadAnnouncements();
 }
 
@@ -5652,13 +5734,13 @@ async function loadDealbreakerQuiz(targetId,containerId){
     }
 }
 
-// ── Patch showDetail to inject Dealbreaker Quiz button ──
+// ── Patch showDetail to inject Dealbreaker Quiz button + Phase 3 features ──
 const _origShowDetail=showDetail;
 async function showDetail(a,b){
     await _origShowDetail(a,b);
-    // Find the breakdown section and add Compare Dealbreakers button after it
     const app=document.getElementById('app');
     if(!app)return;
+    // Dealbreaker Quiz button
     const breakdownEl=app.querySelector('.breakdown');
     if(breakdownEl){
         const dbBtnDiv=document.createElement('div');
@@ -5666,6 +5748,376 @@ async function showDetail(a,b){
         dbBtnDiv.innerHTML='<button class="btn btn-secondary" style="font-size:13px;padding:8px 16px" onclick="this.disabled=true;this.textContent=\'Loading...\';loadDealbreakerQuiz(\''+b+'\',\'db-quiz-result-'+b+'\')">Compare Dealbreakers</button><div id="db-quiz-result-'+b+'"></div>';
         breakdownEl.parentElement.appendChild(dbBtnDiv);
     }
+
+    // Phase 3: Compatibility History chart
+    const histCard=document.createElement('div');
+    histCard.className='compat-history-card';
+    histCard.innerHTML='<h3 style="font-size:14px;color:var(--lavender);margin-bottom:8px">Compatibility History</h3><div id="compat-hist-area"><div class="loading"><div class="spinner"></div></div></div>';
+    const firstCard=app.querySelector('.card');
+    if(firstCard&&firstCard.nextSibling)firstCard.parentNode.insertBefore(histCard,firstCard.nextSibling);
+    else app.appendChild(histCard);
+    loadCompatHistory(b,'compat-hist-area');
+
+    // Phase 3: Endorsements
+    const endorseCard=document.createElement('div');
+    endorseCard.className='card';
+    endorseCard.style.animationDelay='.4s';
+    endorseCard.innerHTML='<h2>Endorsements</h2><p class="subtitle">What people say about them</p><div id="endorse-area-'+b+'"><div class="loading"><div class="spinner"></div></div></div>';
+    app.querySelector('.btn-row')?.insertAdjacentElement('beforebegin',endorseCard);
+    loadEndorsements(b,'endorse-area-'+b,true);
+
+    // Phase 3: Shared Interests
+    const interestsCard=document.createElement('div');
+    interestsCard.className='card';
+    interestsCard.style.animationDelay='.44s';
+    interestsCard.innerHTML='<h2>Shared Interests</h2><p class="subtitle">What you have in common</p><div id="shared-int-area-'+b+'"><div class="loading"><div class="spinner"></div></div></div>';
+    app.querySelector('.btn-row')?.insertAdjacentElement('beforebegin',interestsCard);
+    loadSharedInterests(b,'shared-int-area-'+b);
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Compatibility Over Time Chart ───
+// ══════════════════════════════════════════════════════
+async function loadCompatHistory(targetId,containerId){
+    const el=document.getElementById(containerId);if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/compatibility-history/'+targetId);
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        const points=d.history||d;
+        if(!Array.isArray(points)||points.length<2){
+            el.innerHTML='<div style="color:var(--overlay0);font-size:13px;text-align:center;padding:8px">Check back later to see how your compatibility evolves</div>';
+            return;
+        }
+        el.innerHTML='<canvas id="compat-hist-canvas" class="compat-chart" width="600" height="150"></canvas>';
+        const canvas=document.getElementById('compat-hist-canvas');
+        if(!canvas)return;
+        const ctx=canvas.getContext('2d');
+        const W=canvas.width,H=canvas.height;
+        const pad={top:20,right:20,bottom:30,left:40};
+        const cW=W-pad.left-pad.right,cH=H-pad.top-pad.bottom;
+        // Clear
+        ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--surface0').trim()||'#313244';
+        ctx.fillRect(0,0,W,H);
+        // Axis labels
+        ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--overlay0').trim()||'#6c7086';
+        ctx.font='10px system-ui';
+        // Y-axis
+        for(let v=0;v<=100;v+=25){
+            const y=pad.top+cH-(v/100)*cH;
+            ctx.fillText(v+'',2,y+3);
+            ctx.strokeStyle='rgba(108,112,134,0.2)';ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.stroke();
+        }
+        // X-axis dates
+        const step=Math.max(1,Math.floor(points.length/5));
+        for(let i=0;i<points.length;i+=step){
+            const x=pad.left+(i/(points.length-1))*cW;
+            const label=points[i].date?points[i].date.slice(5):'';
+            ctx.fillText(label,x-12,H-4);
+        }
+        // Draw line
+        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--mauve').trim()||'#cba6f7';
+        ctx.lineWidth=2;ctx.lineJoin='round';ctx.beginPath();
+        for(let i=0;i<points.length;i++){
+            const x=pad.left+(i/(points.length-1))*cW;
+            const y=pad.top+cH-((points[i].score||0)/100)*cH;
+            if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+        // Draw dots
+        ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--pink').trim()||'#f5c2e7';
+        for(let i=0;i<points.length;i++){
+            const x=pad.left+(i/(points.length-1))*cW;
+            const y=pad.top+cH-((points[i].score||0)/100)*cH;
+            ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
+        }
+    }catch(e){
+        el.innerHTML='<div style="color:var(--overlay0);font-size:13px;text-align:center;padding:8px">Check back later to see how your compatibility evolves</div>';
+    }
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Profile Endorsements ───
+// ══════════════════════════════════════════════════════
+async function loadEndorsements(profileId,containerId,showEndorseBtn){
+    const el=document.getElementById(containerId);if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/endorsements/'+profileId);
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        const endorsements=d.endorsements||d||[];
+        let html='';
+        if(endorsements.length){
+            for(const e of endorsements){
+                html+='<span class="endorsement-pill">'+escHtml(e.trait||e.name||'')+'<span class="endorse-count">'+escHtml(String(e.count||1))+'</span></span>';
+            }
+        } else {
+            html+='<div style="color:var(--overlay0);font-size:13px">No endorsements yet</div>';
+        }
+        if(showEndorseBtn&&activeProfile&&profileId!==activeProfile){
+            html+='<div style="position:relative;display:inline-block;margin-top:8px"><button class="endorse-btn" onclick="toggleEndorseDropdown(this)">+ Endorse</button>';
+            html+='<div class="endorse-dropdown" id="endorse-dd-'+profileId+'">';
+            const traits=['Great Listener','Funny','Thoughtful','Adventurous','Kind','Creative','Supportive','Honest'];
+            for(const t of traits){
+                html+='<button onclick="submitEndorsement(\''+profileId+'\',\''+t+'\',\''+containerId+'\')">'+escHtml(t)+'</button>';
+            }
+            html+='</div></div>';
+        }
+        el.innerHTML=html;
+    }catch(e){
+        el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load endorsements</div>';
+    }
+}
+function toggleEndorseDropdown(btn){
+    const dd=btn.nextElementSibling;
+    if(dd)dd.classList.toggle('show');
+    // Close on outside click
+    if(dd&&dd.classList.contains('show')){
+        setTimeout(()=>document.addEventListener('click',function _cl(ev){
+            if(!dd.contains(ev.target)&&ev.target!==btn){dd.classList.remove('show');document.removeEventListener('click',_cl);}
+        }),10);
+    }
+}
+async function submitEndorsement(targetId,trait,containerId){
+    try{
+        const r=await authFetch(API+'/api/endorsements/'+targetId,{method:'POST',headers:authHeaders(),body:JSON.stringify({trait})});
+        if(!r.ok)throw new Error('Failed');
+        toast('Endorsed as '+trait+'!','success');
+        loadEndorsements(targetId,containerId,true);
+    }catch(e){toast('Could not endorse','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Shared Interests Tags ───
+// ══════════════════════════════════════════════════════
+async function loadSharedInterests(targetId,containerId){
+    const el=document.getElementById(containerId);if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/shared-interests/'+targetId);
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        let html='';
+        const shared=d.shared||[];
+        const myUnique=d.my_unique||d.unique_mine||[];
+        const theirUnique=d.their_unique||d.unique_theirs||[];
+        if(shared.length){
+            for(const s of shared)html+='<span class="interest-tag interest-shared">'+escHtml(s)+'</span>';
+        }
+        if(myUnique.length){
+            for(const s of myUnique)html+='<span class="interest-tag interest-unique">'+escHtml(s)+'</span>';
+        }
+        if(theirUnique.length){
+            for(const s of theirUnique)html+='<span class="interest-tag interest-unique">'+escHtml(s)+'</span>';
+        }
+        if(!html)html='<div style="color:var(--overlay0);font-size:13px">No interest data available yet</div>';
+        el.innerHTML=html;
+    }catch(e){
+        el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load shared interests</div>';
+    }
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Group Post Reactions ───
+// ══════════════════════════════════════════════════════
+const GP_REACTION_EMOJIS=[
+    {emoji:'\uD83D\uDC4D',name:'thumbsup'},
+    {emoji:'\u2764\uFE0F',name:'heart'},
+    {emoji:'\uD83D\uDE02',name:'laugh'},
+    {emoji:'\uD83D\uDD25',name:'fire'},
+    {emoji:'\uD83D\uDC4F',name:'clap'},
+    {emoji:'\uD83D\uDE2E',name:'wow'}
+];
+function renderGroupPostReactions(post,gid){
+    const reactions=post.reactions||[];
+    let html='<div class="gp-reactions">';
+    // Existing reactions as pills
+    const grouped={};
+    for(const rx of reactions){
+        if(!grouped[rx.emoji])grouped[rx.emoji]={count:0,active:false,emoji:rx.emoji};
+        grouped[rx.emoji].count++;
+        if(rx.profile_id===activeProfile)grouped[rx.emoji].active=true;
+    }
+    for(const key of Object.keys(grouped)){
+        const g=grouped[key];
+        html+='<button class="gp-reaction'+(g.active?' active':'')+'" onclick="toggleGroupReaction(\''+gid+'\',\''+post.id+'\',\''+escHtml(g.emoji)+'\')">'+g.emoji+' <span>'+g.count+'</span></button>';
+    }
+    // Add reaction button with emoji picker
+    html+='<button class="gp-react-add" onclick="showGpReactPicker(this,\''+gid+'\',\''+post.id+'\')">+</button>';
+    html+='</div>';
+    return html;
+}
+function showGpReactPicker(btn,gid,postId){
+    // Remove existing pickers
+    document.querySelectorAll('.gp-react-picker').forEach(p=>p.remove());
+    const picker=document.createElement('div');
+    picker.className='gp-react-picker';
+    picker.style.cssText='position:absolute;display:flex;gap:2px;background:var(--surface0);border:1px solid var(--surface2);border-radius:var(--radius);padding:4px;box-shadow:var(--shadow);z-index:100;';
+    for(const e of GP_REACTION_EMOJIS){
+        const b=document.createElement('button');
+        b.textContent=e.emoji;
+        b.style.cssText='background:none;border:none;font-size:18px;cursor:pointer;padding:4px;border-radius:4px;';
+        b.onmouseover=function(){this.style.background='var(--surface2)';};
+        b.onmouseout=function(){this.style.background='none';};
+        b.onclick=function(){toggleGroupReaction(gid,postId,e.emoji);picker.remove();};
+        picker.appendChild(b);
+    }
+    btn.style.position='relative';
+    btn.parentElement.style.position='relative';
+    btn.parentElement.appendChild(picker);
+    setTimeout(()=>document.addEventListener('click',function _c(ev){
+        if(!picker.contains(ev.target)&&ev.target!==btn){picker.remove();document.removeEventListener('click',_c);}
+    }),10);
+}
+async function toggleGroupReaction(gid,postId,emoji){
+    try{
+        // Try POST first; server handles toggle
+        await authFetch(API+'/api/groups/'+gid+'/posts/'+postId+'/reactions',{method:'POST',headers:authHeaders(),body:JSON.stringify({emoji})});
+        viewGroup(gid);
+    }catch(e){toast('Could not react','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Event Chat ───
+// ══════════════════════════════════════════════════════
+async function loadEventChat(eid,containerId){
+    const el=document.getElementById(containerId);if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/events/'+eid+'/messages');
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        const msgs=d.messages||d||[];
+        let html='<div class="event-chat" id="event-chat-scroll-'+eid+'">';
+        if(!msgs.length){
+            html+='<div style="color:var(--overlay0);font-size:13px;text-align:center;padding:12px">No messages yet. Start the conversation!</div>';
+        } else {
+            for(const m of msgs){
+                html+='<div class="event-msg"><span class="event-msg-sender">'+escHtml(m.sender_name||m.name||'Unknown')+'</span> <span class="event-msg-time">'+escHtml(m.timestamp||m.created_at||'')+'</span><div class="event-msg-text">'+escHtml(m.content||m.text||'')+'</div></div>';
+            }
+        }
+        html+='</div>';
+        html+='<div style="display:flex;gap:8px;margin-top:8px"><input type="text" id="event-chat-input-'+eid+'" placeholder="Type a message..." style="flex:1" onkeydown="if(event.key===\'Enter\')sendEventChat(\''+eid+'\',\''+containerId+'\')"><button class="btn btn-primary" onclick="sendEventChat(\''+eid+'\',\''+containerId+'\')" style="padding:8px 16px">Send</button></div>';
+        el.innerHTML=html;
+        // Auto-scroll to bottom
+        const chatDiv=document.getElementById('event-chat-scroll-'+eid);
+        if(chatDiv)chatDiv.scrollTop=chatDiv.scrollHeight;
+    }catch(e){
+        el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load chat</div>';
+    }
+}
+async function sendEventChat(eid,containerId){
+    const inp=document.getElementById('event-chat-input-'+eid);
+    const txt=inp?.value?.trim();if(!txt)return;
+    inp.value='';
+    try{
+        await authFetch(API+'/api/events/'+eid+'/messages',{method:'POST',headers:authHeaders(),body:JSON.stringify({content:txt})});
+        loadEventChat(eid,containerId);
+    }catch(e){toast('Could not send message','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Read Receipts Toggle (Settings) ───
+// ══════════════════════════════════════════════════════
+async function loadReadReceiptsSetting(){
+    const el=document.getElementById('read-receipts-area');if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/settings/read-receipts');
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        const enabled=d.enabled||false;
+        el.innerHTML='<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="read-receipts-toggle" '+(enabled?'checked':'')+' onchange="saveReadReceiptsSetting(this.checked)" style="accent-color:var(--mauve)"> Show when you\'ve read messages</label>';
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load setting</div>';}
+}
+async function saveReadReceiptsSetting(enabled){
+    try{
+        await authFetch(API+'/api/settings/read-receipts',{method:'PUT',headers:authHeaders(),body:JSON.stringify({enabled})});
+        toast('Read receipts '+(enabled?'enabled':'disabled'),'success');
+    }catch(e){toast('Could not save setting','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Smart Notification Digest ───
+// ══════════════════════════════════════════════════════
+async function loadNotificationDigest(){
+    const el=document.getElementById('notif-digest-area');if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/notification-digest');
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        const summary=d.summary||d;
+        let html='<div class="digest-card"><h3 style="font-size:14px;color:var(--lavender);margin-bottom:8px">Notification Digest</h3>';
+        const items=[
+            {label:'New Likes',key:'likes'},
+            {label:'Messages',key:'messages'},
+            {label:'Match Suggestions',key:'match_suggestions'},
+            {label:'Friend Requests',key:'friend_requests'},
+            {label:'Comments',key:'comments'},
+            {label:'Group Activity',key:'group_activity'}
+        ];
+        let hasAny=false;
+        for(const item of items){
+            const count=summary[item.key]||0;
+            if(count>0){
+                hasAny=true;
+                html+='<div class="digest-row"><span>'+escHtml(item.label)+'</span><span class="digest-count">'+count+'</span></div>';
+            }
+        }
+        if(!hasAny)html+='<div style="color:var(--overlay0);font-size:13px;text-align:center;padding:8px">All caught up! No new activity.</div>';
+        html+='</div>';
+        el.innerHTML=html;
+    }catch(e){
+        el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load digest</div>';
+    }
+}
+
+// ══════════════════════════════════════════════════════
+// ─── PHASE 3: Slow Reveal Profiles ───
+// ══════════════════════════════════════════════════════
+async function loadRevealState(targetId,cardEl){
+    if(!activeProfile||!cardEl)return;
+    try{
+        const r=await authFetch(API+'/api/reveal/'+targetId);
+        if(!r.ok)return; // Not available, show normal
+        const d=await r.json();
+        const stage=d.stage!=null?d.stage:3;
+        if(stage>=3)return; // Full profile, no restrictions
+        // Apply reveal restrictions
+        const stageLabel=document.createElement('div');
+        stageLabel.className='reveal-stage';
+        stageLabel.textContent='Reveal Stage '+(stage+1)+' of 4';
+        cardEl.prepend(stageLabel);
+        // Stage 0: name, age, bio only - blur photos
+        if(stage<2){
+            const img=cardEl.querySelector('img');
+            const placeholder=cardEl.querySelector('.sc-placeholder');
+            if(img)img.classList.add('reveal-locked');
+            if(placeholder)placeholder.classList.add('reveal-locked');
+        }
+        if(stage<1){
+            // Hide interests and prompts (headline)
+            const headline=cardEl.querySelector('.sc-headline');
+            if(headline)headline.classList.add('reveal-locked');
+            const badges=cardEl.querySelectorAll('.badge-energy,.badge-intent');
+            badges.forEach(b=>b.classList.add('reveal-locked'));
+        }
+        // Add reveal button
+        const revealBtn=document.createElement('button');
+        revealBtn.className='reveal-btn';
+        revealBtn.textContent='Reveal More';
+        revealBtn.style.marginTop='8px';
+        revealBtn.onclick=async function(ev){
+            ev.stopPropagation();
+            revealBtn.disabled=true;revealBtn.textContent='Revealing...';
+            try{
+                await authFetch(API+'/api/reveal/'+targetId+'/advance',{method:'POST',headers:authHeaders()});
+                toast('New info revealed!','success');
+                // Re-render discover to reflect changes
+                const activeTab=document.querySelector('.nav-tab.active');
+                const view=activeTab?.dataset?.v||'discover';
+                showView(view);
+            }catch(e){toast('Could not reveal','error');revealBtn.disabled=false;revealBtn.textContent='Reveal More';}
+        };
+        cardEl.appendChild(revealBtn);
+    }catch(e){/* Reveal not available, show normal */}
 }
 </script>
 </body>

@@ -1,5 +1,5 @@
 """
-Kindred v1.9.0 - FastAPI Backend (User Server)
+Kindred v2.0.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -126,6 +126,14 @@ from app.database import (
     get_dealbreaker_comparison,
     get_activity_feed_paginated,
     get_conversations_paginated,
+    record_compatibility_snapshot, get_compatibility_history,
+    add_endorsement, get_endorsements, get_endorsement_count,
+    add_group_post_reaction, remove_group_post_reaction, get_group_post_reactions,
+    send_event_message, get_event_messages,
+    set_read_receipts_enabled, get_read_receipts_enabled,
+    get_reveal_stage, advance_reveal_stage, get_revealed_profile,
+    get_shared_interests,
+    get_notification_digest,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -145,7 +153,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="1.9.0")
+app = FastAPI(title="Kindred", version="2.0.0")
 
 # CORS middleware
 app.add_middleware(
@@ -493,6 +501,18 @@ class DateFeedbackSubmit(BaseModel):
     accurate_match: bool = True
     would_meet_again: bool | None = None
     notes: str | None = None
+
+class EndorsementCreate(BaseModel):
+    trait: str
+
+class GroupPostReactionCreate(BaseModel):
+    emoji: str
+
+class EventMessageCreate(BaseModel):
+    content: str
+
+class ReadReceiptsUpdate(BaseModel):
+    enabled: bool
 
 # ---------------------------------------------------------------------------
 # Startup
@@ -2358,7 +2378,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "1.9.0",
+        "version": "2.0.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -3268,6 +3288,170 @@ def paginated_conversations(offset: int = 0, limit: int = 20,
         raise HTTPException(400, "No profile")
     limit = min(limit, 100)
     return get_conversations_paginated(profile_id, offset=offset, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Compatibility History
+# ---------------------------------------------------------------------------
+
+@app.get("/api/compatibility-history/{target_id}")
+def compatibility_history(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    history = get_compatibility_history(profile_id, target_id)
+    return {"history": history}
+
+
+# ---------------------------------------------------------------------------
+# Endorsements
+# ---------------------------------------------------------------------------
+
+@app.post("/api/endorsements/{target_id}")
+def endorse_user(target_id: str, body: EndorsementCreate,
+                 user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    if profile_id == target_id:
+        raise HTTPException(400, "Cannot endorse yourself")
+    if not are_friends(profile_id, target_id):
+        raise HTTPException(403, "Must be friends or matched to endorse")
+    if not body.trait.strip():
+        raise HTTPException(400, "Trait required")
+    eid = add_endorsement(profile_id, target_id, body.trait.strip().lower())
+    return {"id": eid, "message": "Endorsement added"}
+
+
+@app.get("/api/endorsements/{profile_id}")
+def list_endorsements(profile_id: str):
+    endorsements = get_endorsements(profile_id)
+    total = get_endorsement_count(profile_id)
+    return {"endorsements": endorsements, "total": total}
+
+
+# ---------------------------------------------------------------------------
+# Group Post Reactions
+# ---------------------------------------------------------------------------
+
+@app.post("/api/groups/{group_id}/posts/{post_id}/reactions")
+def add_reaction_to_post(group_id: str, post_id: str,
+                          body: GroupPostReactionCreate,
+                          user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    if not is_group_member(group_id, profile_id):
+        raise HTTPException(403, "Must be a group member")
+    if not body.emoji.strip():
+        raise HTTPException(400, "Emoji required")
+    rid = add_group_post_reaction(post_id, profile_id, body.emoji.strip())
+    return {"id": rid, "message": "Reaction added"}
+
+
+@app.delete("/api/groups/{group_id}/posts/{post_id}/reactions/{emoji}")
+def remove_reaction_from_post(group_id: str, post_id: str, emoji: str,
+                               user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    remove_group_post_reaction(post_id, profile_id, emoji)
+    return {"message": "Reaction removed"}
+
+
+@app.get("/api/groups/{group_id}/posts/{post_id}/reactions")
+def list_post_reactions(group_id: str, post_id: str):
+    reactions = get_group_post_reactions(post_id)
+    return {"reactions": reactions}
+
+
+# ---------------------------------------------------------------------------
+# Event Messages
+# ---------------------------------------------------------------------------
+
+@app.post("/api/events/{event_id}/messages")
+def post_event_message(event_id: str, body: EventMessageCreate,
+                        user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    if not body.content.strip():
+        raise HTTPException(400, "Content required")
+    msg_id = send_event_message(event_id, profile_id, body.content.strip())
+    return {"id": msg_id, "message": "Message sent"}
+
+
+@app.get("/api/events/{event_id}/messages")
+def list_event_messages(event_id: str, limit: int = 50, offset: int = 0):
+    limit = min(limit, 200)
+    messages = get_event_messages(event_id, limit=limit, offset=offset)
+    return {"messages": messages}
+
+
+# ---------------------------------------------------------------------------
+# Read Receipts Toggle
+# ---------------------------------------------------------------------------
+
+@app.put("/api/settings/read-receipts")
+def toggle_read_receipts(body: ReadReceiptsUpdate,
+                          user: dict = Depends(require_user)):
+    user_id = user.get("id", "")
+    if not user_id:
+        raise HTTPException(400, "No user")
+    set_read_receipts_enabled(user_id, body.enabled)
+    return {"enabled": body.enabled, "message": "Read receipts updated"}
+
+
+# ---------------------------------------------------------------------------
+# Slow Reveal
+# ---------------------------------------------------------------------------
+
+@app.get("/api/reveal/{target_id}")
+def reveal_stage(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    stage = get_reveal_stage(profile_id, target_id)
+    profile_data = get_revealed_profile(target_id, stage)
+    return {"stage": stage, "profile": profile_data}
+
+
+@app.post("/api/reveal/{target_id}/advance")
+def advance_reveal(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    if profile_id == target_id:
+        raise HTTPException(400, "Cannot reveal your own profile")
+    new_stage = advance_reveal_stage(profile_id, target_id)
+    profile_data = get_revealed_profile(target_id, new_stage)
+    return {"stage": new_stage, "profile": profile_data}
+
+
+# ---------------------------------------------------------------------------
+# Shared Interests
+# ---------------------------------------------------------------------------
+
+@app.get("/api/shared-interests/{target_id}")
+def shared_interests(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(400, "No profile")
+    result = get_shared_interests(profile_id, target_id)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Notification Digest
+# ---------------------------------------------------------------------------
+
+@app.get("/api/notification-digest")
+def notification_digest(since_hours: int = 24,
+                        user: dict = Depends(require_user)):
+    user_id = user.get("id", "")
+    if not user_id:
+        raise HTTPException(400, "No user")
+    return get_notification_digest(user_id, since_hours=since_hours)
 
 
 # ---------------------------------------------------------------------------
