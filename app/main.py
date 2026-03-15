@@ -1,5 +1,5 @@
 """
-Kindred v2.0.0 - FastAPI Backend (User Server)
+Kindred v2.1.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -153,7 +153,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="2.0.0")
+app = FastAPI(title="Kindred", version="2.1.0")
 
 # CORS middleware
 app.add_middleware(
@@ -2378,7 +2378,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),

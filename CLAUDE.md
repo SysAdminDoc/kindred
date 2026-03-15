@@ -1,4 +1,4 @@
-# Kindred v2.0.0
+# Kindred v2.1.0
 
 Compatibility-first dating + social platform. Open source, privacy-first.
 
@@ -74,7 +74,7 @@ Copy `.env.example` to `.env` and customize. Key vars:
 - `KINDRED_DEFAULT_THEME` - Default theme: mocha or latte
 
 ## Database Tables
-profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log, availability_status, conversation_starters, date_feedback, announcements, compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages
+profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log, availability_status, conversation_starters, date_feedback, announcements, compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages, flagged_content
 
 ## Key Features
 - **8-dimension matching**: Personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker
@@ -179,6 +179,10 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - **Read receipts toggle**: Privacy setting to hide read status
 - **Notification digest**: Aggregated summary of unread notifications
 - **Slow reveal profiles**: Progressive info unlock (4 stages: basic/interests/photos/full)
+- **Flagged content queue**: Flag/review/resolve content with type filtering (admin)
+- **Bulk profile actions**: Deactivate, delete, or verify multiple profiles at once (admin)
+- **CSV export**: Export users, safety reports, and analytics as CSV (admin)
+- **Engagement over time chart**: Canvas line graph of daily signups, messages, matches (admin dashboard)
 
 ## Key Architecture
 - Dual-server: user (8000) + admin (8001) sharing same SQLite DB
@@ -209,6 +213,7 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 
 ## Version History
 
+- **v2.1.0** - Phase 4: Admin & infrastructure. Flagged content moderation queue (flag/review/resolve with type filtering and indexed queries), bulk profile actions (deactivate/delete/verify multiple users with audit logging), CSV export (users, safety reports, analytics via csv.DictWriter), engagement over time dashboard (Canvas 3-line chart: daily signups/messages/matches with 30-day range). Admin frontend: dashboard engagement chart, flagged content tab with filter/actions, bulk checkboxes on profiles, export tab with 3 CSV downloads. 1 new table (flagged_content), 14 new CRUD functions, 11 new admin API endpoints
 - **v2.0.0** - Phase 3: Social & communication. Compatibility over time tracking (Canvas line chart on match detail), profile endorsements (trait badges with counts, 8 endorsable traits), shared interests visual tags (green shared, neutral unique), group post emoji reactions (toggle with compact picker), event chat (in-event real-time messaging), read receipts toggle (privacy setting), smart notification digest (aggregated unread summary), slow reveal profiles (4-stage progressive unlock: basic/interests/photos/full). 5 new tables (compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages), 17 new CRUD functions, 13 new API endpoints
 - **v1.9.0** - Phase 2: Mobile & engagement. UX: swipe gestures on discover cards (touch left=pass, right=like with tilt animation), infinite scroll for activity feed (IntersectionObserver + sentinel), image lightbox (full-screen viewer, pinch-zoom, Escape close), pull-to-refresh (touch gesture on mobile), onboarding progress bar (question count + fill bar), skeleton shimmer loading (shaped placeholders for matches/feed/discover). Features: dealbreaker quiz comparison (shared/conflicts/unique items modal), paginated feeds + conversations endpoints (offset/limit). 3 new database functions, 3 new API endpoints
 - **v1.8.0** - Phase 1: UX polish + admin tools. User: unread badge counts (tab badges, page title, per-conversation via polling), emoji picker (40-emoji floating grid), smart conversation starters (personalized from shared music/interests/communication/prompts), availability status (active/away/busy/offline with profile badges), announcement banners (dismissible, type-colored). Backend: date feedback system (post-date ratings + stats), structured error responses ({error,code} format), WebSocket ping heartbeat (30s dual ping+heartbeat). Admin: user search + detail view (activity stats, sessions), announcement CRUD (info/warning/maintenance types), expanded stats. Database: schema v7, 4 new tables (availability_status, conversation_starters, date_feedback, announcements), 16 new CRUD functions

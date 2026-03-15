@@ -1,5 +1,5 @@
 """
-Kindred v2.0.0 - Admin Server
+Kindred v2.1.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -52,10 +52,14 @@ from app.database import (
     search_users, get_user_detail,
     create_announcement, get_active_announcements, deactivate_announcement,
     get_total_date_feedback_count,
+    flag_content, get_flagged_content, review_flagged_content, get_flagged_content_count,
+    bulk_deactivate_profiles, bulk_delete_profiles, bulk_verify_profiles,
+    export_users_csv, export_safety_reports_csv, export_analytics_csv,
+    get_engagement_over_time,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="2.0.0")
+admin_app = FastAPI(title="Kindred Admin", version="2.1.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -100,6 +104,21 @@ class AnnouncementCreate(BaseModel):
     expires_at: str | None = None
 
 
+class FlagContentRequest(BaseModel):
+    content_type: str
+    content_id: str
+    reporter_id: str
+    reason: str
+
+
+class ReviewFlagRequest(BaseModel):
+    status: str  # 'reviewed', 'actioned', 'dismissed'
+
+
+class BulkProfilesRequest(BaseModel):
+    profile_ids: list[str]
+
+
 class AdminLogin(BaseModel):
     email: str
     password: str
@@ -141,6 +160,7 @@ def admin_stats(admin: dict = Depends(require_admin)):
     stats = get_stats()
     stats["ai_narratives"] = "Puter.js (client-side)"
     stats["date_feedback_count"] = get_total_date_feedback_count()
+    stats["flagged_pending_count"] = get_flagged_content_count("pending")
     return stats
 
 
@@ -368,7 +388,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
@@ -596,6 +616,129 @@ async def admin_delete_announcement(ann_id: str, admin: dict = Depends(require_a
     deactivate_announcement(ann_id)
     log_audit(admin["id"], "delete_announcement", "announcement", ann_id)
     return {"ok": True}
+
+
+# ─── Flagged Content Queue ───
+@admin_app.post("/api/admin/flag")
+def admin_flag_content(req: FlagContentRequest, admin: dict = Depends(require_admin)):
+    flag_id = flag_content(req.content_type, req.content_id, req.reporter_id, req.reason)
+    return {"id": flag_id, "message": "Content flagged"}
+
+
+@admin_app.get("/api/admin/flagged")
+def admin_get_flagged(status: str = "pending", limit: int = 50, offset: int = 0,
+                      admin: dict = Depends(require_admin)):
+    return {"flagged": get_flagged_content(status, limit, offset)}
+
+
+@admin_app.put("/api/admin/flagged/{flag_id}")
+def admin_review_flagged(flag_id: str, req: ReviewFlagRequest,
+                         admin: dict = Depends(require_admin)):
+    from app.audit import log_audit
+    if req.status not in ("reviewed", "actioned", "dismissed"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    if not review_flagged_content(flag_id, admin["id"], req.status):
+        raise HTTPException(status_code=404, detail="Flagged content not found")
+    log_audit(admin["id"], "review_flagged", "flagged_content", flag_id,
+              f"Status set to {req.status}")
+    return {"message": f"Flag {flag_id} marked as {req.status}"}
+
+
+@admin_app.get("/api/admin/flagged/count")
+def admin_flagged_count(admin: dict = Depends(require_admin)):
+    return {"count": get_flagged_content_count("pending")}
+
+
+# ─── Bulk Actions ───
+@admin_app.post("/api/admin/bulk/deactivate")
+def admin_bulk_deactivate(req: BulkProfilesRequest, admin: dict = Depends(require_admin)):
+    from app.audit import log_audit
+    count = bulk_deactivate_profiles(req.profile_ids)
+    log_audit(admin["id"], "bulk_deactivate", "profiles", None,
+              f"Deactivated {count} profiles")
+    return {"message": f"Deactivated {count} profiles", "count": count}
+
+
+@admin_app.post("/api/admin/bulk/delete")
+def admin_bulk_delete(req: BulkProfilesRequest, admin: dict = Depends(require_admin)):
+    from app.audit import log_audit
+    count = bulk_delete_profiles(req.profile_ids)
+    log_audit(admin["id"], "bulk_delete", "profiles", None,
+              f"Deleted {count} profiles")
+    return {"message": f"Deleted {count} profiles", "count": count}
+
+
+@admin_app.post("/api/admin/bulk/verify")
+def admin_bulk_verify(req: BulkProfilesRequest, admin: dict = Depends(require_admin)):
+    from app.audit import log_audit
+    count = bulk_verify_profiles(req.profile_ids)
+    log_audit(admin["id"], "bulk_verify", "profiles", None,
+              f"Verified {count} profiles")
+    return {"message": f"Verified {count} profiles", "count": count}
+
+
+# ─── Export (CSV) ───
+@admin_app.get("/api/admin/export/users")
+def admin_export_users(admin: dict = Depends(require_admin)):
+    import csv
+    import io
+    from starlette.responses import Response
+    rows = export_users_csv()
+    if not rows:
+        return Response(content="", media_type="text/csv")
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=users_export.csv"},
+    )
+
+
+@admin_app.get("/api/admin/export/safety-reports")
+def admin_export_safety_reports(admin: dict = Depends(require_admin)):
+    import csv
+    import io
+    from starlette.responses import Response
+    rows = export_safety_reports_csv()
+    if not rows:
+        return Response(content="", media_type="text/csv")
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=safety_reports_export.csv"},
+    )
+
+
+@admin_app.get("/api/admin/export/analytics")
+def admin_export_analytics(days: int = 30, admin: dict = Depends(require_admin)):
+    import csv
+    import io
+    from starlette.responses import Response
+    rows = export_analytics_csv(days)
+    if not rows:
+        return Response(content="", media_type="text/csv")
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=analytics_export.csv"},
+    )
+
+
+# ─── Dashboard Charts ───
+@admin_app.get("/api/admin/charts/engagement")
+def admin_charts_engagement(days: int = 30, admin: dict = Depends(require_admin)):
+    return get_engagement_over_time(days)
 
 
 # ─── Expanded Stats ───

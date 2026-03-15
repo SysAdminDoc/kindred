@@ -1,5 +1,5 @@
 """
-Kindred v2.0.0 - Database Layer
+Kindred v2.1.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -937,6 +937,19 @@ def init_db():
             unlocked_at TEXT DEFAULT (datetime('now')),
             UNIQUE(viewer_id, target_id)
         );
+
+        CREATE TABLE IF NOT EXISTS flagged_content (
+            id TEXT PRIMARY KEY,
+            content_type TEXT NOT NULL,
+            content_id TEXT NOT NULL,
+            reporter_id TEXT,
+            reason TEXT,
+            status TEXT DEFAULT 'pending',
+            reviewed_by TEXT,
+            reviewed_at TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_flagged_status ON flagged_content(status);
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -1000,7 +1013,7 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v2.0.0
+        # v2.1.0
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
         # Phase 3
@@ -5445,3 +5458,197 @@ def get_notification_digest(profile_id: str, since_hours: int = 24) -> dict:
     summary = {r["type"]: r["count"] for r in rows}
     total = sum(summary.values())
     return {"total_unread": total, "by_type": summary, "since_hours": since_hours}
+
+
+# ---------------------------------------------------------------------------
+# Flagged Content
+# ---------------------------------------------------------------------------
+
+def flag_content(content_type: str, content_id: str, reporter_id: str, reason: str) -> str:
+    conn = get_db()
+    flag_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO flagged_content (id, content_type, content_id, reporter_id, reason)
+           VALUES (?,?,?,?,?)""",
+        (flag_id, content_type, content_id, reporter_id, reason),
+    )
+    conn.commit()
+    return flag_id
+
+
+def get_flagged_content(status: str = "pending", limit: int = 50, offset: int = 0) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT * FROM flagged_content WHERE status=?
+           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+        (status, limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def review_flagged_content(flag_id: str, admin_id: str, new_status: str) -> bool:
+    conn = get_db()
+    cur = conn.execute(
+        """UPDATE flagged_content SET status=?, reviewed_by=?, reviewed_at=datetime('now')
+           WHERE id=?""",
+        (new_status, admin_id, flag_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_flagged_content_count(status: str = "pending") -> int:
+    conn = get_db()
+    return conn.execute(
+        "SELECT COUNT(*) as c FROM flagged_content WHERE status=?", (status,)
+    ).fetchone()["c"]
+
+
+# ---------------------------------------------------------------------------
+# Bulk Admin Operations
+# ---------------------------------------------------------------------------
+
+def bulk_deactivate_profiles(profile_ids: list[str]) -> int:
+    if not profile_ids:
+        return 0
+    conn = get_db()
+    placeholders = ",".join("?" for _ in profile_ids)
+    cur = conn.execute(
+        f"UPDATE profiles SET deactivated=1 WHERE id IN ({placeholders})",
+        profile_ids,
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def bulk_delete_profiles(profile_ids: list[str]) -> int:
+    if not profile_ids:
+        return 0
+    conn = get_db()
+    placeholders = ",".join("?" for _ in profile_ids)
+    try:
+        conn.execute("BEGIN")
+        conn.execute(
+            f"DELETE FROM profiles WHERE id IN ({placeholders})", profile_ids
+        )
+        conn.execute(
+            f"DELETE FROM users WHERE profile_id IN ({placeholders})", profile_ids
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return len(profile_ids)
+
+
+def bulk_verify_profiles(profile_ids: list[str]) -> int:
+    if not profile_ids:
+        return 0
+    conn = get_db()
+    placeholders = ",".join("?" for _ in profile_ids)
+    cur = conn.execute(
+        f"UPDATE selfie_verifications SET status='approved' WHERE profile_id IN ({placeholders})",
+        profile_ids,
+    )
+    # Also mark profiles as verified
+    conn.execute(
+        f"UPDATE profiles SET verified=1 WHERE id IN ({placeholders})",
+        profile_ids,
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Export Functions
+# ---------------------------------------------------------------------------
+
+def export_users_csv() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT u.id, u.email, u.display_name,
+                  p.age, p.gender, p.location,
+                  u.created_at, COALESCE(p.deactivated, 0) as deactivated,
+                  COALESCE(p.verified, 0) as verified,
+                  COALESCE(u.subscription_tier, 'free') as subscription_tier
+           FROM users u
+           LEFT JOIN profiles p ON p.id = u.profile_id
+           ORDER BY u.created_at DESC"""
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def export_safety_reports_csv() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT id, reporter_id, reported_id, report_type as reason,
+                  'reported' as status, created_at
+           FROM safety_reports ORDER BY created_at DESC"""
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def export_analytics_csv(days: int = 30) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT date(created_at) as day, event_type, COUNT(*) as count
+           FROM analytics_events
+           WHERE created_at >= datetime('now', '-' || ? || ' days')
+           GROUP BY day, event_type
+           ORDER BY day DESC, event_type""",
+        (days,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Dashboard Chart Data
+# ---------------------------------------------------------------------------
+
+def get_daily_signups(days: int = 30) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT date(created_at) as day, COUNT(*) as count
+           FROM users
+           WHERE created_at >= datetime('now', '-' || ? || ' days')
+           GROUP BY day ORDER BY day""",
+        (days,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_daily_messages(days: int = 30) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT date(created_at) as day, COUNT(*) as count
+           FROM messages
+           WHERE created_at >= datetime('now', '-' || ? || ' days')
+           GROUP BY day ORDER BY day""",
+        (days,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_daily_matches(days: int = 30) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT date(l1.created_at) as day, COUNT(*) as count
+           FROM likes l1
+           JOIN likes l2 ON l1.from_id = l2.target_id
+               AND l1.target_id = l2.from_id
+               AND l1.target_type = 'profile'
+               AND l2.target_type = 'profile'
+           WHERE l1.from_id < l1.target_id
+             AND l1.created_at >= datetime('now', '-' || ? || ' days')
+           GROUP BY day ORDER BY day""",
+        (days,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_engagement_over_time(days: int = 30) -> dict:
+    return {
+        "signups": get_daily_signups(days),
+        "messages": get_daily_messages(days),
+        "matches": get_daily_matches(days),
+    }

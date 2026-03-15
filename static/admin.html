@@ -266,11 +266,34 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 .ann-type-info{background:var(--blue);color:var(--base)}
 .ann-type-warning{background:var(--yellow);color:var(--base)}
 .ann-type-maintenance{background:var(--peach);color:var(--base)}
+
+/* Engagement Charts */
+.chart-container { background: var(--surface0); border-radius: var(--radius); padding: 16px; margin-top: 16px; }
+.chart-canvas { width: 100%; height: 250px; }
+.chart-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; }
+.chart-legend-item { display: flex; align-items: center; gap: 4px; }
+.chart-legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+/* Flagged Content */
+.flag-card { background: var(--surface0); border-radius: var(--radius); padding: 14px; margin-bottom: 8px; }
+.flag-type { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--yellow); color: var(--base); }
+.flag-actions { display: flex; gap: 6px; margin-top: 8px; }
+.flag-actions button { padding: 4px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; }
+
+/* Bulk Actions */
+.bulk-bar { background: var(--surface0); border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px; }
+.bulk-bar .count { font-weight: 700; color: var(--accent); }
+.bulk-bar button { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; }
+
+/* Export */
+.export-card { background: var(--surface0); border-radius: var(--radius); padding: 20px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.export-card h3 { margin: 0; font-size: 16px; }
+.export-card p { margin: 4px 0 0; font-size: 13px; color: var(--subtext0); }
 </style>
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.0.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.1.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -301,6 +324,8 @@ const TABS=[
     {id:'emailtemplates',label:'Email Templates'},
     {id:'users',label:'Users'},
     {id:'announcements',label:'Announcements'},
+    {id:'flagged',label:'Flagged Content'},
+    {id:'exports',label:'Export'},
 ];
 
 function adminHeaders(){
@@ -346,6 +371,8 @@ function showView(v){
     else if(v==='emailtemplates')renderEmailTemplates();
     else if(v==='users') renderUsers();
     else if(v==='announcements') renderAnnouncements();
+    else if(v==='flagged') renderFlagged();
+    else if(v==='exports') renderExports();
 }
 
 function showLoginScreen(){
@@ -411,6 +438,8 @@ async function renderDashboard(){
             <div class="stat-card"><div class="num" style="color:var(--green);font-size:16px">Puter.js</div><div class="label">Narratives</div></div>
         </div>`;
 
+        html+=`<div id="engagement-chart-slot"></div>`;
+
         if(Object.keys(s.gender_distribution||{}).length){
             html+=`<div class="section-head">Gender Distribution</div><div style="display:flex;gap:12px;flex-wrap:wrap">${Object.entries(s.gender_distribution).map(([g,c])=>`<div class="stat-card" style="flex:1;min-width:100px"><div class="num">${c}</div><div class="label">${g}</div></div>`).join('')}</div>`;
         }
@@ -435,6 +464,7 @@ async function renderDashboard(){
             const el=document.getElementById('dash-sessions-stat');
             if(el) el.innerHTML=`<div class="num" style="color:var(--teal)">${(d.sessions||[]).length}</div><div class="label">Active Sessions</div>`;
         }).catch(()=>{});
+        loadEngagementChart();
         // Auto-refresh health every 60s while on dashboard
         if(_healthTimer) clearInterval(_healthTimer);
         _healthTimer=setInterval(()=>{if(document.getElementById('health-card')) loadHealthCard(); else clearInterval(_healthTimer);},60000);
@@ -478,7 +508,14 @@ async function renderProfiles(){
     try{
         const r=await adminFetch(API+'/api/profiles');const ps=await r.json();
         if(!ps.length){app.innerHTML='<div class="empty"><h3>No profiles yet</h3><p>Users need to register on the user portal (port 8000).</p></div>';return;}
+        window._bulkSelected=new Set();
         let html=`<div class="card"><h2>All Profiles</h2><p class="subtitle">${ps.length} registered profile${ps.length!==1?'s':''}</p>`;
+        html+=`<div class="bulk-bar" id="bulk-bar" style="display:none">
+            <span class="count" id="bulk-count">0 selected</span>
+            <button style="background:var(--yellow);color:var(--base)" onclick="bulkAction('deactivate')">Deactivate Selected</button>
+            <button style="background:var(--red);color:var(--base)" onclick="bulkAction('delete')">Delete Selected</button>
+            <button style="background:var(--green);color:var(--base)" onclick="bulkAction('verify')">Verify Selected</button>
+        </div>`;
         html+=ps.map(p=>{
             const badges=[];
             if(p.verified) badges.push('<span class="badge-verified">Verified</span>');
@@ -486,6 +523,7 @@ async function renderProfiles(){
             if(p.relationship_intent) badges.push(`<span class="badge-intent">${p.relationship_intent}</span>`);
             return `<div class="profile-item">
                 <div style="display:flex;align-items:center;gap:10px">
+                    <input type="checkbox" data-pid="${p.id}" onchange="toggleBulkSelect('${p.id}',this.checked)" style="accent-color:var(--red);width:16px;height:16px;cursor:pointer;flex-shrink:0">
                     ${p.photo?`<img src="/uploads/${p.photo}" class="photo-thumb">`:'<div style="width:36px;height:36px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--overlay0)">?</div>'}
                     <div><strong>${escHtml(p.name)}</strong>${badges.join('')}<br>
                     <span style="color:var(--overlay0);font-size:12px">${p.age} - ${p.gender} seeking ${p.seeking} - ${new Date(p.created_at).toLocaleDateString()}</span></div>
@@ -926,7 +964,7 @@ async function renderAnalytics(){
             <div class="analytics-card"><div class="value" style="color:var(--green)">${d.location_enabled_users!=null?d.location_enabled_users:'--'}</div><div class="label">Location-Enabled Users</div></div>
         </div>`;
 
-        // Extended feature metrics (v2.0.0)
+        // Extended feature metrics (v2.1.0)
         html+=`<div class="section-head">Extended Feature Metrics</div>`;
         html+=`<div class="analytics-cards">
             <div class="analytics-card"><div class="value" style="color:var(--flamingo)">${d.blind_dates_active!=null?d.blind_dates_active:'--'}</div><div class="label">Blind Dates Active</div></div>
@@ -1651,6 +1689,212 @@ async function createAnnouncement(){
 async function deleteAnnouncement(id){
   const r=await adminFetch(API+`/api/admin/announcements/${id}`,{method:'DELETE'});
   if(r.ok){toast('Removed','success');loadAnnouncements()}
+}
+
+// ─── Engagement Chart ───
+async function loadEngagementChart(){
+    const slot=document.getElementById('engagement-chart-slot');
+    if(!slot) return;
+    try{
+        const r=await adminFetch(API+'/api/admin/charts/engagement?days=30');
+        const data=await r.json();
+        const days=data.labels||data.days||[];
+        const signups=data.signups||[];
+        const messages=data.messages||[];
+        const matches=data.matches||[];
+        if(!days.length){slot.innerHTML='';return;}
+        slot.innerHTML=`<div class="chart-container">
+            <h3 style="font-size:14px;color:var(--lavender);margin-bottom:8px">30-Day Engagement</h3>
+            <canvas id="engagement-canvas" class="chart-canvas"></canvas>
+            <div class="chart-legend">
+                <div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--blue)"></div>Signups</div>
+                <div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--green)"></div>Messages</div>
+                <div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--mauve)"></div>Matches</div>
+            </div>
+        </div>`;
+        const canvas=document.getElementById('engagement-canvas');
+        if(!canvas) return;
+        const ctx=canvas.getContext('2d');
+        const dpr=window.devicePixelRatio||1;
+        const rect=canvas.getBoundingClientRect();
+        canvas.width=rect.width*dpr;
+        canvas.height=rect.height*dpr;
+        ctx.scale(dpr,dpr);
+        const W=rect.width, H=rect.height;
+        const pad={top:20,right:16,bottom:30,left:40};
+        const cW=W-pad.left-pad.right, cH=H-pad.top-pad.bottom;
+        const allVals=[...signups,...messages,...matches];
+        const maxVal=Math.max(...allVals,1);
+        function xPos(i){return pad.left+(i/(days.length-1||1))*cW;}
+        function yPos(v){return pad.top+cH-(v/maxVal)*cH;}
+        // Grid lines
+        ctx.strokeStyle='rgba(108,112,134,0.2)';ctx.lineWidth=1;
+        for(let i=0;i<=4;i++){
+            const y=pad.top+(cH/4)*i;
+            ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.stroke();
+            ctx.fillStyle='#6c7086';ctx.font='10px sans-serif';ctx.textAlign='right';
+            ctx.fillText(Math.round(maxVal-maxVal/4*i),pad.left-6,y+4);
+        }
+        // X-axis labels
+        ctx.fillStyle='#6c7086';ctx.font='9px sans-serif';ctx.textAlign='center';
+        const step=Math.max(1,Math.floor(days.length/7));
+        for(let i=0;i<days.length;i+=step){
+            const lbl=days[i].length>5?days[i].slice(5):days[i];
+            ctx.fillText(lbl,xPos(i),H-6);
+        }
+        // Draw lines
+        function drawLine(arr,color){
+            if(!arr.length) return;
+            ctx.strokeStyle=color;ctx.lineWidth=2;ctx.lineJoin='round';ctx.lineCap='round';
+            ctx.beginPath();
+            for(let i=0;i<arr.length;i++){
+                const x=xPos(i),y=yPos(arr[i]);
+                if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+            }
+            ctx.stroke();
+            // Dots
+            ctx.fillStyle=color;
+            for(let i=0;i<arr.length;i++){
+                ctx.beginPath();ctx.arc(xPos(i),yPos(arr[i]),2.5,0,Math.PI*2);ctx.fill();
+            }
+        }
+        drawLine(signups,'#89b4fa');
+        drawLine(messages,'#a6e3a1');
+        drawLine(matches,'#cba6f7');
+    }catch(e){
+        if(slot) slot.innerHTML='';
+    }
+}
+
+// ─── Flagged Content ───
+let _flaggedStatus='pending';
+async function renderFlagged(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading flagged content...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/flagged?status='+encodeURIComponent(_flaggedStatus==='all'?'':_flaggedStatus));
+        const items=await r.json();
+        const list=Array.isArray(items)?items:(items.items||items.flagged||[]);
+        const pendingCount=list.filter(i=>i.status==='pending').length;
+        let html=`<div class="card"><h2>Flagged Content ${pendingCount>0?`<span style="background:var(--red);color:var(--crust);font-size:12px;padding:2px 8px;border-radius:4px;margin-left:8px">${pendingCount} pending</span>`:''}</h2>
+        <p class="subtitle">Review user-reported content</p>
+        <div style="margin-bottom:12px">
+            <select onchange="_flaggedStatus=this.value;renderFlagged()" style="width:auto;padding:6px 12px;font-size:13px">
+                <option value="pending"${_flaggedStatus==='pending'?' selected':''}>Pending</option>
+                <option value="reviewed"${_flaggedStatus==='reviewed'?' selected':''}>Reviewed</option>
+                <option value="actioned"${_flaggedStatus==='actioned'?' selected':''}>Actioned</option>
+                <option value="dismissed"${_flaggedStatus==='dismissed'?' selected':''}>Dismissed</option>
+                <option value="all"${_flaggedStatus==='all'?' selected':''}>All</option>
+            </select>
+        </div>`;
+        if(!list.length){
+            html+=`<div class="empty"><h3>No flagged content</h3><p>Nothing matches the current filter.</p></div>`;
+        } else {
+            for(const item of list){
+                html+=`<div class="flag-card">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                        <div>
+                            <span class="flag-type">${escHtml(item.content_type||'content')}</span>
+                            <span style="font-size:11px;color:var(--overlay0);margin-left:8px">${item.created_at?new Date(item.created_at).toLocaleString():''}</span>
+                        </div>
+                        <span style="font-size:11px;color:var(--overlay0)">${escHtml(item.status||'pending')}</span>
+                    </div>
+                    <div style="margin-top:8px;font-size:13px;color:var(--text)">${escHtml(item.reason||'No reason provided')}</div>
+                    <div style="margin-top:4px;font-size:12px;color:var(--overlay0)">Reporter: ${escHtml(item.reporter_name||item.reporter_id||'Unknown')}</div>
+                    <div class="flag-actions">
+                        <button style="background:var(--surface1);color:var(--subtext1)" onclick="updateFlagStatus('${item.id}','dismissed')">Dismiss</button>
+                        <button style="background:rgba(137,180,250,.15);color:var(--blue)" onclick="updateFlagStatus('${item.id}','reviewed')">Review</button>
+                        <button style="background:rgba(243,139,168,.15);color:var(--red)" onclick="updateFlagStatus('${item.id}','actioned')">Action</button>
+                    </div>
+                </div>`;
+            }
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading flagged content</h3></div>';}
+}
+
+async function updateFlagStatus(id,status){
+    try{
+        const r=await adminFetch(API+'/api/admin/flagged/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+        if(r.ok){toast('Status updated to '+status,'success');renderFlagged();}
+        else toast('Failed to update','error');
+    }catch(e){toast('Error updating flag','error');}
+}
+
+// ─── Bulk Actions (Profiles) ───
+function toggleBulkSelect(pid,checked){
+    if(!window._bulkSelected) window._bulkSelected=new Set();
+    if(checked) window._bulkSelected.add(pid); else window._bulkSelected.delete(pid);
+    const bar=document.getElementById('bulk-bar');
+    const cnt=document.getElementById('bulk-count');
+    if(bar){bar.style.display=window._bulkSelected.size>0?'flex':'none';}
+    if(cnt){cnt.textContent=window._bulkSelected.size+' selected';}
+}
+
+async function bulkAction(action){
+    if(!window._bulkSelected||!window._bulkSelected.size){toast('No profiles selected','error');return;}
+    const ids=Array.from(window._bulkSelected);
+    const labels={deactivate:'Deactivate',delete:'Delete','verify':'Verify'};
+    if(action==='delete'||action==='deactivate'){
+        if(!confirm(labels[action]+' '+ids.length+' profile(s)? This cannot be undone.')) return;
+    }
+    try{
+        const r=await adminFetch(API+'/api/admin/bulk/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+        if(r.ok){
+            const d=await r.json().catch(()=>({}));
+            toast((d.message||labels[action]+' complete')+' ('+ids.length+')','success');
+            window._bulkSelected.clear();
+            renderProfiles();
+        } else {
+            toast('Bulk '+action+' failed','error');
+        }
+    }catch(e){toast('Error performing bulk action','error');}
+}
+
+// ─── Export Reports ───
+function renderExports(){
+    const app=document.getElementById('app');
+    app.innerHTML=`<div class="card"><h2>Export Reports</h2><p class="subtitle">Download platform data as CSV/JSON</p>
+        <div class="export-card">
+            <div><h3>Export Users</h3><p>Download all user accounts and profile data</p></div>
+            <button class="btn btn-primary" onclick="triggerExport('/api/admin/export/users','kindred-users')">Download</button>
+        </div>
+        <div class="export-card">
+            <div><h3>Export Safety Reports</h3><p>Download all filed safety reports</p></div>
+            <button class="btn btn-primary" onclick="triggerExport('/api/admin/export/safety-reports','kindred-safety-reports')">Download</button>
+        </div>
+        <div class="export-card">
+            <div style="flex:1">
+                <h3>Export Analytics</h3>
+                <p>Download engagement analytics for a given period</p>
+                <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+                    <label style="font-size:12px;color:var(--subtext0)">Days:</label>
+                    <input type="number" id="export-analytics-days" value="30" min="1" max="365" style="width:80px;padding:6px 10px;font-size:13px">
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="triggerExport('/api/admin/export/analytics?days='+(document.getElementById('export-analytics-days').value||30),'kindred-analytics')">Download</button>
+        </div>
+    </div>`;
+}
+
+async function triggerExport(url,filename){
+    try{
+        toast('Preparing export...','');
+        const r=await adminFetch(API+url);
+        if(!r.ok){toast('Export failed','error');return;}
+        const blob=await r.blob();
+        const ct=r.headers.get('content-type')||'';
+        const ext=ct.includes('csv')?'.csv':ct.includes('json')?'.json':'.dat';
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=filename+ext;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        toast('Export downloaded','success');
+    }catch(e){toast('Export error','error');}
 }
 
 // ─── Utils ───

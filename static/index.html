@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v2.0.0 - Find Your Match</title>
+<title>Kindred v2.1.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -950,12 +950,12 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .link-safe { display:inline-flex; align-items:center; gap:3px; background:rgba(166,227,161,.1); border:1px solid var(--green); border-radius:4px; padding:1px 5px; font-size:11px; color:var(--green); }
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v2.0.0 — Unread Badge Counts
+   Phase 1 v2.1.0 — Unread Badge Counts
    ═══════════════════════════════════════════════════ */
 .tab-badge{position:absolute;top:-4px;right:-4px;background:var(--red);color:var(--base);font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v2.0.0 — Emoji Picker
+   Phase 1 v2.1.0 — Emoji Picker
    ═══════════════════════════════════════════════════ */
 .emoji-picker-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;opacity:0.7;transition:opacity 0.2s}
 .emoji-picker-btn:hover{opacity:1}
@@ -965,7 +965,7 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .emoji-picker-popup button:hover{background:var(--surface2)}
 
 /* ═══════════════════════════════════════════════════
-   Phase 1 v2.0.0 — Announcement Banner
+   Phase 1 v2.1.0 — Announcement Banner
    ═══════════════════════════════════════════════════ */
 .announcement-banner{background:var(--surface0);border-left:4px solid var(--blue);padding:10px 16px;margin-bottom:12px;border-radius:0 var(--radius) var(--radius) 0;display:flex;align-items:center;gap:10px}
 .announcement-banner.warning{border-left-color:var(--yellow)}
@@ -1100,7 +1100,7 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 <body>
 <script>try{if(localStorage.getItem('kindred_theme')==='latte')document.body.classList.add('theme-latte')}catch(e){}</script>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.0.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.1.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0" aria-label="Toggle theme">&#9790;</button>
         <div id="ws-status-dot" title="Connected" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s" aria-label="Connection status"></div>
@@ -1430,7 +1430,7 @@ function loginAs(id){
     showView('myprofile');
     if(authToken) pollNotifications();
     connectWS();
-    // Phase 1 v2.0.0: Start unread polling + announcements + availability
+    // Phase 1 v2.1.0: Start unread polling + announcements + availability
     pollUnreadCounts();
     if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
     loadAnnouncements();
@@ -4394,7 +4394,7 @@ function connectWSEnhanced(){
         window._wsReconnectTimeout=wsReconnectTimer;
     };
     ws.onerror=()=>{ws?.close();};
-    // Phase 1 v2.0.0: heartbeat + ping
+    // Phase 1 v2.1.0: heartbeat + ping
     if(window._wsPingInterval)clearInterval(window._wsPingInterval);
     window._wsPingInterval=setInterval(()=>{
         if(ws&&ws.readyState===WebSocket.OPEN){
@@ -5177,7 +5177,7 @@ async function openChat(meId,themId){
     // Load async extras
     loadPinnedMessages(meId,themId);
     loadProfileBadges(themId,'chat-badges-'+themId);
-    // Phase 1 v2.0.0: Attach emoji picker to chat input
+    // Phase 1 v2.1.0: Attach emoji picker to chat input
     setTimeout(()=>{
         const msgInput=document.getElementById('msg-in');
         if(msgInput&&msgInput.parentElement){
@@ -5186,7 +5186,7 @@ async function openChat(meId,themId){
             msgInput.parentElement.appendChild(picker);
         }
     },100);
-    // Phase 1 v2.0.0: Conversation starters for empty chats
+    // Phase 1 v2.1.0: Conversation starters for empty chats
     loadConversationStarters(themId,md.messages.length);
 }
 
@@ -5345,7 +5345,7 @@ function showStoryOverlay(stories,idx,profileId,profileName,profilePhoto){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v2.0.0: Unread Badge Counts ───
+// ─── Phase 1 v2.1.0: Unread Badge Counts ───
 // ══════════════════════════════════════════════════════
 let _unreadCounts={total:0,per_conversation:{}};
 let _unreadInterval=null;
@@ -5386,7 +5386,7 @@ function updateUnreadBadges(){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v2.0.0: Emoji Picker ───
+// ─── Phase 1 v2.1.0: Emoji Picker ───
 // ══════════════════════════════════════════════════════
 const EMOJI_LIST=['😀','😂','🥰','😍','😊','😎','🤔','😅','😭','🥺','❤️','🔥','👍','👎','🎉','✨','💯','🙏','😘','🤗','😤','😱','🤣','💀','👀','🙌','💕','😏','🥳','😴','🤷','👋','💪','🌟','🎵','☕','🍕','🌈','⭐','💬'];
 
@@ -5422,7 +5422,7 @@ function createEmojiPicker(inputId){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v2.0.0: Conversation Starters ───
+// ─── Phase 1 v2.1.0: Conversation Starters ───
 // ══════════════════════════════════════════════════════
 async function loadConversationStarters(partnerId,messagesLen){
     if(messagesLen!==0)return;
@@ -5456,7 +5456,7 @@ async function useStarter(starterId,text,partnerId){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v2.0.0: Availability Status ───
+// ─── Phase 1 v2.1.0: Availability Status ───
 // ══════════════════════════════════════════════════════
 async function updateAvailability(){
     const sel=document.getElementById('availability-select');
@@ -5483,7 +5483,7 @@ async function loadAvailability(){
 }
 
 // ══════════════════════════════════════════════════════
-// ─── Phase 1 v2.0.0: Announcement Banner ───
+// ─── Phase 1 v2.1.0: Announcement Banner ───
 // ══════════════════════════════════════════════════════
 async function loadAnnouncements(){
     try{
@@ -5526,13 +5526,13 @@ async function init(){
     if(activeProfile){
         disconnectWS();
         connectWSEnhanced();
-        // Phase 1 v2.0.0: Start unread count polling
+        // Phase 1 v2.1.0: Start unread count polling
         pollUnreadCounts();
         if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
-        // Phase 1 v2.0.0: Load availability
+        // Phase 1 v2.1.0: Load availability
         loadAvailability();
     }
-    // Phase 1 v2.0.0: Load announcements
+    // Phase 1 v2.1.0: Load announcements
     if(authToken)loadAnnouncements();
 }
 
