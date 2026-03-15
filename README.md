@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
   <img src="https://img.shields.io/badge/version-1.3.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
-  <img src="https://img.shields.io/badge/license-MIT-a6e3a1?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
 
 ---
@@ -144,4 +144,12 @@ Copy `.env.example` to `.env` to customize:
 
 ## License
 
-MIT
+This project is licensed under the [Business Source License 1.1](LICENSE.md).
+
+**What this means:**
+- You can read, fork, and study the code freely
+- You can use it for personal, non-commercial purposes
+- Commercial use (running a competing service, selling it, etc.) requires written permission from the licensor
+- On **March 15, 2030**, the license automatically converts to **MIT**, making it fully open source
+
+This license exists to protect the project while keeping the code transparent. See [LICENSE.md](LICENSE.md) for full terms.
