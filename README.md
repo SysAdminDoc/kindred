@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-1.5.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.6.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -30,17 +30,27 @@ Kindred is a dating and social platform built around genuine compatibility inste
 
 **Matching Engine**
 - 8-dimension compatibility scoring (personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker)
+- Compatibility radar chart (canvas spider chart for 8 dimensions)
 - sentence-transformers embeddings for semantic similarity
 - Match narratives, icebreakers, and coaching tips
 - Customizable dimension weights per user
 - Photo reveal at compatibility threshold
 - Daily curated Top Picks suggestions
+- Super Like with instant notification
+- Match expiry (7-day countdown without messaging)
+- Location-based matching with distance filtering
+- Mutual friends indicator
 
 **Social Platform**
 - Real-time WebSocket messaging with typing indicators and read receipts
+- Voice messages (MediaRecorder API recording + playback)
 - Message reactions (emoji) and GIF search (Tenor API)
+- Message search across conversations
 - Group chat with real-time WebSocket messaging
+- Polls in groups (create, vote, results)
+- Stories/Moments (24-hour ephemeral posts with gradient backgrounds)
 - MySpace-style profile pages with blog, comments, friends, photo gallery
+- Profile prompts (Hinge-style "Two truths and a lie", "My ideal Sunday", etc.)
 - Profile themes (Cosmic, Forest, Sunset, Ocean, Aurora)
 - Status updates and activity feed
 - Groups and events with RSVP + calendar view
@@ -48,9 +58,15 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - "This or That" compatibility games between matched pairs
 - Who Viewed Me and Who Liked You feeds
 - Guided onboarding tour for new users
+- Notification sounds (AudioContext two-tone beep)
+- Image cropping before upload (Canvas API)
 
 **Trust & Safety**
-- Two-factor authentication (TOTP)
+- Two-factor authentication (TOTP) with recovery codes
+- Incognito mode (browse without appearing in Who Viewed Me)
+- Session management (view/revoke active sessions)
+- Account deletion (GDPR-compliant full data removal)
+- Data export (GDPR-compliant download your data)
 - Selfie verification with admin review
 - Automated content filtering (profanity censoring, spam blocking)
 - Photo moderation queue with admin review
@@ -61,8 +77,12 @@ Kindred is a dating and social platform built around genuine compatibility inste
 
 **Admin Dashboard**
 - Separate admin portal on its own port
+- Health check endpoint with server status monitoring
+- Database backup scheduler with rotation and restore
 - Analytics dashboard with engagement metrics and charts
 - Content filter log viewer
+- Stories moderation
+- Session management (view/revoke all user sessions)
 - User management, group/event moderation
 - Verification and photo moderation review queues
 - Safety report triage
@@ -72,6 +92,8 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Progressive Web App (installable, offline caching)
 - Web push notifications
 - Premium subscription tier scaffolding
+- i18n framework (internationalization-ready with JSON locale files)
+- Health check endpoint (`/api/health`)
 
 ## Tech Stack
 

@@ -1,9 +1,11 @@
 """
-Kindred v1.5.0 - FastAPI Backend (User Server)
+Kindred v1.6.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
 import hashlib
+import json as json_stdlib
+import math
 import secrets
 import shutil
 import uuid
@@ -32,6 +34,8 @@ from app.config import (
     BCRYPT_ROUNDS, REFRESH_TOKEN_DAYS,
     VAPID_PUBLIC_KEY, CONTENT_FILTER_ENABLED,
     PREMIUM_ENABLED, DAILY_SUGGESTION_COUNT,
+    LOCATION_MATCH_RADIUS_KM, STORY_EXPIRY_HOURS,
+    MATCH_EXPIRY_DAYS, DEFAULT_LOCALE,
 )
 from app.logging_config import setup_logging, get_logger
 from app.content_filter import check_content, filter_message
@@ -84,6 +88,20 @@ from app.database import (
     log_content_filter,
     get_subscription, update_subscription, is_premium,
     log_analytics_event, mark_onboarding_completed, has_completed_onboarding,
+    save_voice_message, get_voice_messages,
+    save_profile_prompt, get_profile_prompts, delete_profile_prompt, update_profile_prompt,
+    create_super_like, has_super_liked, get_super_likes_for, get_super_like_count,
+    create_story, get_stories_feed, get_story, view_story, delete_story,
+    cleanup_expired_stories,
+    create_group_poll, get_group_polls, vote_poll, get_poll_user_vote,
+    create_session, get_user_sessions, touch_session, revoke_session, revoke_all_sessions,
+    save_user_location, get_user_location, get_nearby_profiles,
+    save_recovery_codes, use_recovery_code, get_recovery_code_count,
+    set_incognito_mode, is_incognito,
+    get_mutual_friends, get_mutual_friend_count,
+    search_messages,
+    delete_account, export_user_data,
+    get_expiring_matches,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -103,7 +121,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="1.5.0")
+app = FastAPI(title="Kindred", version="1.6.0")
 
 # CORS middleware
 app.add_middleware(
@@ -337,6 +355,36 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str
 
+class ProfilePromptCreate(BaseModel):
+    prompt: str
+    answer: str
+    sort_order: int = 0
+
+class StoryCreate(BaseModel):
+    content_type: str = "text"
+    content: str
+    background: str = "#6c7086"
+
+class PollCreate(BaseModel):
+    question: str
+    options: list[str]
+
+class PollVote(BaseModel):
+    option_index: int
+
+class LocationUpdate(BaseModel):
+    latitude: float | None = None
+    longitude: float | None = None
+    city: str = ""
+    radius_km: int = 100
+    enabled: bool = True
+
+class IncognitoUpdate(BaseModel):
+    enabled: bool
+
+class AccountDeleteConfirm(BaseModel):
+    confirmation: str
+
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
@@ -344,6 +392,11 @@ class PasswordChange(BaseModel):
 @app.on_event("startup")
 def startup():
     init_db()
+    from app.i18n import init_i18n
+    init_i18n()
+    from app.backup import start_backup_scheduler
+    start_backup_scheduler()
+    cleanup_expired_stories()
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -2085,6 +2138,416 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str):
 @app.get("/api/ws-online")
 def ws_online_users():
     return {"online": list(ws_manager.active.keys())}
+
+
+# ---------------------------------------------------------------------------
+# Health Check
+# ---------------------------------------------------------------------------
+
+@app.get("/api/health")
+def health_check():
+    import sys
+    import os
+    from app.config import DB_PATH
+    db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
+    return {
+        "status": "healthy",
+        "version": "1.6.0",
+        "python": sys.version,
+        "database_size_mb": db_size_mb,
+        "active_websockets": sum(len(v) for v in ws_manager.active.values()),
+        "pid": os.getpid(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Voice Messages
+# ---------------------------------------------------------------------------
+
+@app.post("/api/voice-message/{to_id}")
+async def upload_voice_message(to_id: str, file: UploadFile = File(...),
+                               user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    if is_blocked_either(profile_id, to_id):
+        raise HTTPException(status_code=403, detail="Blocked")
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large")
+    fname = f"voice_{uuid.uuid4().hex[:12]}.webm"
+    (UPLOAD_DIR / fname).write_bytes(content)
+    msg_id = save_voice_message(profile_id, to_id, fname, duration_ms=0)
+    # Also send as a regular message linking to the voice file
+    send_message(profile_id, to_id, f"[voice:{fname}]")
+    await ws_manager.send_to(to_id, {
+        "type": "voice_message", "from": profile_id, "filename": fname, "id": msg_id,
+    })
+    log_analytics_event("voice_message_sent", profile_id)
+    return {"id": msg_id, "filename": fname}
+
+
+@app.get("/api/voice-messages/{partner_id}")
+def list_voice_messages(partner_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    return {"voice_messages": get_voice_messages(profile_id, partner_id)}
+
+
+# ---------------------------------------------------------------------------
+# Profile Prompts
+# ---------------------------------------------------------------------------
+
+@app.post("/api/profile-prompts")
+def create_prompt(body: ProfilePromptCreate, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    existing = get_profile_prompts(profile_id)
+    if len(existing) >= 3:
+        raise HTTPException(status_code=400, detail="Maximum 3 prompts allowed")
+    pid = save_profile_prompt(profile_id, body.prompt, body.answer, body.sort_order)
+    return {"id": pid}
+
+
+@app.get("/api/profile-prompts/{profile_id}")
+def list_prompts(profile_id: str):
+    return {"prompts": get_profile_prompts(profile_id)}
+
+
+@app.delete("/api/profile-prompts/{prompt_id}")
+def remove_prompt(prompt_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id or not delete_profile_prompt(prompt_id, profile_id):
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return {"message": "Prompt deleted"}
+
+
+@app.put("/api/profile-prompts/{prompt_id}")
+def edit_prompt(prompt_id: str, body: ProfilePromptCreate, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id or not update_profile_prompt(prompt_id, profile_id, body.answer):
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return {"message": "Prompt updated"}
+
+
+# ---------------------------------------------------------------------------
+# Super Like
+# ---------------------------------------------------------------------------
+
+@app.post("/api/super-like/{target_id}")
+def super_like(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    if is_blocked_either(profile_id, target_id):
+        raise HTTPException(status_code=403, detail="Blocked")
+    if has_super_liked(profile_id, target_id):
+        raise HTTPException(status_code=400, detail="Already super liked")
+    sl_id = create_super_like(profile_id, target_id)
+    sender = get_profile(profile_id)
+    target_user = get_user_by_id(target_id)
+    if not target_user:
+        from app.database import get_db
+        conn = get_db()
+        row = conn.execute("SELECT u.id FROM users u WHERE u.profile_id=?", (target_id,)).fetchone()
+        if row:
+            create_notification(row["id"], "super_like",
+                f"{sender['name'] if sender else 'Someone'} super liked you!",
+                link=f"/profile/{profile_id}")
+    log_analytics_event("super_like", profile_id)
+    return {"id": sl_id, "message": "Super liked!"}
+
+
+@app.get("/api/super-likes/received")
+def received_super_likes(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    return {"super_likes": get_super_likes_for(profile_id), "count": get_super_like_count(profile_id)}
+
+
+@app.get("/api/super-liked/{target_id}")
+def check_super_liked(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    return {"super_liked": has_super_liked(profile_id, target_id) if profile_id else False}
+
+
+# ---------------------------------------------------------------------------
+# Match Expiry
+# ---------------------------------------------------------------------------
+
+@app.get("/api/matches/expiring")
+def expiring_matches(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    return {"matches": get_expiring_matches(profile_id, MATCH_EXPIRY_DAYS)}
+
+
+# ---------------------------------------------------------------------------
+# Stories / Moments
+# ---------------------------------------------------------------------------
+
+@app.post("/api/stories")
+async def post_story(user: dict = Depends(require_user),
+                     content_type: str = "text", content: str = "",
+                     background: str = "#6c7086", file: UploadFile = None):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    photo = None
+    if file:
+        file_content = await file.read()
+        if len(file_content) > MAX_UPLOAD_MB * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large")
+        fname = f"story_{uuid.uuid4().hex[:12]}{Path(file.filename).suffix}"
+        (UPLOAD_DIR / fname).write_bytes(file_content)
+        photo = fname
+        content_type = "photo"
+    if not content and not photo:
+        raise HTTPException(status_code=400, detail="Content required")
+    story_id = create_story(profile_id, content_type, content or "", background, photo, STORY_EXPIRY_HOURS)
+    log_analytics_event("story_posted", profile_id)
+    return {"id": story_id}
+
+
+@app.post("/api/stories/text")
+def post_text_story(body: StoryCreate, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    story_id = create_story(profile_id, body.content_type, body.content, body.background, None, STORY_EXPIRY_HOURS)
+    log_analytics_event("story_posted", profile_id)
+    return {"id": story_id}
+
+
+@app.get("/api/stories/feed")
+def stories_feed(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    return {"stories": get_stories_feed(profile_id)}
+
+
+@app.get("/api/stories/{story_id}")
+def read_story(story_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    story = get_story(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    if profile_id and profile_id != story["profile_id"]:
+        view_story(story_id, profile_id)
+    return story
+
+
+@app.delete("/api/stories/{story_id}")
+def remove_story(story_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id or not delete_story(story_id, profile_id):
+        raise HTTPException(status_code=404, detail="Story not found")
+    return {"message": "Story deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Group Polls
+# ---------------------------------------------------------------------------
+
+@app.post("/api/groups/{group_id}/polls")
+def create_poll(group_id: str, body: PollCreate, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id or not is_group_member(group_id, profile_id):
+        raise HTTPException(status_code=403, detail="Not a group member")
+    if len(body.options) < 2 or len(body.options) > 10:
+        raise HTTPException(status_code=400, detail="2-10 options required")
+    poll_id = create_group_poll(group_id, profile_id, body.question, body.options)
+    return {"id": poll_id}
+
+
+@app.get("/api/groups/{group_id}/polls")
+def list_polls(group_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    polls = get_group_polls(group_id)
+    for p in polls:
+        p["my_vote"] = get_poll_user_vote(p["id"], profile_id) if profile_id else None
+    return {"polls": polls}
+
+
+@app.post("/api/polls/{poll_id}/vote")
+def submit_vote(poll_id: str, body: PollVote, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    if not vote_poll(poll_id, profile_id, body.option_index):
+        raise HTTPException(status_code=400, detail="Already voted")
+    return {"message": "Vote recorded"}
+
+
+# ---------------------------------------------------------------------------
+# Incognito Mode
+# ---------------------------------------------------------------------------
+
+@app.post("/api/settings/incognito")
+def toggle_incognito(body: IncognitoUpdate, user: dict = Depends(require_user)):
+    set_incognito_mode(user["id"], body.enabled)
+    return {"incognito": body.enabled}
+
+
+@app.get("/api/settings/incognito")
+def get_incognito(user: dict = Depends(require_user)):
+    return {"incognito": is_incognito(user["id"])}
+
+
+# ---------------------------------------------------------------------------
+# Session Management
+# ---------------------------------------------------------------------------
+
+@app.get("/api/sessions")
+def list_sessions(user: dict = Depends(require_user)):
+    return {"sessions": get_user_sessions(user["id"])}
+
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str, user: dict = Depends(require_user)):
+    if not revoke_session(session_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"message": "Session revoked"}
+
+
+@app.post("/api/sessions/revoke-all")
+def revoke_other_sessions(user: dict = Depends(require_user)):
+    revoke_all_sessions(user["id"])
+    return {"message": "All other sessions revoked"}
+
+
+# ---------------------------------------------------------------------------
+# Account Deletion (GDPR)
+# ---------------------------------------------------------------------------
+
+@app.delete("/api/account")
+def delete_user_account(body: AccountDeleteConfirm, user: dict = Depends(require_user)):
+    if body.confirmation != "DELETE":
+        raise HTTPException(status_code=400, detail="Type DELETE to confirm")
+    if not delete_account(user["id"]):
+        raise HTTPException(status_code=500, detail="Failed to delete account")
+    log_analytics_event("account_deleted", user.get("profile_id"))
+    return {"message": "Account deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Data Export (GDPR)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/account/export")
+def export_data(user: dict = Depends(require_user)):
+    data = export_user_data(user["id"])
+    if not data:
+        raise HTTPException(status_code=404, detail="No data found")
+    return data
+
+
+# ---------------------------------------------------------------------------
+# 2FA Recovery Codes
+# ---------------------------------------------------------------------------
+
+@app.post("/api/2fa/recovery-codes")
+def generate_recovery_codes(user: dict = Depends(require_user)):
+    totp = get_totp_secret(user["id"])
+    if not totp or not totp.get("verified"):
+        raise HTTPException(status_code=400, detail="2FA not enabled")
+    codes = [secrets.token_hex(4).upper() for _ in range(10)]
+    code_hashes = [hashlib.sha256(c.encode()).hexdigest() for c in codes]
+    save_recovery_codes(user["id"], code_hashes)
+    return {"codes": codes, "warning": "Save these codes. They cannot be shown again."}
+
+
+@app.get("/api/2fa/recovery-codes/count")
+def recovery_code_count(user: dict = Depends(require_user)):
+    return {"remaining": get_recovery_code_count(user["id"])}
+
+
+@app.post("/api/2fa/recover")
+def use_2fa_recovery(code: str, user: dict = Depends(require_user)):
+    code_hash = hashlib.sha256(code.strip().upper().encode()).hexdigest()
+    if not use_recovery_code(user["id"], code_hash):
+        raise HTTPException(status_code=400, detail="Invalid or used recovery code")
+    return {"message": "Recovery code accepted", "remaining": get_recovery_code_count(user["id"])}
+
+
+# ---------------------------------------------------------------------------
+# Mutual Friends
+# ---------------------------------------------------------------------------
+
+@app.get("/api/mutual-friends/{profile_id}")
+def mutual_friends(profile_id: str, user: dict = Depends(require_user)):
+    my_profile = user.get("profile_id")
+    if not my_profile:
+        return {"mutual_friends": [], "count": 0}
+    friends = get_mutual_friends(my_profile, profile_id)
+    return {"mutual_friends": friends, "count": len(friends)}
+
+
+# ---------------------------------------------------------------------------
+# Message Search
+# ---------------------------------------------------------------------------
+
+@app.get("/api/messages/search")
+def msg_search(q: str = "", user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id")
+    if not profile_id or not q.strip():
+        return {"results": []}
+    return {"results": search_messages(profile_id, q.strip())}
+
+
+# ---------------------------------------------------------------------------
+# Location Matching
+# ---------------------------------------------------------------------------
+
+@app.post("/api/settings/location")
+def update_location(body: LocationUpdate, user: dict = Depends(require_user)):
+    save_user_location(user["id"], body.latitude, body.longitude,
+                       body.city, body.radius_km, body.enabled)
+    return {"message": "Location updated"}
+
+
+@app.get("/api/settings/location")
+def get_location(user: dict = Depends(require_user)):
+    loc = get_user_location(user["id"])
+    return loc or {"latitude": None, "longitude": None, "city": "", "radius_km": 100, "enabled": False}
+
+
+@app.get("/api/nearby")
+def nearby_profiles(user: dict = Depends(require_user)):
+    loc = get_user_location(user["id"])
+    if not loc or not loc.get("enabled") or not loc.get("latitude"):
+        return {"profiles": [], "message": "Location not enabled"}
+    profile_id = user.get("profile_id", "")
+    profiles = get_nearby_profiles(
+        loc["latitude"], loc["longitude"],
+        loc.get("radius_km", LOCATION_MATCH_RADIUS_KM),
+        exclude_id=profile_id,
+    )
+    return {"profiles": [{
+        "id": p["id"], "name": p["name"], "age": p["age"],
+        "photo": p.get("photo"), "location": p.get("location"),
+    } for p in profiles]}
+
+
+# ---------------------------------------------------------------------------
+# i18n
+# ---------------------------------------------------------------------------
+
+@app.get("/api/i18n/locales")
+def list_locales():
+    from app.i18n import get_available_locales
+    return {"locales": get_available_locales(), "default": DEFAULT_LOCALE}
+
+
+@app.get("/api/i18n/translations/{locale}")
+def get_translations(locale: str):
+    from app.i18n import get_translations as _get_translations
+    return {"locale": locale, "translations": _get_translations(locale)}
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 """
-Kindred v1.5.0 - Admin Server
+Kindred v1.6.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -15,10 +15,14 @@ from fastapi.responses import FileResponse
 from passlib.hash import bcrypt
 from pydantic import BaseModel
 
+import sys
+import os
+
 from app.config import (
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
     ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS,
-    BCRYPT_ROUNDS,
+    BCRYPT_ROUNDS, DB_PATH, BACKUP_INTERVAL_HOURS, BACKUP_KEEP_COUNT,
+    DEFAULT_LOCALE,
 )
 from app.database import (
     init_db, get_profile, get_all_profiles, delete_profile,
@@ -36,10 +40,14 @@ from app.database import (
     get_pending_photo_moderations, review_photo_moderation,
     get_analytics_summary, get_engagement_metrics,
     get_content_filter_logs,
+    get_all_active_stories, delete_story,
+    get_all_sessions, revoke_session, revoke_all_sessions,
+    get_session_count, get_location_enabled_count,
+    get_super_like_count,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="1.5.0")
+admin_app = FastAPI(title="Kindred Admin", version="1.6.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -336,6 +344,90 @@ def admin_analytics(days: int = 30, admin: dict = Depends(require_admin)):
 def admin_content_filter_log(limit: int = 100, admin: dict = Depends(require_admin)):
     logs = get_content_filter_logs(limit)
     return {"logs": logs}
+
+
+# ─── Health Check ───
+@admin_app.get("/api/health")
+def health_check():
+    db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
+    return {
+        "status": "healthy",
+        "version": "1.6.0",
+        "python": sys.version,
+        "database_size_mb": db_size_mb,
+        "pid": os.getpid(),
+    }
+
+
+# ─── Backups ───
+@admin_app.get("/api/admin/backups")
+def list_backups(admin: dict = Depends(require_admin)):
+    from app.backup import list_backups as _list_backups
+    return {
+        "backups": _list_backups(),
+        "scheduler": {
+            "interval_hours": BACKUP_INTERVAL_HOURS,
+            "keep_count": BACKUP_KEEP_COUNT,
+        },
+    }
+
+
+@admin_app.post("/api/admin/backups")
+def create_backup(admin: dict = Depends(require_admin)):
+    from app.backup import create_backup as _create_backup
+    name = _create_backup()
+    return {"filename": name, "message": "Backup created"}
+
+
+@admin_app.post("/api/admin/backups/restore")
+def restore_backup(filename: str, admin: dict = Depends(require_admin)):
+    from app.backup import restore_backup as _restore_backup
+    if not _restore_backup(filename):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    return {"message": f"Restored from {filename}"}
+
+
+# ─── Session Management (admin) ───
+@admin_app.get("/api/admin/sessions")
+def admin_list_sessions(admin: dict = Depends(require_admin)):
+    return {"sessions": get_all_sessions(), "count": get_session_count()}
+
+
+@admin_app.delete("/api/admin/sessions/{session_id}")
+def admin_revoke_session(session_id: str, admin: dict = Depends(require_admin)):
+    if not revoke_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"message": "Session revoked"}
+
+
+@admin_app.post("/api/admin/sessions/revoke-user/{user_id}")
+def admin_revoke_user_sessions(user_id: str, admin: dict = Depends(require_admin)):
+    revoke_all_sessions(user_id)
+    return {"message": "All sessions revoked for user"}
+
+
+# ─── Stories Moderation ───
+@admin_app.get("/api/admin/stories")
+def admin_list_stories(admin: dict = Depends(require_admin)):
+    return {"stories": get_all_active_stories()}
+
+
+@admin_app.delete("/api/admin/stories/{story_id}")
+def admin_delete_story(story_id: str, admin: dict = Depends(require_admin)):
+    from app.database import get_db
+    conn = get_db()
+    cursor = conn.execute("DELETE FROM stories WHERE id=?", (story_id,))
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return {"message": "Story removed"}
+
+
+# ─── i18n Admin ───
+@admin_app.get("/api/admin/i18n/locales")
+def admin_locales(admin: dict = Depends(require_admin)):
+    from app.i18n import get_available_locales
+    return {"locales": get_available_locales(), "default": DEFAULT_LOCALE}
 
 
 # ─── Static Files ───

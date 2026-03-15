@@ -1,12 +1,14 @@
 """
-Kindred v1.5.0 - Database Layer
+Kindred v1.6.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
 likes, status updates, activity feed, groups, events,
 blocks, password resets, notification preferences,
 message reactions, daily suggestions, TOTP 2FA, push subscriptions,
-group messages, content filtering, premium subscriptions, analytics.
+group messages, content filtering, premium subscriptions, analytics,
+voice messages, profile prompts, super likes, stories, polls,
+user sessions, user locations, recovery codes.
 """
 
 import json
@@ -518,6 +520,118 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_analytics_events ON analytics_events(event_type, created_at);
+
+        CREATE TABLE IF NOT EXISTS voice_messages (
+            id TEXT PRIMARY KEY,
+            from_id TEXT NOT NULL,
+            to_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            duration_ms INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (from_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (to_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS profile_prompts (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_profile_prompts ON profile_prompts(profile_id);
+
+        CREATE TABLE IF NOT EXISTS super_likes (
+            id TEXT PRIMARY KEY,
+            from_id TEXT NOT NULL,
+            to_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (from_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (to_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(from_id, to_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS stories (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT 'text',
+            content TEXT NOT NULL,
+            background TEXT DEFAULT '#6c7086',
+            photo TEXT,
+            views INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_stories_profile ON stories(profile_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_stories_expires ON stories(expires_at);
+
+        CREATE TABLE IF NOT EXISTS story_views (
+            id TEXT PRIMARY KEY,
+            story_id TEXT NOT NULL,
+            viewer_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+            FOREIGN KEY (viewer_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(story_id, viewer_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS group_polls (
+            id TEXT PRIMARY KEY,
+            group_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS poll_votes (
+            id TEXT PRIMARY KEY,
+            poll_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            option_index INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (poll_id) REFERENCES group_polls(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(poll_id, profile_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            device TEXT,
+            ip_address TEXT,
+            last_active TEXT DEFAULT (datetime('now')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_sessions ON user_sessions(user_id);
+
+        CREATE TABLE IF NOT EXISTS user_locations (
+            user_id TEXT PRIMARY KEY,
+            latitude REAL,
+            longitude REAL,
+            city TEXT,
+            radius_km INTEGER DEFAULT 100,
+            enabled INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS recovery_codes (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_recovery_codes ON recovery_codes(user_id);
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -571,6 +685,12 @@ def _migrate(conn):
         # v1.5.0
         "ALTER TABLE users ADD COLUMN subscription_tier TEXT DEFAULT 'free'",
         "ALTER TABLE users ADD COLUMN onboarding_completed INTEGER DEFAULT 0",
+        # v1.6.0
+        "ALTER TABLE users ADD COLUMN incognito_mode INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN locale TEXT DEFAULT 'en'",
+        "ALTER TABLE profiles ADD COLUMN latitude REAL",
+        "ALTER TABLE profiles ADD COLUMN longitude REAL",
+        "ALTER TABLE profiles ADD COLUMN location_radius_km INTEGER DEFAULT 100",
     ]
     for sql in migrations:
         try:
@@ -631,7 +751,8 @@ def update_profile_field(profile_id: str, field: str, value) -> bool:
     allowed = {"photo", "weight_prefs", "privacy", "name", "age",
                "dating_energy", "verified", "last_active", "daily_views", "daily_view_date",
                "location", "headline", "about_me", "who_id_like_to_meet", "interests",
-               "heroes", "mood", "music_embeds", "video_embeds", "profile_song", "profile_views"}
+               "heroes", "mood", "music_embeds", "video_embeds", "profile_song", "profile_views",
+               "latitude", "longitude", "location_radius_km"}
     if field not in allowed:
         return False
     conn = get_db()
@@ -2940,3 +3061,641 @@ def has_completed_onboarding(user_id: str) -> bool:
         "SELECT onboarding_completed FROM users WHERE id = ?", (user_id,)
     ).fetchone()
     return bool(row and row["onboarding_completed"])
+
+
+# ---------------------------------------------------------------------------
+# Voice Messages
+# ---------------------------------------------------------------------------
+
+def save_voice_message(from_id: str, to_id: str, filename: str, duration_ms: int = 0) -> str:
+    conn = get_db()
+    msg_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT INTO voice_messages (id, from_id, to_id, filename, duration_ms) VALUES (?,?,?,?,?)",
+        (msg_id, from_id, to_id, filename, duration_ms),
+    )
+    conn.commit()
+    return msg_id
+
+
+def get_voice_messages(id_a: str, id_b: str, limit: int = 50) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT * FROM voice_messages
+           WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?)
+           ORDER BY created_at ASC LIMIT ?""",
+        (id_a, id_b, id_b, id_a, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Profile Prompts
+# ---------------------------------------------------------------------------
+
+def save_profile_prompt(profile_id: str, prompt: str, answer: str, sort_order: int = 0) -> str:
+    conn = get_db()
+    prompt_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT INTO profile_prompts (id, profile_id, prompt, answer, sort_order) VALUES (?,?,?,?,?)",
+        (prompt_id, profile_id, prompt, answer, sort_order),
+    )
+    conn.commit()
+    return prompt_id
+
+
+def get_profile_prompts(profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM profile_prompts WHERE profile_id=? ORDER BY sort_order ASC",
+        (profile_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_profile_prompt(prompt_id: str, profile_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "DELETE FROM profile_prompts WHERE id=? AND profile_id=?",
+        (prompt_id, profile_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def update_profile_prompt(prompt_id: str, profile_id: str, answer: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "UPDATE profile_prompts SET answer=? WHERE id=? AND profile_id=?",
+        (answer, prompt_id, profile_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Super Likes
+# ---------------------------------------------------------------------------
+
+def create_super_like(from_id: str, to_id: str) -> str:
+    conn = get_db()
+    sl_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT OR IGNORE INTO super_likes (id, from_id, to_id) VALUES (?,?,?)",
+        (sl_id, from_id, to_id),
+    )
+    conn.commit()
+    return sl_id
+
+
+def has_super_liked(from_id: str, to_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT 1 FROM super_likes WHERE from_id=? AND to_id=?",
+        (from_id, to_id),
+    ).fetchone()
+    return row is not None
+
+
+def get_super_likes_for(profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT sl.*, p.name as from_name, p.photo as from_photo
+           FROM super_likes sl
+           JOIN profiles p ON p.id = sl.from_id
+           WHERE sl.to_id = ?
+           ORDER BY sl.created_at DESC""",
+        (profile_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_super_like_count(profile_id: str) -> int:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT COUNT(*) as c FROM super_likes WHERE to_id=?", (profile_id,)
+    ).fetchone()
+    return row["c"]
+
+
+# ---------------------------------------------------------------------------
+# Stories / Moments
+# ---------------------------------------------------------------------------
+
+def create_story(profile_id: str, content_type: str, content: str,
+                 background: str = "#6c7086", photo: str = None,
+                 expiry_hours: int = 24) -> str:
+    conn = get_db()
+    story_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        """INSERT INTO stories (id, profile_id, content_type, content, background, photo, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now', ? || ' hours'))""",
+        (story_id, profile_id, content_type, content, background, photo, str(expiry_hours)),
+    )
+    conn.commit()
+    return story_id
+
+
+def get_stories_feed(profile_id: str) -> list[dict]:
+    """Get active stories from friends and self."""
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT s.*, p.name, p.photo as author_photo,
+                  (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) as view_count,
+                  (SELECT 1 FROM story_views sv WHERE sv.story_id = s.id AND sv.viewer_id = ?) as viewed
+           FROM stories s
+           JOIN profiles p ON p.id = s.profile_id
+           WHERE s.expires_at > datetime('now')
+             AND (s.profile_id IN (
+                 SELECT friend_id FROM profile_friends
+                 WHERE profile_id=? AND status='accepted'
+             ) OR s.profile_id = ?)
+           ORDER BY s.created_at DESC""",
+        (profile_id, profile_id, profile_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_story(story_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        """SELECT s.*, p.name, p.photo as author_photo
+           FROM stories s JOIN profiles p ON p.id = s.profile_id
+           WHERE s.id = ?""",
+        (story_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def view_story(story_id: str, viewer_id: str):
+    conn = get_db()
+    view_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT OR IGNORE INTO story_views (id, story_id, viewer_id) VALUES (?,?,?)",
+        (view_id, story_id, viewer_id),
+    )
+    conn.execute(
+        "UPDATE stories SET views = views + 1 WHERE id = ?", (story_id,)
+    )
+    conn.commit()
+
+
+def delete_story(story_id: str, profile_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "DELETE FROM stories WHERE id=? AND profile_id=?", (story_id, profile_id)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def cleanup_expired_stories():
+    """Remove expired stories."""
+    conn = get_db()
+    conn.execute("DELETE FROM stories WHERE expires_at <= datetime('now')")
+    conn.commit()
+
+
+def get_all_active_stories(limit: int = 100) -> list[dict]:
+    """Admin: get all active stories."""
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT s.*, p.name, p.photo as author_photo
+           FROM stories s JOIN profiles p ON p.id = s.profile_id
+           WHERE s.expires_at > datetime('now')
+           ORDER BY s.created_at DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Group Polls
+# ---------------------------------------------------------------------------
+
+def create_group_poll(group_id: str, profile_id: str, question: str, options: list[str]) -> str:
+    conn = get_db()
+    poll_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT INTO group_polls (id, group_id, profile_id, question, options) VALUES (?,?,?,?,?)",
+        (poll_id, group_id, profile_id, question, json.dumps(options)),
+    )
+    conn.commit()
+    return poll_id
+
+
+def get_group_polls(group_id: str, limit: int = 20) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT gp.*, p.name as author_name, p.photo as author_photo
+           FROM group_polls gp
+           JOIN profiles p ON p.id = gp.profile_id
+           WHERE gp.group_id = ?
+           ORDER BY gp.created_at DESC LIMIT ?""",
+        (group_id, limit),
+    ).fetchall()
+    polls = []
+    for r in rows:
+        d = dict(r)
+        d["options"] = json.loads(d["options"]) if d["options"] else []
+        # Get vote counts
+        votes = conn.execute(
+            "SELECT option_index, COUNT(*) as c FROM poll_votes WHERE poll_id=? GROUP BY option_index",
+            (d["id"],),
+        ).fetchall()
+        d["votes"] = {v["option_index"]: v["c"] for v in votes}
+        d["total_votes"] = sum(v["c"] for v in votes)
+        polls.append(d)
+    return polls
+
+
+def vote_poll(poll_id: str, profile_id: str, option_index: int) -> bool:
+    conn = get_db()
+    vote_id = str(uuid.uuid4())[:8]
+    try:
+        conn.execute(
+            "INSERT INTO poll_votes (id, poll_id, profile_id, option_index) VALUES (?,?,?,?)",
+            (vote_id, poll_id, profile_id, option_index),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def get_poll_user_vote(poll_id: str, profile_id: str) -> int | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT option_index FROM poll_votes WHERE poll_id=? AND profile_id=?",
+        (poll_id, profile_id),
+    ).fetchone()
+    return row["option_index"] if row else None
+
+
+# ---------------------------------------------------------------------------
+# User Sessions
+# ---------------------------------------------------------------------------
+
+def create_session(user_id: str, token_hash: str, device: str = "", ip_address: str = "") -> str:
+    conn = get_db()
+    session_id = str(uuid.uuid4())[:8]
+    conn.execute(
+        "INSERT INTO user_sessions (id, user_id, token_hash, device, ip_address) VALUES (?,?,?,?,?)",
+        (session_id, user_id, token_hash, device, ip_address),
+    )
+    conn.commit()
+    return session_id
+
+
+def get_user_sessions(user_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, user_id, device, ip_address, last_active, created_at FROM user_sessions WHERE user_id=? ORDER BY last_active DESC",
+        (user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_all_sessions(limit: int = 200) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT us.id, us.user_id, us.device, us.ip_address, us.last_active, us.created_at,
+                  u.email, u.display_name
+           FROM user_sessions us
+           JOIN users u ON u.id = us.user_id
+           ORDER BY us.last_active DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def touch_session(session_id: str):
+    conn = get_db()
+    conn.execute(
+        "UPDATE user_sessions SET last_active = datetime('now') WHERE id = ?",
+        (session_id,),
+    )
+    conn.commit()
+
+
+def revoke_session(session_id: str, user_id: str = None) -> bool:
+    conn = get_db()
+    if user_id:
+        cursor = conn.execute(
+            "DELETE FROM user_sessions WHERE id=? AND user_id=?",
+            (session_id, user_id),
+        )
+    else:
+        cursor = conn.execute("DELETE FROM user_sessions WHERE id=?", (session_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def revoke_all_sessions(user_id: str, except_session_id: str = None):
+    conn = get_db()
+    if except_session_id:
+        conn.execute(
+            "DELETE FROM user_sessions WHERE user_id=? AND id != ?",
+            (user_id, except_session_id),
+        )
+    else:
+        conn.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
+    conn.commit()
+
+
+def get_session_count() -> int:
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) as c FROM user_sessions").fetchone()
+    return row["c"]
+
+
+# ---------------------------------------------------------------------------
+# User Location
+# ---------------------------------------------------------------------------
+
+def save_user_location(user_id: str, latitude: float = None, longitude: float = None,
+                       city: str = "", radius_km: int = 100, enabled: bool = True):
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO user_locations (user_id, latitude, longitude, city, radius_km, enabled)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+           latitude=excluded.latitude, longitude=excluded.longitude,
+           city=excluded.city, radius_km=excluded.radius_km,
+           enabled=excluded.enabled, updated_at=datetime('now')""",
+        (user_id, latitude, longitude, city, radius_km, int(enabled)),
+    )
+    conn.commit()
+
+
+def get_user_location(user_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM user_locations WHERE user_id=?", (user_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_nearby_profiles(latitude: float, longitude: float, radius_km: int,
+                        exclude_id: str = "", limit: int = 50) -> list[dict]:
+    """Simple distance-based matching using Haversine approximation."""
+    conn = get_db()
+    # Rough degree-to-km approximation for bounding box
+    lat_delta = radius_km / 111.0
+    lon_delta = radius_km / (111.0 * max(0.1, abs(__import__('math').cos(__import__('math').radians(latitude)))))
+    rows = conn.execute(
+        """SELECT p.*, ul.latitude as user_lat, ul.longitude as user_lon, ul.city as user_city
+           FROM profiles p
+           JOIN users u ON u.profile_id = p.id
+           JOIN user_locations ul ON ul.user_id = u.id
+           WHERE ul.enabled = 1
+             AND ul.latitude BETWEEN ? AND ?
+             AND ul.longitude BETWEEN ? AND ?
+             AND p.id != ?
+           LIMIT ?""",
+        (latitude - lat_delta, latitude + lat_delta,
+         longitude - lon_delta, longitude + lon_delta,
+         exclude_id, limit),
+    ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_location_enabled_count() -> int:
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) as c FROM user_locations WHERE enabled=1").fetchone()
+    return row["c"]
+
+
+# ---------------------------------------------------------------------------
+# Recovery Codes (2FA backup)
+# ---------------------------------------------------------------------------
+
+def save_recovery_codes(user_id: str, code_hashes: list[str]):
+    conn = get_db()
+    # Clear old codes
+    conn.execute("DELETE FROM recovery_codes WHERE user_id=?", (user_id,))
+    for ch in code_hashes:
+        code_id = str(uuid.uuid4())[:8]
+        conn.execute(
+            "INSERT INTO recovery_codes (id, user_id, code_hash) VALUES (?,?,?)",
+            (code_id, user_id, ch),
+        )
+    conn.commit()
+
+
+def use_recovery_code(user_id: str, code_hash: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id FROM recovery_codes WHERE user_id=? AND code_hash=? AND used=0",
+        (user_id, code_hash),
+    ).fetchone()
+    if not row:
+        return False
+    conn.execute("UPDATE recovery_codes SET used=1 WHERE id=?", (row["id"],))
+    conn.commit()
+    return True
+
+
+def get_recovery_code_count(user_id: str) -> int:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT COUNT(*) as c FROM recovery_codes WHERE user_id=? AND used=0",
+        (user_id,),
+    ).fetchone()
+    return row["c"]
+
+
+# ---------------------------------------------------------------------------
+# Incognito Mode
+# ---------------------------------------------------------------------------
+
+def set_incognito_mode(user_id: str, enabled: bool):
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET incognito_mode=? WHERE id=?",
+        (int(enabled), user_id),
+    )
+    conn.commit()
+
+
+def is_incognito(user_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT incognito_mode FROM users WHERE id=?", (user_id,)
+    ).fetchone()
+    return bool(row and row["incognito_mode"])
+
+
+# ---------------------------------------------------------------------------
+# Mutual Friends
+# ---------------------------------------------------------------------------
+
+def get_mutual_friends(profile_a: str, profile_b: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT p.id, p.name, p.photo
+           FROM profile_friends fa
+           JOIN profile_friends fb ON fa.friend_id = fb.friend_id
+           JOIN profiles p ON p.id = fa.friend_id
+           WHERE fa.profile_id=? AND fb.profile_id=?
+             AND fa.status='accepted' AND fb.status='accepted'""",
+        (profile_a, profile_b),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_mutual_friend_count(profile_a: str, profile_b: str) -> int:
+    conn = get_db()
+    row = conn.execute(
+        """SELECT COUNT(*) as c
+           FROM profile_friends fa
+           JOIN profile_friends fb ON fa.friend_id = fb.friend_id
+           WHERE fa.profile_id=? AND fb.profile_id=?
+             AND fa.status='accepted' AND fb.status='accepted'""",
+        (profile_a, profile_b),
+    ).fetchone()
+    return row["c"]
+
+
+# ---------------------------------------------------------------------------
+# Message Search
+# ---------------------------------------------------------------------------
+
+def search_messages(profile_id: str, query: str, limit: int = 50) -> list[dict]:
+    conn = get_db()
+    q = f"%{query}%"
+    rows = conn.execute(
+        """SELECT m.*, p_from.name as from_name, p_to.name as to_name
+           FROM messages m
+           LEFT JOIN profiles p_from ON p_from.id = m.from_id
+           LEFT JOIN profiles p_to ON p_to.id = m.to_id
+           WHERE (m.from_id=? OR m.to_id=?) AND m.content LIKE ?
+           ORDER BY m.created_at DESC LIMIT ?""",
+        (profile_id, profile_id, q, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Account Deletion (GDPR)
+# ---------------------------------------------------------------------------
+
+def delete_account(user_id: str) -> bool:
+    """Delete all user data for GDPR compliance."""
+    conn = get_db()
+    user = conn.execute("SELECT profile_id FROM users WHERE id=?", (user_id,)).fetchone()
+    if not user:
+        return False
+    profile_id = user["profile_id"]
+    if profile_id:
+        # Delete all profile-related data
+        tables_with_profile = [
+            ("messages", "from_id"), ("messages", "to_id"),
+            ("profile_blog_posts", "profile_id"),
+            ("profile_comments", "profile_id"), ("profile_comments", "from_id"),
+            ("profile_friends", "profile_id"), ("profile_friends", "friend_id"),
+            ("activity_feed", "profile_id"), ("status_updates", "profile_id"),
+            ("likes", "from_id"), ("photos", "profile_id"),
+            ("group_members", "profile_id"), ("group_posts", "profile_id"),
+            ("behavioral_events", "profile_id"), ("safety_reports", "reporter_id"),
+            ("voice_messages", "from_id"), ("voice_messages", "to_id"),
+            ("profile_prompts", "profile_id"), ("super_likes", "from_id"),
+            ("super_likes", "to_id"), ("stories", "profile_id"),
+            ("story_views", "viewer_id"), ("group_messages", "from_id"),
+            ("message_reactions", "profile_id"), ("daily_suggestions", "profile_id"),
+            ("compat_games", "profile_a"), ("compat_games", "profile_b"),
+            ("music_preferences", "profile_id"), ("blocks", "blocker_id"),
+            ("blocks", "blocked_id"),
+        ]
+        for table, col in tables_with_profile:
+            try:
+                conn.execute(f"DELETE FROM {table} WHERE {col}=?", (profile_id,))
+            except sqlite3.OperationalError:
+                pass
+        conn.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+    # Delete user-related data
+    user_tables = [
+        "notifications", "notification_preferences", "refresh_tokens",
+        "email_verifications", "totp_secrets", "push_subscriptions",
+        "user_sessions", "user_locations", "recovery_codes",
+        "premium_subscriptions", "questionnaire_progress",
+    ]
+    for table in user_tables:
+        try:
+            conn.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
+        except sqlite3.OperationalError:
+            pass
+    conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+    conn.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Data Export (GDPR)
+# ---------------------------------------------------------------------------
+
+def export_user_data(user_id: str) -> dict:
+    """Export all user data for GDPR compliance."""
+    conn = get_db()
+    user = conn.execute("SELECT id, email, display_name, created_at FROM users WHERE id=?", (user_id,)).fetchone()
+    if not user:
+        return {}
+    data = {"user": dict(user)}
+    profile_id = conn.execute("SELECT profile_id FROM users WHERE id=?", (user_id,)).fetchone()
+    pid = profile_id["profile_id"] if profile_id else None
+    if pid:
+        profile = conn.execute("SELECT * FROM profiles WHERE id=?", (pid,)).fetchone()
+        if profile:
+            data["profile"] = {k: v for k, v in dict(profile).items() if k != "embedding"}
+        data["messages_sent"] = [dict(r) for r in conn.execute(
+            "SELECT id, to_id, content, created_at FROM messages WHERE from_id=? ORDER BY created_at", (pid,)
+        ).fetchall()]
+        data["messages_received"] = [dict(r) for r in conn.execute(
+            "SELECT id, from_id, content, created_at FROM messages WHERE to_id=? ORDER BY created_at", (pid,)
+        ).fetchall()]
+        data["friends"] = [dict(r) for r in conn.execute(
+            "SELECT friend_id, status, created_at FROM profile_friends WHERE profile_id=?", (pid,)
+        ).fetchall()]
+        data["likes_given"] = [dict(r) for r in conn.execute(
+            "SELECT target_type, target_id, reaction, created_at FROM likes WHERE from_id=?", (pid,)
+        ).fetchall()]
+        data["blog_posts"] = [dict(r) for r in conn.execute(
+            "SELECT id, title, content, created_at FROM profile_blog_posts WHERE profile_id=?", (pid,)
+        ).fetchall()]
+        data["stories"] = [dict(r) for r in conn.execute(
+            "SELECT id, content_type, content, created_at FROM stories WHERE profile_id=?", (pid,)
+        ).fetchall()]
+        data["prompts"] = [dict(r) for r in conn.execute(
+            "SELECT prompt, answer FROM profile_prompts WHERE profile_id=?", (pid,)
+        ).fetchall()]
+    data["notifications"] = [dict(r) for r in conn.execute(
+        "SELECT type, title, body, created_at FROM notifications WHERE user_id=? ORDER BY created_at", (user_id,)
+    ).fetchall()]
+    location = conn.execute("SELECT * FROM user_locations WHERE user_id=?", (user_id,)).fetchone()
+    if location:
+        data["location_settings"] = dict(location)
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Match Expiry
+# ---------------------------------------------------------------------------
+
+def get_expiring_matches(profile_id: str, expiry_days: int = 7) -> list[dict]:
+    """Get matches that haven't been messaged within expiry_days."""
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT l.target_id as match_id, l.created_at as matched_at,
+                  p.name, p.photo,
+                  (SELECT COUNT(*) FROM messages
+                   WHERE (from_id=l.from_id AND to_id=l.target_id)
+                      OR (from_id=l.target_id AND to_id=l.from_id)) as message_count,
+                  ROUND(julianday('now') - julianday(l.created_at)) as days_since_match
+           FROM likes l
+           JOIN profiles p ON p.id = l.target_id
+           WHERE l.from_id = ? AND l.target_type = 'profile'
+             AND l.created_at >= datetime('now', ? || ' days')
+           ORDER BY l.created_at ASC""",
+        (profile_id, f"-{expiry_days}"),
+    ).fetchall()
+    return [dict(r) for r in rows]

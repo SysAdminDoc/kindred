@@ -1,5 +1,5 @@
 """
-Kindred v1.5.0 - Configuration
+Kindred v1.6.0 - Configuration
 Loads settings from environment variables or .env file.
 """
 
@@ -75,5 +75,22 @@ PREMIUM_ENABLED = os.getenv("KINDRED_PREMIUM_ENABLED", "false").lower() == "true
 # --- Daily Suggestions ---
 DAILY_SUGGESTION_COUNT = int(os.getenv("KINDRED_DAILY_SUGGESTIONS", "5"))
 
+# --- Location Matching ---
+LOCATION_MATCH_RADIUS_KM = int(os.getenv("KINDRED_LOCATION_RADIUS_KM", "100"))
+
+# --- Stories ---
+STORY_EXPIRY_HOURS = int(os.getenv("KINDRED_STORY_EXPIRY_HOURS", "24"))
+
+# --- Match Expiry ---
+MATCH_EXPIRY_DAYS = int(os.getenv("KINDRED_MATCH_EXPIRY_DAYS", "7"))
+
+# --- Backups ---
+BACKUP_DIR = Path(os.getenv("KINDRED_BACKUP_DIR", str(Path(__file__).parent.parent / "backups")))
+BACKUP_KEEP_COUNT = int(os.getenv("KINDRED_BACKUP_KEEP_COUNT", "7"))
+BACKUP_INTERVAL_HOURS = int(os.getenv("KINDRED_BACKUP_INTERVAL_HOURS", "24"))
+
+# --- i18n ---
+DEFAULT_LOCALE = os.getenv("KINDRED_DEFAULT_LOCALE", "en")
+
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5

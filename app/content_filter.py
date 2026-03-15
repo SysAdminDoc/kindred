@@ -1,5 +1,5 @@
 """
-Kindred v1.5.0 - Content Filtering
+Kindred v1.6.0 - Content Filtering
 Basic profanity/spam detection for messages and profiles.
 """
 

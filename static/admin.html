@@ -132,6 +132,37 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 .filter-type-other { background:var(--surface0); color:var(--overlay0); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
 .matched-highlight { background:rgba(243,139,168,.2); color:var(--red); padding:1px 4px; border-radius:3px; font-weight:500; }
 
+/* Health status */
+.health-dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px; flex-shrink:0; }
+.health-dot.ok { background:var(--green); box-shadow:0 0 6px var(--green); }
+.health-dot.err { background:var(--red); box-shadow:0 0 6px var(--red); }
+.health-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:12px; }
+.health-item { background:var(--mantle); border-radius:8px; padding:12px 14px; display:flex; flex-direction:column; gap:2px; }
+.health-item .hk { font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; }
+.health-item .hv { font-size:14px; color:var(--text); font-weight:500; }
+
+/* Generic admin table */
+.admin-table { width:100%; border-collapse:separate; border-spacing:0 4px; }
+.admin-table th { text-align:left; font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; padding:8px 12px; }
+.admin-table td { padding:10px 12px; background:var(--mantle); font-size:13px; color:var(--subtext1); vertical-align:middle; }
+.admin-table tr td:first-child { border-radius:8px 0 0 8px; }
+.admin-table tr td:last-child { border-radius:0 8px 8px 0; }
+.admin-table tr:hover td { background:var(--surface0); }
+
+/* Story thumb */
+.story-thumb { width:48px; height:48px; border-radius:6px; object-fit:cover; border:2px solid var(--surface1); }
+
+/* Confirmation modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:500; display:flex; align-items:center; justify-content:center; }
+.modal-box { background:var(--base); border:1px solid var(--surface0); border-radius:var(--radius); padding:28px; max-width:420px; width:90%; box-shadow:var(--shadow); }
+.modal-box h3 { color:var(--lavender); margin-bottom:10px; }
+.modal-box p { color:var(--subtext1); font-size:14px; margin-bottom:20px; line-height:1.5; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+
+/* i18n locale list */
+.locale-item { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:var(--mantle); border-radius:8px; margin-bottom:6px; font-size:14px; }
+.locale-default { background:rgba(166,227,161,.12); border:1px solid var(--green); color:var(--green); font-size:10px; font-weight:700; padding:2px 8px; border-radius:4px; text-transform:uppercase; }
+
 @media(max-width:600px) {
     .container{padding:12px;}
     .card{padding:16px;}
@@ -139,12 +170,13 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
     .detail-grid{grid-template-columns:1fr;}
     .header{flex-wrap:wrap;gap:8px;padding:10px 12px;}
     .nav-tabs{width:100%;justify-content:center;}
+    .health-grid{grid-template-columns:1fr 1fr;}
 }
 </style>
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.5.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.6.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -161,10 +193,14 @@ const TABS=[
     {id:'events',label:'Events'},
     {id:'verify',label:'Verifications'},
     {id:'safety',label:'Safety Reports'},
+    {id:'stories',label:'Stories'},
+    {id:'sessions',label:'Sessions'},
+    {id:'backups',label:'Backups'},
     {id:'invites',label:'Invites'},
     {id:'feedback',label:'Feedback'},
     {id:'analytics',label:'Analytics'},
     {id:'contentfilter',label:'Content Filter'},
+    {id:'i18n',label:'i18n'},
 ];
 
 function adminHeaders(){
@@ -199,6 +235,10 @@ function showView(v){
     else if(v==='feedback')renderFeedback();
     else if(v==='analytics')renderAnalytics();
     else if(v==='contentfilter')renderContentFilter();
+    else if(v==='stories')renderStories();
+    else if(v==='sessions')renderSessions();
+    else if(v==='backups')renderBackups();
+    else if(v==='i18n')renderI18n();
 }
 
 function showLoginScreen(){
@@ -240,12 +280,14 @@ function adminLogout(){
 }
 
 // ─── Dashboard ───
+let _healthTimer=null;
 async function renderDashboard(){
     const app=document.getElementById('app');
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading stats...</div>';
     try{
         const [r,pmr]=await Promise.all([adminFetch(API+'/api/admin/stats'),adminFetch(API+'/api/admin/photo-moderation').then(r=>r.json()).catch(()=>({pending:[]}))]); const s=await r.json(); const pendingPhotos=(pmr.pending||pmr.photos||[]).length||0;
-        let html=`<div class="card"><h2>Platform Overview</h2><p class="subtitle">Real-time platform statistics</p>
+        let html=`<div id="health-card"></div>`;
+        html+=`<div class="card"><h2>Platform Overview</h2><p class="subtitle">Real-time platform statistics</p>
         <div class="stat-grid">
             <div class="stat-card"><div class="num">${s.profiles}</div><div class="label">Profiles</div></div>
             <div class="stat-card"><div class="num">${s.messages}</div><div class="label">Messages</div></div>
@@ -258,6 +300,7 @@ async function renderDashboard(){
             <div class="stat-card"><div class="num">${s.groups||0}</div><div class="label">Groups</div></div>
             <div class="stat-card"><div class="num">${s.events||0}</div><div class="label">Events</div></div>
             <div class="stat-card"><div class="num" style="color:${pendingPhotos>0?'var(--yellow)':'var(--green)'}">${pendingPhotos}</div><div class="label">Photos Pending</div></div>
+            <div class="stat-card" id="dash-sessions-stat"><div class="num">--</div><div class="label">Active Sessions</div></div>
             <div class="stat-card"><div class="num" style="color:var(--green);font-size:16px">Puter.js</div><div class="label">Narratives</div></div>
         </div>`;
 
@@ -272,13 +315,53 @@ async function renderDashboard(){
         <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary" onclick="showView('profiles')">Manage Profiles</button>
             <button class="btn btn-secondary" onclick="showView('safety')">View Safety Reports</button>
+            <button class="btn btn-secondary" onclick="showView('sessions')">Active Sessions</button>
             <button class="btn btn-secondary" onclick="showView('invites')">Manage Invites</button>
             <button class="btn btn-secondary" onclick="showView('feedback')">Submit Feedback</button>
         </div>`;
 
         html+=`</div>`;
         app.innerHTML=html;
+        // Load health card and session count in parallel, non-blocking
+        loadHealthCard();
+        adminFetch(API+'/api/admin/sessions').then(r=>r.json()).then(d=>{
+            const el=document.getElementById('dash-sessions-stat');
+            if(el) el.innerHTML=`<div class="num" style="color:var(--teal)">${(d.sessions||[]).length}</div><div class="label">Active Sessions</div>`;
+        }).catch(()=>{});
+        // Auto-refresh health every 60s while on dashboard
+        if(_healthTimer) clearInterval(_healthTimer);
+        _healthTimer=setInterval(()=>{if(document.getElementById('health-card')) loadHealthCard(); else clearInterval(_healthTimer);},60000);
     }catch(e){app.innerHTML='<div class="empty"><h3>Error loading dashboard</h3><p>Make sure the admin server is running on port 8001</p></div>';}
+}
+
+async function loadHealthCard(){
+    const slot=document.getElementById('health-card');
+    if(!slot) return;
+    try{
+        const h=await adminFetch(API+'/api/health').then(r=>r.json());
+        const ok=h.status==='ok'||h.status==='healthy'||h.status==='up';
+        slot.innerHTML=`<div class="card" style="margin-bottom:20px">
+            <h2 style="display:flex;align-items:center"><span class="health-dot ${ok?'ok':'err'}"></span>Server Health</h2>
+            <p class="subtitle">Auto-refreshes every 60 seconds</p>
+            <div class="health-grid">
+                <div class="health-item"><div class="hk">Status</div><div class="hv" style="color:${ok?'var(--green)':'var(--red)'}">${escHtml(h.status||'unknown')}</div></div>
+                <div class="health-item"><div class="hk">Uptime</div><div class="hv">${escHtml(h.uptime!=null?fmtUptime(h.uptime):(h.uptime_str||'--'))}</div></div>
+                <div class="health-item"><div class="hk">Database Size</div><div class="hv">${escHtml(h.db_size_mb!=null?h.db_size_mb.toFixed(2)+' MB':(h.db_size||'--'))}</div></div>
+                <div class="health-item"><div class="hk">Connections</div><div class="hv">${escHtml(String(h.active_connections!=null?h.active_connections:(h.connections||'--')))}</div></div>
+                <div class="health-item"><div class="hk">Python</div><div class="hv">${escHtml(h.python_version||h.python||'--')}</div></div>
+            </div>
+        </div>`;
+    }catch(e){
+        slot.innerHTML=`<div class="card" style="margin-bottom:20px"><h2 style="display:flex;align-items:center"><span class="health-dot err"></span>Server Health</h2><p style="color:var(--overlay0);font-size:13px">Health endpoint unavailable</p></div>`;
+    }
+}
+
+function fmtUptime(sec){
+    if(typeof sec!=='number') return String(sec);
+    const d=Math.floor(sec/86400),h=Math.floor((sec%86400)/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);
+    if(d>0) return `${d}d ${h}h ${m}m`;
+    if(h>0) return `${h}h ${m}m`;
+    return `${m}m ${s}s`;
 }
 
 // ─── Profiles ───
@@ -726,6 +809,16 @@ async function renderAnalytics(){
             <div class="analytics-card"><div class="value">${d.match_view_rate!=null?(d.match_view_rate*100).toFixed(1)+'%':'--'}</div><div class="label">Match View Rate</div></div>
         </div>`;
 
+        // Feature metrics
+        html+=`<div class="section-head">Feature Metrics</div>`;
+        html+=`<div class="analytics-cards">
+            <div class="analytics-card"><div class="value" style="color:var(--peach)">${d.stories_posted!=null?d.stories_posted:'--'}</div><div class="label">Stories Posted</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--red)">${d.super_likes!=null?d.super_likes:'--'}</div><div class="label">Super Likes</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--sapphire)">${d.voice_messages!=null?d.voice_messages:'--'}</div><div class="label">Voice Messages</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--teal)">${d.active_sessions!=null?d.active_sessions:'--'}</div><div class="label">Active Sessions</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--green)">${d.location_enabled_users!=null?d.location_enabled_users:'--'}</div><div class="label">Location-Enabled Users</div></div>
+        </div>`;
+
         // Top viewed profiles
         const topProfiles=d.top_viewed_profiles||[];
         if(topProfiles.length){
@@ -778,6 +871,211 @@ async function renderContentFilter(){
         html+=`</tbody></table></div></div>`;
         app.innerHTML=html;
     }catch(e){app.innerHTML='<div class="empty"><h3>Error loading content filter log</h3><p>The content filter endpoint may not be available yet.</p></div>';console.error(e);}
+}
+
+// ─── Stories Moderation ───
+async function renderStories(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading stories...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/stories');const d=await r.json();
+        const stories=d.stories||d||[];
+        if(!stories.length){app.innerHTML='<div class="card"><h2>Stories Moderation</h2><div class="empty"><h3>No active stories</h3><p>No users have posted stories yet.</p></div></div>';return;}
+        let html=`<div class="card"><h2>Stories Moderation</h2><p class="subtitle">${stories.length} active stor${stories.length!==1?'ies':'y'}</p>
+        <div style="overflow-x:auto"><table class="admin-table"><thead><tr>
+            <th>Story</th><th>Author</th><th>Created</th><th>Expires</th><th></th>
+        </tr></thead><tbody>`;
+        for(const st of stories){
+            const media=st.image_url||st.media_url||st.photo||'';
+            const preview=media?`<img src="${escHtml(media)}" class="story-thumb" onerror="this.style.display='none'">`:`<div style="width:48px;height:48px;border-radius:6px;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--overlay0);font-size:10px">No img</div>`;
+            const content=st.content||st.text||'';
+            html+=`<tr>
+                <td style="display:flex;align-items:center;gap:10px">${preview}<span style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${escHtml(content)}</span></td>
+                <td><strong style="color:var(--lavender)">${escHtml(st.author_name||st.user_name||'?')}</strong></td>
+                <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${st.created_at?new Date(st.created_at).toLocaleString():'--'}</td>
+                <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${st.expires_at?new Date(st.expires_at).toLocaleString():'--'}</td>
+                <td><button class="btn-sm btn-delete" onclick="removeStory('${escHtml(st.id||'')}')">Remove</button></td>
+            </tr>`;
+        }
+        html+=`</tbody></table></div></div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading stories</h3></div>';console.error(e);}
+}
+
+async function removeStory(id){
+    await adminFetch(API+'/api/admin/stories/'+id,{method:'DELETE'});
+    toast('Story removed','success');
+    renderStories();
+}
+
+// ─── Sessions ───
+async function renderSessions(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading sessions...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/sessions');const d=await r.json();
+        const sessions=d.sessions||d||[];
+        if(!sessions.length){app.innerHTML='<div class="card"><h2>Active Sessions</h2><div class="empty"><h3>No active sessions</h3><p>No users are currently logged in.</p></div></div>';return;}
+
+        // Group by user for "Revoke All for User" capability
+        const byUser={};
+        for(const s of sessions){const key=s.user_email||s.email||s.user_id||'?';if(!byUser[key]) byUser[key]=[];byUser[key].push(s);}
+
+        let html=`<div class="card"><h2>Active Sessions</h2><p class="subtitle">${sessions.length} active session${sessions.length!==1?'s':''}</p>
+        <div style="overflow-x:auto"><table class="admin-table"><thead><tr>
+            <th>User</th><th>Device / Browser</th><th>IP Address</th><th>Created</th><th>Last Active</th><th></th>
+        </tr></thead><tbody>`;
+        for(const s of sessions){
+            const email=escHtml(s.user_email||s.email||s.user_id||'?');
+            const device=escHtml(s.device||s.user_agent||s.browser||'--');
+            const ip=escHtml(s.ip_address||s.ip||'--');
+            const multiUser=byUser[s.user_email||s.email||s.user_id||'?'].length>1;
+            html+=`<tr>
+                <td><strong style="color:var(--lavender)">${email}</strong></td>
+                <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${device}">${device}</td>
+                <td style="font-family:monospace;font-size:12px">${ip}</td>
+                <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${s.created_at?new Date(s.created_at).toLocaleString():'--'}</td>
+                <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${s.last_active||s.last_seen?new Date(s.last_active||s.last_seen).toLocaleString():'--'}</td>
+                <td style="white-space:nowrap">
+                    <div style="display:flex;gap:6px">
+                        <button class="btn-sm btn-delete" onclick="revokeSession('${escHtml(s.id||s.session_id||'')}')">Revoke</button>
+                        ${multiUser?`<button class="btn-sm btn-secondary" style="background:var(--surface0);color:var(--peach);border:1px solid var(--peach)" onclick="revokeAllForUser('${escHtml(s.user_email||s.email||s.user_id||'')}')">Revoke All</button>`:''}
+                    </div>
+                </td>
+            </tr>`;
+        }
+        html+=`</tbody></table></div></div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading sessions</h3></div>';console.error(e);}
+}
+
+async function revokeSession(id){
+    await adminFetch(API+'/api/admin/sessions/'+id,{method:'DELETE'});
+    toast('Session revoked','success');
+    renderSessions();
+}
+
+async function revokeAllForUser(email){
+    await adminFetch(API+'/api/admin/sessions/revoke-user',{method:'POST',body:JSON.stringify({email})});
+    toast('All sessions for '+email+' revoked','success');
+    renderSessions();
+}
+
+// ─── Backups ───
+async function renderBackups(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading backups...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/backups');const d=await r.json();
+        const backups=d.backups||d||[];
+        let html=`<div class="card"><h2>Backup Management</h2><p class="subtitle">Database backups and scheduler status</p>`;
+
+        // Scheduler info
+        if(d.scheduler){
+            html+=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+                <div class="stat-card" style="flex:1;min-width:140px"><div class="num" style="font-size:16px">${escHtml(String(d.scheduler.interval||'--'))}</div><div class="label">Backup Interval</div></div>
+                <div class="stat-card" style="flex:1;min-width:140px"><div class="num" style="font-size:16px">${escHtml(String(d.scheduler.retention||'--'))}</div><div class="label">Retention Count</div></div>
+                <div class="stat-card" style="flex:1;min-width:140px"><div class="num" style="font-size:16px;color:${d.scheduler.enabled?'var(--green)':'var(--overlay0)'}">${d.scheduler.enabled?'On':'Off'}</div><div class="label">Auto-Backup</div></div>
+            </div>`;
+        }
+
+        html+=`<div style="margin-bottom:16px"><button class="btn btn-primary" id="backup-btn" onclick="createBackup()">Create Backup Now</button></div>`;
+
+        if(!backups.length){
+            html+=`<div class="empty" style="padding:24px"><h3>No backups yet</h3><p>Create your first backup above.</p></div>`;
+        } else {
+            html+=`<div style="overflow-x:auto"><table class="admin-table"><thead><tr>
+                <th>Filename</th><th>Size</th><th>Created</th><th></th>
+            </tr></thead><tbody>`;
+            for(const b of backups){
+                const sizeMb=b.size_mb!=null?b.size_mb.toFixed(2)+' MB':b.size!=null?(b.size/1048576).toFixed(2)+' MB':'--';
+                html+=`<tr>
+                    <td style="font-family:monospace;font-size:12px;color:var(--yellow)">${escHtml(b.filename||b.name||'?')}</td>
+                    <td>${escHtml(sizeMb)}</td>
+                    <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${b.created_at?new Date(b.created_at).toLocaleString():(b.created||'--')}</td>
+                    <td><button class="btn-sm btn-danger" onclick="confirmRestore('${escHtml(b.filename||b.name||'')}')">Restore</button></td>
+                </tr>`;
+            }
+            html+=`</tbody></table></div>`;
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading backups</h3></div>';console.error(e);}
+}
+
+async function createBackup(){
+    const btn=document.getElementById('backup-btn');
+    if(btn){btn.disabled=true;btn.textContent='Creating...';}
+    try{
+        await adminFetch(API+'/api/admin/backups',{method:'POST'});
+        toast('Backup created','success');
+        renderBackups();
+    }catch(e){toast('Backup failed','error');if(btn){btn.disabled=false;btn.textContent='Create Backup Now';}}
+}
+
+function confirmRestore(filename){
+    // Remove any existing modal
+    const old=document.getElementById('restore-modal');
+    if(old) old.remove();
+    const modal=document.createElement('div');
+    modal.id='restore-modal';
+    modal.className='modal-overlay';
+    modal.innerHTML=`<div class="modal-box">
+        <h3>Restore Backup?</h3>
+        <p>Restore <strong style="color:var(--yellow)">${escHtml(filename)}</strong>?<br>This will overwrite the current database. This action cannot be undone.</p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="document.getElementById('restore-modal').remove()">Cancel</button>
+            <button class="btn btn-danger" onclick="doRestore('${escHtml(filename)}')">Restore</button>
+        </div>
+    </div>`;
+    document.body.appendChild(modal);
+}
+
+async function doRestore(filename){
+    const modal=document.getElementById('restore-modal');
+    if(modal) modal.remove();
+    try{
+        await adminFetch(API+'/api/admin/backups/restore',{method:'POST',body:JSON.stringify({filename})});
+        toast('Restore complete','success');
+        renderBackups();
+    }catch(e){toast('Restore failed','error');}
+}
+
+// ─── i18n Management ───
+async function renderI18n(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading locales...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/i18n/locales');const d=await r.json();
+        const locales=d.locales||d||[];
+        const defaultLocale=d.default_locale||d.default||'';
+        let html=`<div class="card"><h2>i18n Management</h2><p class="subtitle">Available locales and default language settings</p>`;
+        if(defaultLocale){
+            html+=`<div style="background:var(--mantle);border-radius:8px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
+                <span style="color:var(--overlay0);font-size:13px">Default Locale:</span>
+                <strong style="color:var(--green);font-size:15px">${escHtml(defaultLocale)}</strong>
+            </div>`;
+        }
+        if(!locales.length){
+            html+=`<div class="empty" style="padding:24px"><h3>No locales found</h3><p>No locale files are configured on the server.</p></div>`;
+        } else {
+            html+=`<div class="section-head">Available Locales (${locales.length})</div>`;
+            for(const loc of locales){
+                const code=typeof loc==='string'?loc:(loc.code||loc.locale||loc.id||String(loc));
+                const label=typeof loc==='object'?(loc.label||loc.name||code):code;
+                const isDefault=code===defaultLocale;
+                html+=`<div class="locale-item">
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <span style="font-family:monospace;font-size:13px;color:var(--yellow)">${escHtml(code)}</span>
+                        <span style="color:var(--subtext1);font-size:14px">${escHtml(label)}</span>
+                    </div>
+                    ${isDefault?'<span class="locale-default">Default</span>':''}
+                </div>`;
+            }
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading i18n data</h3><p>The i18n endpoint may not be available yet.</p></div>';console.error(e);}
 }
 
 // ─── Utils ───
