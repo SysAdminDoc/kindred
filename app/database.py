@@ -1,5 +1,5 @@
 """
-Kindred v2.3.0 - Database Layer
+Kindred v2.4.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -1015,6 +1015,64 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_retention_emails_user ON retention_emails(user_id, email_type);
+
+        CREATE TABLE IF NOT EXISTS shadow_bans (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            banned_by TEXT NOT NULL,
+            reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (banned_by) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_bans_user ON shadow_bans(user_id);
+
+        CREATE TABLE IF NOT EXISTS canned_responses (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT DEFAULT 'general',
+            created_by TEXT NOT NULL,
+            usage_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS feature_flags (
+            id TEXT PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            enabled INTEGER DEFAULT 0,
+            description TEXT,
+            updated_by TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS request_logs (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            status_code INTEGER,
+            duration_ms REAL,
+            user_id TEXT,
+            ip_address TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_request_logs_time ON request_logs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_request_logs_path ON request_logs(path, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS admin_messages (
+            id TEXT PRIMARY KEY,
+            from_admin_id TEXT NOT NULL,
+            to_user_id TEXT NOT NULL,
+            subject TEXT,
+            content TEXT NOT NULL,
+            read INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (from_admin_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_admin_messages_user ON admin_messages(to_user_id, created_at DESC);
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -1078,12 +1136,12 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v2.3.0
+        # v2.4.0
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
         # Phase 3
         "ALTER TABLE notification_preferences ADD COLUMN read_receipts_enabled INTEGER DEFAULT 1",
-        # v2.3.0
+        # v2.4.0
         "ALTER TABLE safety_reports ADD COLUMN status TEXT DEFAULT 'open'",
         "ALTER TABLE safety_reports ADD COLUMN reason_category TEXT",
         "ALTER TABLE safety_reports ADD COLUMN reviewed_by TEXT",
@@ -1093,7 +1151,7 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN avg_reply_minutes REAL",
         "ALTER TABLE profiles ADD COLUMN last_message_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN suspended INTEGER DEFAULT 0",
-        # v2.3.0
+        # v2.4.0
         "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN edit_grace_until TIMESTAMP",
@@ -1102,6 +1160,9 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN profile_completeness INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN last_email_digest TIMESTAMP",
         "ALTER TABLE users ADD COLUMN email_digest_enabled INTEGER DEFAULT 1",
+        # v2.4.0
+        "ALTER TABLE users ADD COLUMN shadow_banned INTEGER DEFAULT 0",
+        "ALTER TABLE profiles ADD COLUMN ip_fingerprint TEXT",
     ]
     for sql in migrations:
         try:
@@ -6328,3 +6389,304 @@ def get_profile_completion_tips(profile_id: str) -> list[str]:
     if not profile["big_five"]:
         tips.append("Complete the personality questionnaire for accurate matches")
     return tips
+
+
+# ---------------------------------------------------------------------------
+# Shadow Bans
+# ---------------------------------------------------------------------------
+
+def shadow_ban_user(user_id: str, banned_by: str, reason: str = None) -> str:
+    conn = get_db()
+    ban_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO shadow_bans (id, user_id, banned_by, reason) VALUES (?, ?, ?, ?)",
+        (ban_id, user_id, banned_by, reason)
+    )
+    conn.execute("UPDATE users SET shadow_banned = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+    return ban_id
+
+
+def remove_shadow_ban(user_id: str) -> bool:
+    conn = get_db()
+    conn.execute("DELETE FROM shadow_bans WHERE user_id = ?", (user_id,))
+    conn.execute("UPDATE users SET shadow_banned = 0 WHERE id = ?", (user_id,))
+    conn.commit()
+    return True
+
+
+def is_shadow_banned(user_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT shadow_banned FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    return bool(row and row["shadow_banned"])
+
+
+def get_shadow_banned_users() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT sb.*, u.email, u.display_name
+        FROM shadow_bans sb
+        JOIN users u ON u.id = sb.user_id
+        ORDER BY sb.created_at DESC
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Canned Responses
+# ---------------------------------------------------------------------------
+
+def create_canned_response(title: str, content: str, category: str, created_by: str) -> str:
+    conn = get_db()
+    resp_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO canned_responses (id, title, content, category, created_by) VALUES (?, ?, ?, ?, ?)",
+        (resp_id, title, content, category, created_by)
+    )
+    conn.commit()
+    return resp_id
+
+
+def get_canned_responses(category: str = None) -> list[dict]:
+    conn = get_db()
+    if category:
+        rows = conn.execute(
+            "SELECT * FROM canned_responses WHERE category = ? ORDER BY usage_count DESC",
+            (category,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM canned_responses ORDER BY usage_count DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def use_canned_response(response_id: str) -> dict:
+    conn = get_db()
+    conn.execute(
+        "UPDATE canned_responses SET usage_count = usage_count + 1 WHERE id = ?",
+        (response_id,)
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM canned_responses WHERE id = ?", (response_id,)).fetchone()
+    return dict(row) if row else {}
+
+
+def delete_canned_response(response_id: str) -> bool:
+    conn = get_db()
+    cur = conn.execute("DELETE FROM canned_responses WHERE id = ?", (response_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Feature Flags
+# ---------------------------------------------------------------------------
+
+def set_feature_flag(name: str, enabled: bool, description: str = None, updated_by: str = None) -> str:
+    conn = get_db()
+    from datetime import datetime, timezone
+    flag_id = uuid.uuid4().hex
+    conn.execute("""
+        INSERT INTO feature_flags (id, name, enabled, description, updated_by, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET enabled = ?, description = COALESCE(?, description),
+            updated_by = ?, updated_at = ?
+    """, (flag_id, name, 1 if enabled else 0, description, updated_by,
+          datetime.now(timezone.utc).isoformat(),
+          1 if enabled else 0, description, updated_by,
+          datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+    return flag_id
+
+
+def get_feature_flags() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM feature_flags ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_feature_enabled(name: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT enabled FROM feature_flags WHERE name = ?", (name,)
+    ).fetchone()
+    return bool(row and row["enabled"])
+
+
+# ---------------------------------------------------------------------------
+# Request Logging
+# ---------------------------------------------------------------------------
+
+def log_request(request_id: str, method: str, path: str, status_code: int,
+                duration_ms: float, user_id: str = None, ip_address: str = None):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO request_logs (id, request_id, method, path, status_code, duration_ms, user_id, ip_address)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (uuid.uuid4().hex, request_id, method, path, status_code, duration_ms, user_id, ip_address))
+    conn.commit()
+
+
+def get_request_stats(hours: int = 24) -> dict:
+    conn = get_db()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM request_logs WHERE created_at >= datetime('now', '-' || ? || ' hours')",
+        (hours,)
+    ).fetchone()[0]
+    errors = conn.execute(
+        "SELECT COUNT(*) FROM request_logs WHERE status_code >= 400 AND created_at >= datetime('now', '-' || ? || ' hours')",
+        (hours,)
+    ).fetchone()[0]
+    avg_duration = conn.execute(
+        "SELECT AVG(duration_ms) FROM request_logs WHERE created_at >= datetime('now', '-' || ? || ' hours')",
+        (hours,)
+    ).fetchone()[0]
+    top_paths = conn.execute("""
+        SELECT path, COUNT(*) as count, AVG(duration_ms) as avg_ms
+        FROM request_logs WHERE created_at >= datetime('now', '-' || ? || ' hours')
+        GROUP BY path ORDER BY count DESC LIMIT 10
+    """, (hours,)).fetchall()
+    error_paths = conn.execute("""
+        SELECT path, COUNT(*) as count
+        FROM request_logs WHERE status_code >= 400 AND created_at >= datetime('now', '-' || ? || ' hours')
+        GROUP BY path ORDER BY count DESC LIMIT 10
+    """, (hours,)).fetchall()
+    return {
+        "total_requests": total,
+        "total_errors": errors,
+        "error_rate": round(errors / max(total, 1) * 100, 2),
+        "avg_duration_ms": round(avg_duration or 0, 2),
+        "top_paths": [dict(r) for r in top_paths],
+        "error_paths": [dict(r) for r in error_paths],
+    }
+
+
+def cleanup_request_logs(days: int = 7) -> int:
+    conn = get_db()
+    cur = conn.execute(
+        "DELETE FROM request_logs WHERE created_at < datetime('now', '-' || ? || ' days')",
+        (days,)
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Admin Messages (batch messaging)
+# ---------------------------------------------------------------------------
+
+def send_admin_message(admin_id: str, user_id: str, subject: str, content: str) -> str:
+    conn = get_db()
+    msg_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO admin_messages (id, from_admin_id, to_user_id, subject, content) VALUES (?, ?, ?, ?, ?)",
+        (msg_id, admin_id, user_id, subject, content)
+    )
+    conn.commit()
+    return msg_id
+
+
+def batch_send_admin_message(admin_id: str, user_ids: list[str], subject: str, content: str) -> int:
+    conn = get_db()
+    count = 0
+    for uid in user_ids:
+        msg_id = uuid.uuid4().hex
+        conn.execute(
+            "INSERT INTO admin_messages (id, from_admin_id, to_user_id, subject, content) VALUES (?, ?, ?, ?, ?)",
+            (msg_id, admin_id, uid, subject, content)
+        )
+        count += 1
+    conn.commit()
+    return count
+
+
+def get_admin_messages_for_user(user_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM admin_messages WHERE to_user_id = ? ORDER BY created_at DESC",
+        (user_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_admin_message_read(message_id: str) -> bool:
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE admin_messages SET read = 1 WHERE id = ?", (message_id,)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Retention Cohort Analysis
+# ---------------------------------------------------------------------------
+
+def get_retention_cohorts(weeks: int = 8) -> list[dict]:
+    """Get week-over-week retention cohorts."""
+    conn = get_db()
+    cohorts = []
+    for w in range(weeks):
+        # Users who signed up in this week
+        cohort_start = f"-{(w+1)*7} days"
+        cohort_end = f"-{w*7} days"
+        total = conn.execute("""
+            SELECT COUNT(*) FROM users
+            WHERE created_at >= datetime('now', ?) AND created_at < datetime('now', ?)
+        """, (cohort_start, cohort_end)).fetchone()[0]
+        if total == 0:
+            cohorts.append({"week": w, "total": 0, "retained": 0, "rate": 0})
+            continue
+        # Of those, how many were active in the past 7 days
+        retained = conn.execute("""
+            SELECT COUNT(*) FROM users u
+            JOIN profiles p ON p.id = u.profile_id
+            WHERE u.created_at >= datetime('now', ?) AND u.created_at < datetime('now', ?)
+              AND p.last_active >= datetime('now', '-7 days')
+        """, (cohort_start, cohort_end)).fetchone()[0]
+        cohorts.append({
+            "week": w,
+            "total": total,
+            "retained": retained,
+            "rate": round(retained / total * 100, 1)
+        })
+    return cohorts
+
+
+# ---------------------------------------------------------------------------
+# Funnel Analytics
+# ---------------------------------------------------------------------------
+
+def get_funnel_data() -> dict:
+    conn = get_db()
+    total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    with_profile = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE profile_id IS NOT NULL"
+    ).fetchone()[0]
+    completed_questionnaire = conn.execute(
+        "SELECT COUNT(*) FROM profiles WHERE big_five IS NOT NULL AND big_five != ''"
+    ).fetchone()[0]
+    first_match = conn.execute("""
+        SELECT COUNT(DISTINCT l1.from_id) FROM likes l1
+        JOIN likes l2 ON l1.from_id = l2.target_id AND l1.target_id = l2.from_id
+        AND l1.target_type = 'profile' AND l2.target_type = 'profile'
+    """).fetchone()[0]
+    first_message = conn.execute(
+        "SELECT COUNT(DISTINCT from_id) FROM messages"
+    ).fetchone()[0]
+    first_date = conn.execute(
+        "SELECT COUNT(DISTINCT proposed_by) FROM date_plans WHERE status = 'accepted'"
+    ).fetchone()[0]
+    return {
+        "steps": [
+            {"name": "Signup", "count": total_users},
+            {"name": "Profile Created", "count": with_profile},
+            {"name": "Questionnaire Done", "count": completed_questionnaire},
+            {"name": "First Match", "count": first_match},
+            {"name": "First Message", "count": first_message},
+            {"name": "First Date", "count": first_date},
+        ]
+    }

@@ -303,11 +303,21 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 .report-badge.resolved { background:rgba(166,227,161,.2);color:var(--green); }
 .tab-filter-btn { padding:5px 14px;border-radius:16px;border:1px solid var(--surface2);background:var(--surface0);color:var(--subtext0);cursor:pointer;font-size:.8rem;transition:all .2s; }
 .tab-filter-btn:hover { border-color:var(--red);color:var(--text); }
+
+/* ─── v2.4.0 Retention Cohorts & Funnel ─── */
+.cohort-table { width:100%;border-collapse:collapse;font-size:.8rem;margin-top:12px; }
+.cohort-table th, .cohort-table td { padding:8px;text-align:center;border-bottom:1px solid var(--surface2); }
+.cohort-table th { color:var(--subtext0);font-weight:500; }
+.cohort-bar { height:20px;border-radius:4px;transition:width .5s; }
+.funnel-step { display:flex;align-items:center;gap:8px;margin:4px 0; }
+.funnel-step .funnel-bar { height:28px;border-radius:6px;background:var(--mauve);transition:width .5s;display:flex;align-items:center;padding:0 8px;color:var(--crust);font-size:.8rem;font-weight:600;min-width:40px; }
+.funnel-step .funnel-label { font-size:.85rem;color:var(--text);min-width:120px; }
+.funnel-step .funnel-count { font-size:.8rem;color:var(--subtext0);min-width:50px;text-align:right; }
 </style>
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.3.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.4.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -341,6 +351,8 @@ const TABS=[
     {id:'announcements',label:'Announcements'},
     {id:'flagged',label:'Flagged Content'},
     {id:'exports',label:'Export'},
+    {id:'moderation',label:'Moderation'},
+    {id:'operations',label:'Operations'},
 ];
 
 function adminHeaders(){
@@ -389,6 +401,8 @@ function showView(v){
     else if(v==='flagged') renderFlagged();
     else if(v==='exports') renderExports();
     else if(v==='reports') renderReportsQueue();
+    else if(v==='moderation') renderModerationView();
+    else if(v==='operations') renderOperationsView();
 }
 
 function showLoginScreen(){
@@ -456,6 +470,7 @@ async function renderDashboard(){
         </div>`;
 
         html+=`<div id="engagement-chart-slot"></div>`;
+        html+=`<div id="cohort-funnel-slot"></div>`;
 
         if(Object.keys(s.gender_distribution||{}).length){
             html+=`<div class="section-head">Gender Distribution</div><div style="display:flex;gap:12px;flex-wrap:wrap">${Object.entries(s.gender_distribution).map(([g,c])=>`<div class="stat-card" style="flex:1;min-width:100px"><div class="num">${c}</div><div class="label">${g}</div></div>`).join('')}</div>`;
@@ -483,6 +498,11 @@ async function renderDashboard(){
             if(el) el.innerHTML=`<div class="num" style="color:var(--teal)">${(d.sessions||[]).length}</div><div class="label">Active Sessions</div>`;
         }).catch(()=>{});
         loadEngagementChart();
+        // v2.4.0: Load retention cohorts and funnel after engagement chart
+        Promise.all([loadRetentionCohorts(), loadFunnel()]).then(([cohortHtml, funnelHtml]) => {
+            const slot = document.getElementById('cohort-funnel-slot');
+            if (slot) slot.innerHTML = cohortHtml + funnelHtml;
+        }).catch(() => {});
         // v2.3.0: Load inactive users count
         loadInactiveUsers().then(count=>{
             const el=document.getElementById('dash-inactive-stat');
@@ -2060,9 +2080,313 @@ async function loadInactiveUsers() {
     } catch { return 0; }
 }
 
+// ─── v2.4.0: Retention Cohorts ───
+async function loadRetentionCohorts() {
+    try {
+        const resp = await adminFetch(API+'/api/admin/retention-cohorts?weeks=8');
+        const cohorts = await resp.json();
+        let html = '<h3 style="margin-top:20px;margin-bottom:8px">Retention Cohorts (Weekly)</h3>';
+        html += '<table class="cohort-table"><tr><th>Cohort</th><th>Users</th><th>Retained</th><th>Rate</th><th></th></tr>';
+        cohorts.forEach((c, i) => {
+            const label = i === 0 ? 'This week' : `${i} week${i>1?'s':''} ago`;
+            const color = c.rate >= 50 ? 'var(--green)' : c.rate >= 25 ? 'var(--yellow)' : 'var(--red)';
+            html += `<tr>
+                <td>${label}</td>
+                <td>${c.total}</td>
+                <td>${c.retained}</td>
+                <td style="color:${color};font-weight:600">${c.rate}%</td>
+                <td style="width:40%"><div class="cohort-bar" style="width:${c.rate}%;background:${color}"></div></td>
+            </tr>`;
+        });
+        html += '</table>';
+        return html;
+    } catch { return ''; }
+}
+
+async function loadFunnel() {
+    try {
+        const resp = await adminFetch(API+'/api/admin/funnel');
+        const data = await resp.json();
+        const steps = data.steps;
+        const max = steps[0]?.count || 1;
+        let html = '<h3 style="margin-top:20px;margin-bottom:8px">User Funnel</h3>';
+        steps.forEach(step => {
+            const pct = Math.max(Math.round(step.count / max * 100), 2);
+            html += `<div class="funnel-step">
+                <span class="funnel-label">${escHtml(step.name)}</span>
+                <div class="funnel-bar" style="width:${pct}%">${step.count}</div>
+                <span class="funnel-count">${max > 0 ? Math.round(step.count/max*100) : 0}%</span>
+            </div>`;
+        });
+        return html;
+    } catch { return ''; }
+}
+
+// ─── v2.4.0: Shadow Bans ───
+async function loadShadowBans() {
+    const resp = await adminFetch(API+'/api/admin/shadow-bans');
+    const bans = await resp.json();
+    let html = '<h3 style="margin-bottom:8px">Shadow Banned Users</h3>';
+    if (bans.length === 0) {
+        html += '<p style="color:var(--subtext0)">No shadow-banned users.</p>';
+    }
+    bans.forEach(b => {
+        html += `<div style="background:var(--surface0);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <strong>${escHtml(b.display_name || b.email)}</strong>
+                ${b.reason ? `<span style="color:var(--subtext0);font-size:.8rem;margin-left:8px">${escHtml(b.reason)}</span>` : ''}
+            </div>
+            <button onclick="removeShadowBan('${b.user_id}')" style="padding:4px 12px;border-radius:8px;border:none;background:var(--green);color:var(--crust);cursor:pointer;font-size:.8rem">Unban</button>
+        </div>`;
+    });
+    html += `<div style="margin-top:12px">
+        <button onclick="showShadowBanForm()" style="padding:8px 16px;border-radius:8px;border:none;background:var(--surface2);color:var(--text);cursor:pointer">+ Shadow Ban User</button>
+    </div>`;
+    return html;
+}
+
+async function removeShadowBan(userId) {
+    try {
+        await adminFetch(API+`/api/admin/shadow-ban/${userId}`, {method:'DELETE'});
+        showToast('Shadow ban removed', 'success');
+        showView('moderation');
+    } catch { showToast('Failed to remove shadow ban', 'error'); }
+}
+
+function showShadowBanForm() {
+    const userId = prompt('User ID to shadow ban:');
+    if (!userId) return;
+    const reason = prompt('Reason (optional):');
+    adminFetch(API+'/api/admin/shadow-ban', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({user_id: userId, reason: reason || null})
+    }).then(() => {
+        showToast('User shadow banned', 'success');
+        showView('moderation');
+    }).catch(() => showToast('Failed to shadow ban', 'error'));
+}
+
+// ─── v2.4.0: Canned Responses ───
+async function loadCannedResponses() {
+    const resp = await adminFetch(API+'/api/admin/canned-responses');
+    const responses = await resp.json();
+    let html = '<h3 style="margin-top:16px;margin-bottom:8px">Canned Responses</h3>';
+    if (responses.length === 0) {
+        html += '<p style="color:var(--subtext0)">No canned responses yet.</p>';
+    }
+    responses.forEach(r => {
+        html += `<div style="background:var(--surface0);border-radius:10px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <strong>${escHtml(r.title)}</strong>
+                <div style="display:flex;gap:4px;align-items:center">
+                    <span style="font-size:.75rem;color:var(--subtext0)">Used ${r.usage_count}x</span>
+                    <span style="font-size:.75rem;padding:2px 6px;background:var(--surface2);border-radius:6px">${escHtml(r.category)}</span>
+                    <button onclick="deleteCannedResponse('${r.id}')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:.85rem">x</button>
+                </div>
+            </div>
+            <p style="font-size:.85rem;color:var(--subtext0);margin-top:4px">${escHtml(r.content)}</p>
+        </div>`;
+    });
+    html += `<button onclick="showCannedResponseForm()" style="padding:8px 16px;border-radius:8px;border:none;background:var(--mauve);color:var(--crust);cursor:pointer;margin-top:4px">+ New Response</button>`;
+    return html;
+}
+
+function showCannedResponseForm() {
+    const title = prompt('Response title:');
+    if (!title) return;
+    const content = prompt('Response content:');
+    if (!content) return;
+    const category = prompt('Category (general/warning/welcome):', 'general');
+    adminFetch(API+'/api/admin/canned-responses', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({title, content, category: category || 'general'})
+    }).then(() => {
+        showToast('Canned response created', 'success');
+        showView('moderation');
+    }).catch(() => showToast('Failed to create', 'error'));
+}
+
+async function deleteCannedResponse(id) {
+    try {
+        await adminFetch(API+`/api/admin/canned-responses/${id}`, {method:'DELETE'});
+        showToast('Response deleted', 'success');
+        showView('moderation');
+    } catch { showToast('Failed to delete', 'error'); }
+}
+
+// ─── v2.4.0: Feature Flags ───
+async function loadFeatureFlags() {
+    const resp = await adminFetch(API+'/api/admin/feature-flags');
+    const flags = await resp.json();
+    let html = '<h3 style="margin-top:16px;margin-bottom:8px">Feature Flags</h3>';
+    if (flags.length === 0) {
+        html += '<p style="color:var(--subtext0)">No feature flags configured.</p>';
+    }
+    flags.forEach(f => {
+        const color = f.enabled ? 'var(--green)' : 'var(--surface2)';
+        html += `<div style="background:var(--surface0);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <strong style="font-family:monospace">${escHtml(f.name)}</strong>
+                ${f.description ? `<span style="color:var(--subtext0);font-size:.8rem;margin-left:8px">${escHtml(f.description)}</span>` : ''}
+            </div>
+            <button onclick="toggleFeatureFlag('${escHtml(f.name)}', ${f.enabled ? 'false' : 'true'})"
+                style="padding:4px 14px;border-radius:8px;border:none;background:${color};color:${f.enabled ? 'var(--crust)' : 'var(--subtext0)'};cursor:pointer;font-size:.8rem;font-weight:600">
+                ${f.enabled ? 'ON' : 'OFF'}
+            </button>
+        </div>`;
+    });
+    html += `<button onclick="showFeatureFlagForm()" style="padding:8px 16px;border-radius:8px;border:none;background:var(--surface2);color:var(--text);cursor:pointer;margin-top:4px">+ New Flag</button>`;
+    return html;
+}
+
+async function toggleFeatureFlag(name, enabled) {
+    try {
+        await adminFetch(API+'/api/admin/feature-flags', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({name, enabled, description: null})
+        });
+        showToast(`${name} ${enabled ? 'enabled' : 'disabled'}`, 'success');
+        showView('operations');
+    } catch { showToast('Failed to toggle flag', 'error'); }
+}
+
+function showFeatureFlagForm() {
+    const name = prompt('Flag name (e.g. premium_boost):');
+    if (!name) return;
+    const desc = prompt('Description (optional):');
+    adminFetch(API+'/api/admin/feature-flags', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name, enabled: false, description: desc || null})
+    }).then(() => {
+        showToast('Flag created (disabled)', 'success');
+        showView('operations');
+    }).catch(() => showToast('Failed to create flag', 'error'));
+}
+
+// ─── v2.4.0: Request Stats ───
+async function loadRequestStats() {
+    const resp = await adminFetch(API+'/api/admin/request-stats?hours=24');
+    const stats = await resp.json();
+    const errColor = stats.error_rate > 5 ? 'var(--red)' : stats.error_rate > 1 ? 'var(--yellow)' : 'var(--green)';
+    let html = '<h3 style="margin-top:16px;margin-bottom:8px">Request Stats (24h)</h3>';
+    html += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+        <div style="background:var(--surface0);border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:1.4rem;font-weight:700;color:var(--blue)">${stats.total_requests}</div>
+            <div style="font-size:.75rem;color:var(--subtext0)">Requests</div>
+        </div>
+        <div style="background:var(--surface0);border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:1.4rem;font-weight:700;color:${errColor}">${stats.error_rate}%</div>
+            <div style="font-size:.75rem;color:var(--subtext0)">Error Rate</div>
+        </div>
+        <div style="background:var(--surface0);border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:1.4rem;font-weight:700;color:var(--peach)">${stats.total_errors}</div>
+            <div style="font-size:.75rem;color:var(--subtext0)">Errors</div>
+        </div>
+        <div style="background:var(--surface0);border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:1.4rem;font-weight:700;color:var(--teal)">${stats.avg_duration_ms.toFixed(0)}ms</div>
+            <div style="font-size:.75rem;color:var(--subtext0)">Avg Response</div>
+        </div>
+    </div>`;
+    if (stats.top_paths && stats.top_paths.length > 0) {
+        html += '<div style="font-size:.8rem;color:var(--subtext0);margin-bottom:4px">Top Endpoints</div>';
+        stats.top_paths.slice(0, 5).forEach(p => {
+            html += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.8rem;border-bottom:1px solid var(--surface1)">
+                <span style="font-family:monospace">${escHtml(p.path)}</span>
+                <span>${p.count} reqs (${p.avg_ms ? p.avg_ms.toFixed(0) : 0}ms avg)</span>
+            </div>`;
+        });
+    }
+    html += `<button onclick="cleanupLogs()" style="margin-top:12px;padding:6px 14px;border-radius:8px;border:none;background:var(--surface2);color:var(--text);cursor:pointer;font-size:.8rem">Clean up logs (7d+)</button>`;
+    return html;
+}
+
+async function cleanupLogs() {
+    try {
+        const resp = await adminFetch(API+'/api/admin/cleanup-request-logs?days=7', {method:'POST'});
+        const data = await resp.json();
+        showToast(`Cleaned up ${data.deleted} old log entries`, 'success');
+    } catch { showToast('Failed to clean up', 'error'); }
+}
+
+// ─── v2.4.0: Batch Message ───
+async function showBatchMessageForm() {
+    const subject = prompt('Message subject:');
+    if (!subject) return;
+    const content = prompt('Message content:');
+    if (!content) return;
+    const target = prompt('Send to: "all" or comma-separated user IDs');
+    if (!target) return;
+
+    let userIds = [];
+    if (target.toLowerCase() === 'all') {
+        try {
+            const resp = await adminFetch(API+'/api/admin/users?limit=10000');
+            const users = await resp.json();
+            userIds = users.map(u => u.id);
+        } catch {
+            showToast('Failed to fetch users', 'error');
+            return;
+        }
+    } else {
+        userIds = target.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (userIds.length === 0) { showToast('No recipients', 'error'); return; }
+    if (!confirm(`Send to ${userIds.length} user(s)?`)) return;
+
+    try {
+        const resp = await adminFetch(API+'/api/admin/batch-message', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({user_ids: userIds, subject, content})
+        });
+        const data = await resp.json();
+        showToast(`Message sent to ${data.sent} users`, 'success');
+    } catch { showToast('Failed to send', 'error'); }
+}
+
+// ─── v2.4.0: Render Views ───
+async function renderModerationView() {
+    const app = document.getElementById('app');
+    app.innerHTML = '<div class="card"><div class="shimmer" style="height:200px;border-radius:12px"></div></div>';
+
+    let shadowHtml = '', cannedHtml = '';
+    try { shadowHtml = await loadShadowBans(); } catch {}
+    try { cannedHtml = await loadCannedResponses(); } catch {}
+
+    app.innerHTML = `<div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h2>Moderation Tools</h2>
+            <button onclick="showBatchMessageForm()" style="padding:8px 16px;border-radius:8px;border:none;background:var(--blue);color:var(--crust);cursor:pointer">Batch Message</button>
+        </div>
+        ${shadowHtml}
+        ${cannedHtml}
+    </div>`;
+}
+
+async function renderOperationsView() {
+    const app = document.getElementById('app');
+    app.innerHTML = '<div class="card"><div class="shimmer" style="height:200px;border-radius:12px"></div></div>';
+
+    let flagsHtml = '', requestHtml = '';
+    try { flagsHtml = await loadFeatureFlags(); } catch {}
+    try { requestHtml = await loadRequestStats(); } catch {}
+
+    app.innerHTML = `<div class="card">
+        <h2 style="margin-bottom:16px">Operations</h2>
+        ${flagsHtml}
+        ${requestHtml}
+    </div>`;
+}
+
 // ─── Utils ───
 function escHtml(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function toast(m,t=''){const e=document.getElementById('toast');e.textContent=m;e.className='toast show '+t;setTimeout(()=>e.className='toast',3500);}
+function showToast(m,t=''){toast(m,t);}
 
 // ─── Init ───
 const savedAdminToken=localStorage.getItem('kindred_admin_token');

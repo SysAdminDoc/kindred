@@ -1,5 +1,5 @@
 """
-Kindred v2.3.0 - Admin Server
+Kindred v2.4.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -60,10 +60,16 @@ from app.database import (
     suspend_user, unsuspend_user, get_pending_appeals, review_appeal,
     check_suspension_expired,
     get_inactive_users, log_retention_email,
+    shadow_ban_user, remove_shadow_ban, get_shadow_banned_users,
+    create_canned_response, get_canned_responses, use_canned_response, delete_canned_response,
+    set_feature_flag, get_feature_flags,
+    get_request_stats, cleanup_request_logs,
+    send_admin_message, batch_send_admin_message,
+    get_retention_cohorts, get_funnel_data,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="2.3.0")
+admin_app = FastAPI(title="Kindred Admin", version="2.4.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -392,7 +398,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.3.0",
+        "version": "2.4.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
@@ -758,7 +764,7 @@ def admin_extended_stats(admin: dict = Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Safety Reports Queue (v2.3.0)
+# Safety Reports Queue (v2.4.0)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/reports-queue")
@@ -780,7 +786,7 @@ async def admin_review_report(report_id: str, req: ReviewReportRequest, admin=De
 
 
 # ---------------------------------------------------------------------------
-# Suspensions (v2.3.0)
+# Suspensions (v2.4.0)
 # ---------------------------------------------------------------------------
 
 class SuspendRequest(BaseModel):
@@ -828,7 +834,7 @@ async def admin_check_expired(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Retention (v2.3.0)
+# Retention (v2.4.0)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/inactive-users")
@@ -844,6 +850,135 @@ async def admin_send_digest(admin=Depends(require_admin)):
     from app.audit import log_audit
     log_audit(admin["id"], "send_digest", details=f"Sent to {len(users)} users")
     return {"sent": len(users)}
+
+
+# ---------------------------------------------------------------------------
+# Shadow Bans (v2.4.0)
+# ---------------------------------------------------------------------------
+
+class ShadowBanRequest(BaseModel):
+    user_id: str
+    reason: str = None
+
+@admin_app.post("/api/admin/shadow-ban")
+async def admin_shadow_ban(req: ShadowBanRequest, admin=Depends(require_admin)):
+    ban_id = shadow_ban_user(req.user_id, admin["id"], req.reason)
+    from app.audit import log_audit
+    log_audit(admin["id"], "shadow_ban", "user", req.user_id, req.reason)
+    return {"id": ban_id}
+
+@admin_app.delete("/api/admin/shadow-ban/{user_id}")
+async def admin_remove_shadow_ban(user_id: str, admin=Depends(require_admin)):
+    remove_shadow_ban(user_id)
+    from app.audit import log_audit
+    log_audit(admin["id"], "remove_shadow_ban", "user", user_id)
+    return {"ok": True}
+
+@admin_app.get("/api/admin/shadow-bans")
+async def admin_list_shadow_bans(admin=Depends(require_admin)):
+    return get_shadow_banned_users()
+
+
+# ---------------------------------------------------------------------------
+# Canned Responses (v2.4.0)
+# ---------------------------------------------------------------------------
+
+class CannedResponseRequest(BaseModel):
+    title: str
+    content: str
+    category: str = "general"
+
+@admin_app.post("/api/admin/canned-responses")
+async def admin_create_canned(req: CannedResponseRequest, admin=Depends(require_admin)):
+    resp_id = create_canned_response(req.title, req.content, req.category, admin["id"])
+    return {"id": resp_id}
+
+@admin_app.get("/api/admin/canned-responses")
+async def admin_list_canned(category: str = None, admin=Depends(require_admin)):
+    return get_canned_responses(category)
+
+@admin_app.delete("/api/admin/canned-responses/{response_id}")
+async def admin_delete_canned(response_id: str, admin=Depends(require_admin)):
+    delete_canned_response(response_id)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Feature Flags (v2.4.0)
+# ---------------------------------------------------------------------------
+
+class FeatureFlagRequest(BaseModel):
+    name: str
+    enabled: bool
+    description: str = None
+
+@admin_app.post("/api/admin/feature-flags")
+async def admin_set_flag(req: FeatureFlagRequest, admin=Depends(require_admin)):
+    flag_id = set_feature_flag(req.name, req.enabled, req.description, admin["id"])
+    from app.audit import log_audit
+    log_audit(admin["id"], "set_feature_flag", "flag", req.name,
+              f"{'enabled' if req.enabled else 'disabled'}")
+    return {"id": flag_id}
+
+@admin_app.get("/api/admin/feature-flags")
+async def admin_list_flags(admin=Depends(require_admin)):
+    return get_feature_flags()
+
+
+# ---------------------------------------------------------------------------
+# Request Stats & Error Rate (v2.4.0)
+# ---------------------------------------------------------------------------
+
+@admin_app.get("/api/admin/request-stats")
+async def admin_request_stats(hours: int = 24, admin=Depends(require_admin)):
+    return get_request_stats(hours)
+
+@admin_app.post("/api/admin/cleanup-request-logs")
+async def admin_cleanup_logs(days: int = 7, admin=Depends(require_admin)):
+    deleted = cleanup_request_logs(days)
+    return {"deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Admin Messaging (v2.4.0)
+# ---------------------------------------------------------------------------
+
+class AdminMessageRequest(BaseModel):
+    user_id: str
+    subject: str = None
+    content: str
+
+class BatchMessageRequest(BaseModel):
+    user_ids: list[str]
+    subject: str = None
+    content: str
+
+@admin_app.post("/api/admin/message")
+async def admin_send_msg(req: AdminMessageRequest, admin=Depends(require_admin)):
+    msg_id = send_admin_message(admin["id"], req.user_id, req.subject, req.content)
+    from app.audit import log_audit
+    log_audit(admin["id"], "admin_message", "user", req.user_id)
+    return {"id": msg_id}
+
+@admin_app.post("/api/admin/batch-message")
+async def admin_batch_msg(req: BatchMessageRequest, admin=Depends(require_admin)):
+    count = batch_send_admin_message(admin["id"], req.user_ids, req.subject, req.content)
+    from app.audit import log_audit
+    log_audit(admin["id"], "batch_message", details=f"Sent to {count} users")
+    return {"sent": count}
+
+
+# ---------------------------------------------------------------------------
+# Analytics (v2.4.0)
+# ---------------------------------------------------------------------------
+
+@admin_app.get("/api/admin/retention-cohorts")
+async def admin_retention(weeks: int = 8, admin=Depends(require_admin)):
+    return get_retention_cohorts(weeks)
+
+@admin_app.get("/api/admin/funnel")
+async def admin_funnel(admin=Depends(require_admin)):
+    return get_funnel_data()
 
 
 # ─── Static Files ───

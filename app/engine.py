@@ -1,5 +1,5 @@
 """
-Kindred v2.3.0 - Compatibility Matching Engine
+Kindred v2.4.0 - Compatibility Matching Engine
 8-dimension scoring: personality, values, communication, financial,
 attachment, tradeoffs, semantic, dealbreaker.
 Match narratives powered by Puter.js on the frontend.

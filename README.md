@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-2.3.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.4.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -158,6 +158,14 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Bulk profile actions (deactivate, delete, verify multiple users)
 - CSV export (users, safety reports, analytics)
 - Engagement over time chart (signups, messages, matches line graph)
+- Shadow ban management (invisible content suppression)
+- Canned responses (reusable admin reply templates with usage tracking)
+- Feature flags (toggle features without deploy)
+- Request stats dashboard (total requests, error rate, avg response time, top endpoints)
+- Admin-to-user messaging (direct + batch send to all users)
+- Retention cohort chart (week-over-week retention rates)
+- User funnel visualization (signup → profile → questionnaire → match → message → date)
+- Request log cleanup controls
 
 **Platform**
 - Progressive Web App (installable, offline caching)

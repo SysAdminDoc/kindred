@@ -1,5 +1,5 @@
 """
-Kindred v2.3.0 - FastAPI Backend (User Server)
+Kindred v2.4.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -8,6 +8,7 @@ import json as json_stdlib
 import math
 import secrets
 import shutil
+import time as _time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -145,6 +146,8 @@ from app.database import (
     set_photo_order, get_photo_order,
     calculate_profile_completeness, get_profile_completion_tips,
     get_inactive_users, log_retention_email,
+    get_admin_messages_for_user, mark_admin_message_read,
+    is_shadow_banned, is_feature_enabled,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -164,7 +167,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="2.3.0")
+app = FastAPI(title="Kindred", version="2.4.0")
 
 # CORS middleware
 app.add_middleware(
@@ -174,6 +177,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = uuid.uuid4().hex[:12]
+    start = _time.time()
+    response = await call_next(request)
+    duration_ms = (_time.time() - start) * 1000
+    # Log async to avoid slowing requests - only log API paths
+    if request.url.path.startswith("/api/"):
+        try:
+            from app.database import log_request
+            log_request(request_id, request.method, request.url.path,
+                       response.status_code, round(duration_ms, 2),
+                       ip_address=request.client.host if request.client else None)
+        except Exception:
+            pass
+    return response
+
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -2410,7 +2432,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.3.0",
+        "version": "2.4.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -3491,7 +3513,7 @@ def notification_digest(since_hours: int = 24,
 
 
 # ---------------------------------------------------------------------------
-# Report with categories (v2.3.0)
+# Report with categories (v2.4.0)
 # ---------------------------------------------------------------------------
 
 class ReportRequest(BaseModel):
@@ -3514,7 +3536,7 @@ async def report_user(req: ReportRequest, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Appeal suspension (v2.3.0)
+# Appeal suspension (v2.4.0)
 # ---------------------------------------------------------------------------
 
 class AppealRequest(BaseModel):
@@ -3534,7 +3556,7 @@ async def get_my_suspensions(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Response stats (v2.3.0)
+# Response stats (v2.4.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/response-stats/{profile_id}")
@@ -3550,7 +3572,7 @@ async def get_my_ghost_matches(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Saved searches (v2.3.0)
+# Saved searches (v2.4.0)
 # ---------------------------------------------------------------------------
 
 class SaveSearchRequest(BaseModel):
@@ -3584,7 +3606,7 @@ async def remove_saved_search(search_id: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Discovery: recently active, new users (v2.3.0)
+# Discovery: recently active, new users (v2.4.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/discover/recently-active")
@@ -3597,7 +3619,7 @@ async def discover_new_users(days: int = 7, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Message Edit & Delete (v2.3.0)
+# Message Edit & Delete (v2.4.0)
 # ---------------------------------------------------------------------------
 
 class EditMessageRequest(BaseModel):
@@ -3645,7 +3667,7 @@ async def mark_delivered(message_id: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Photo Reorder (v2.3.0)
+# Photo Reorder (v2.4.0)
 # ---------------------------------------------------------------------------
 
 class PhotoOrderRequest(BaseModel):
@@ -3668,7 +3690,7 @@ async def get_photo_display_order(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Profile Completeness (v2.3.0)
+# Profile Completeness (v2.4.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/profile-completeness")
@@ -3682,7 +3704,7 @@ async def get_completeness(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Retention: Email digest toggle (v2.3.0)
+# Retention: Email digest toggle (v2.4.0)
 # ---------------------------------------------------------------------------
 
 @app.put("/api/settings/email-digest")
@@ -3692,6 +3714,24 @@ async def toggle_email_digest(enabled: bool = True, user=Depends(require_user)):
     conn.execute("UPDATE users SET email_digest_enabled = ? WHERE id = ?", (1 if enabled else 0, user["id"]))
     conn.commit()
     return {"ok": True, "enabled": enabled}
+
+
+# ---------------------------------------------------------------------------
+# Admin Messages for users (v2.4.0)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin-messages")
+async def get_my_admin_messages(user=Depends(require_user)):
+    return get_admin_messages_for_user(user["id"])
+
+@app.post("/api/admin-messages/{message_id}/read")
+async def read_admin_message(message_id: str, user=Depends(require_user)):
+    mark_admin_message_read(message_id)
+    return {"ok": True}
+
+@app.get("/api/feature-flags/{flag_name}")
+async def check_feature_flag(flag_name: str, user=Depends(require_user)):
+    return {"name": flag_name, "enabled": is_feature_enabled(flag_name)}
 
 
 # ---------------------------------------------------------------------------

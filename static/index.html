@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v2.3.0 - Find Your Match</title>
+<title>Kindred v2.4.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -1149,12 +1149,19 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
     *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 [role="dialog"] { outline:none; }
+
+/* ─── Admin Messages ─── */
+.admin-msg { background:linear-gradient(135deg,rgba(203,166,247,.1),rgba(137,180,250,.1));border:1px solid var(--mauve);border-radius:12px;padding:14px;margin-bottom:8px; }
+.admin-msg.unread { border-width:2px; }
+.admin-msg .admin-msg-subject { font-weight:600;color:var(--mauve);margin-bottom:4px; }
+.admin-msg .admin-msg-body { font-size:.9rem;color:var(--text); }
+.admin-msg .admin-msg-time { font-size:.75rem;color:var(--subtext0);margin-top:6px; }
 </style>
 </head>
 <body>
 <script>try{if(localStorage.getItem('kindred_theme')==='latte')document.body.classList.add('theme-latte')}catch(e){}</script>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.3.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.4.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0" aria-label="Toggle theme">&#9790;</button>
         <div id="ws-status-dot" title="Connected" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s" aria-label="Connection status"></div>
@@ -1434,8 +1441,10 @@ async function toggleNotifications(){
     await authFetch(API+'/api/notifications/read',{method:'POST'});
     document.getElementById('notif-count').style.display='none';
     const notifs=window._notifData||[];
+    // Admin messages at top
+    const adminMsgHtml = await loadAdminMessages();
     // Digest section at top
-    let panelHtml='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:14px;font-weight:600;color:var(--lavender)">Notifications</span><button style="background:var(--surface0);border:1px solid var(--surface1);border-radius:var(--radius);padding:4px 10px;cursor:pointer;color:var(--subtext0);font-size:12px" onclick="document.getElementById(\'notif-digest-area\').style.display=document.getElementById(\'notif-digest-area\').style.display===\'none\'?\'block\':\'none\';loadNotificationDigest()">Digest</button></div><div id="notif-digest-area" style="display:none"></div>';
+    let panelHtml=adminMsgHtml+'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:14px;font-weight:600;color:var(--lavender)">Notifications</span><button style="background:var(--surface0);border:1px solid var(--surface1);border-radius:var(--radius);padding:4px 10px;cursor:pointer;color:var(--subtext0);font-size:12px" onclick="document.getElementById(\'notif-digest-area\').style.display=document.getElementById(\'notif-digest-area\').style.display===\'none\'?\'block\':\'none\';loadNotificationDigest()">Digest</button></div><div id="notif-digest-area" style="display:none"></div>';
     if(!notifs.length){ panelHtml+='<div style="text-align:center;color:var(--overlay0);padding:20px;font-size:13px">No notifications</div>'; }
     else {
         panelHtml+=notifs.slice(0,20).map(n=>`<div style="padding:10px;border-bottom:1px solid var(--surface0);cursor:pointer;opacity:${n.read?'0.6':'1'}" onclick="handleNotifClick('${n.link||''}')"><div style="font-size:13px;font-weight:${n.read?'400':'600'};color:var(--text)">${escHtml(n.title)}</div>${n.body?`<div style="font-size:12px;color:var(--overlay0);margin-top:2px">${escHtml(n.body).slice(0,80)}</div>`:''}<div style="font-size:10px;color:var(--surface2);margin-top:4px">${new Date(n.created_at).toLocaleString()}</div></div>`).join('');
@@ -2749,6 +2758,41 @@ async function openChat(meId,themId){
 }
 
 function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+// ─── v2.4.0: Admin Messages ───
+async function loadAdminMessages() {
+    try {
+        const resp = await authFetch(API+'/api/admin-messages');
+        const messages = await resp.json();
+        if (messages.length === 0) return '';
+        let html = '<div style="margin-bottom:16px"><h3 style="margin-bottom:8px;color:var(--mauve)">Messages from Kindred</h3>';
+        messages.slice(0, 5).forEach(m => {
+            html += `<div class="admin-msg ${m.read ? '' : 'unread'}" onclick="markAdminMsgRead('${m.id}', this)">
+                ${m.subject ? `<div class="admin-msg-subject">${escHtml(m.subject)}</div>` : ''}
+                <div class="admin-msg-body">${escHtml(m.content)}</div>
+                <div class="admin-msg-time">${m.created_at ? new Date(m.created_at).toLocaleDateString() : ''}</div>
+            </div>`;
+        });
+        html += '</div>';
+        return html;
+    } catch { return ''; }
+}
+
+async function markAdminMsgRead(msgId, el) {
+    try {
+        await authFetch(API+`/api/admin-messages/${msgId}/read`, {method:'POST'});
+        el.classList.remove('unread');
+    } catch {}
+}
+
+// ─── v2.4.0: Feature Flag Helper ───
+async function isFeatureEnabled(flagName) {
+    try {
+        const resp = await authFetch(API+`/api/feature-flags/${flagName}`);
+        const data = await resp.json();
+        return data.enabled;
+    } catch { return false; }
+}
 
 // ─── v2.3.0: Message Status Icons ───
 function renderMsgStatus(msg, isSender) {

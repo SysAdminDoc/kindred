@@ -1,4 +1,4 @@
-# Kindred v2.3.0
+# Kindred v2.4.0
 
 Compatibility-first dating + social platform. Open source, privacy-first.
 
@@ -74,7 +74,7 @@ Copy `.env.example` to `.env` and customize. Key vars:
 - `KINDRED_DEFAULT_THEME` - Default theme: mocha or latte
 
 ## Database Tables
-profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log, availability_status, conversation_starters, date_feedback, announcements, compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages, flagged_content, report_reasons, suspensions, photo_hashes, saved_searches, message_edits, retention_emails
+profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log, availability_status, conversation_starters, date_feedback, announcements, compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages, flagged_content, report_reasons, suspensions, photo_hashes, saved_searches, message_edits, retention_emails, shadow_bans, canned_responses, feature_flags, request_logs, admin_messages
 
 ## Key Features
 - **8-dimension matching**: Personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker
@@ -208,6 +208,16 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - **Reduced motion**: `prefers-reduced-motion` media query support
 - **ARIA live region**: Screen reader announcements for toasts/notifications
 - **Admin digest trigger**: Manual send digest to inactive users with audit logging
+- **Shadow bans**: Invisible bans where user's content isn't delivered (admin)
+- **Canned responses**: Reusable admin response templates with usage tracking
+- **Feature flags**: Toggle features without deploy (admin CRUD, user check API)
+- **Request logging middleware**: Per-request logging with method, path, status, duration, IP
+- **Request stats dashboard**: Total requests, error rate, avg response time, top endpoints (admin)
+- **Admin-to-user messaging**: Direct messages from admin with batch send to all users
+- **Retention cohort chart**: Week-over-week retention rates with color-coded table (admin)
+- **User funnel visualization**: Signup → Profile → Questionnaire → Match → Message → Date (admin)
+- **Admin moderation tab**: Shadow bans + canned responses + batch messaging in one view
+- **Admin operations tab**: Feature flags + request stats + log cleanup
 
 ## Key Architecture
 - Dual-server: user (8000) + admin (8001) sharing same SQLite DB
@@ -238,6 +248,7 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 
 ## Version History
 
+- **v2.4.0** - Phase 7: Admin & operations. Shadow bans (invisible content suppression), canned responses (reusable admin templates with usage tracking), feature flags (toggle features without deploy, admin CRUD + user check API), request logging middleware (method/path/status/duration/IP per request), request stats dashboard (total requests, error rate, avg response time, top endpoints), admin-to-user messaging (direct + batch send to all users), retention cohort chart (week-over-week retention with color-coded table), user funnel visualization (signup → profile → questionnaire → match → message → date). Admin frontend: moderation tab (shadow bans + canned responses + batch messaging), operations tab (feature flags + request stats + log cleanup). User frontend: admin messages inbox in notifications. 5 new tables (shadow_bans, canned_responses, feature_flags, request_logs, admin_messages), 21 new CRUD functions, 17 new API endpoints
 - **v2.3.0** - Phase 6: Message & profile UX. Message editing (5-min grace period with edit history tracking), message soft-delete ("This message was deleted"), message status icons (sent ○ / delivered ✓ / read ✓✓), clipboard image paste in chat, photo drag-to-reorder (drag-and-drop gallery ordering), profile preview overlay ("see how others see you"), profile completeness calculator (weighted scoring with actionable tips), retention email digest system (weekly digest for inactive users with likes/matches counts, user opt-out toggle). Accessibility: focus trap in modals (Tab cycling + Escape), prefers-reduced-motion support, ARIA live region for screen reader announcements. Admin: inactive user stats card, manual digest trigger with audit logging. 2 new tables (message_edits, retention_emails), 11 new CRUD functions, 9 new API endpoints
 - **v2.2.0** - Phase 5: Safety & discovery. Structured report system (7 reason categories with auto-escalation at 3+ reports), suspension system (temporary/permanent bans with duration and auto-expiry), appeal workflow (submit/review with uphold/overturn), photo perceptual hashing (duplicate detection via hamming distance), conversation quality signals (response rate, avg reply time on profiles), ghost match alerts (silent match detection + nudge), saved searches (persist/reuse filter presets), discovery sorting (best match/recently active/new users), new user badge (7-day), WebSocket real-time notifications (push over existing WS connection). Admin: reports queue with escalation priority and status filtering, suspension/unsuspend controls, appeals review. 4 new tables (report_reasons, suspensions, photo_hashes, saved_searches), 23 new CRUD functions, 19 new API endpoints
 - **v2.1.0** - Phase 4: Admin & infrastructure. Flagged content moderation queue (flag/review/resolve with type filtering and indexed queries), bulk profile actions (deactivate/delete/verify multiple users with audit logging), CSV export (users, safety reports, analytics via csv.DictWriter), engagement over time dashboard (Canvas 3-line chart: daily signups/messages/matches with 30-day range). Admin frontend: dashboard engagement chart, flagged content tab with filter/actions, bulk checkboxes on profiles, export tab with 3 CSV downloads. 1 new table (flagged_content), 14 new CRUD functions, 11 new admin API endpoints
