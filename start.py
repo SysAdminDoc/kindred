@@ -1,5 +1,5 @@
 """
-Kindred v2.2.0 - Turnkey Launcher
+Kindred v2.3.0 - Turnkey Launcher
 Auto-creates venv, installs deps, and starts both user + admin servers.
 """
 
@@ -21,7 +21,7 @@ def run(cmd, **kwargs):
 def main():
     print()
     print("=" * 50)
-    print("  Kindred v2.2.0 - Compatibility Engine")
+    print("  Kindred v2.3.0 - Compatibility Engine")
     print("=" * 50)
     print()
 

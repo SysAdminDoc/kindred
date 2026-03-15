@@ -1,5 +1,5 @@
 """
-Kindred v2.2.0 - Database Layer
+Kindred v2.3.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -997,6 +997,24 @@ def init_db():
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_saved_searches_profile ON saved_searches(profile_id);
+
+        CREATE TABLE IF NOT EXISTS message_edits (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL,
+            old_content TEXT NOT NULL,
+            new_content TEXT NOT NULL,
+            edited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS retention_emails (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            email_type TEXT NOT NULL,
+            sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_retention_emails_user ON retention_emails(user_id, email_type);
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -1060,12 +1078,12 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v2.2.0
+        # v2.3.0
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
         # Phase 3
         "ALTER TABLE notification_preferences ADD COLUMN read_receipts_enabled INTEGER DEFAULT 1",
-        # v2.2.0
+        # v2.3.0
         "ALTER TABLE safety_reports ADD COLUMN status TEXT DEFAULT 'open'",
         "ALTER TABLE safety_reports ADD COLUMN reason_category TEXT",
         "ALTER TABLE safety_reports ADD COLUMN reviewed_by TEXT",
@@ -1075,6 +1093,15 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN avg_reply_minutes REAL",
         "ALTER TABLE profiles ADD COLUMN last_message_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN suspended INTEGER DEFAULT 0",
+        # v2.3.0
+        "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
+        "ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0",
+        "ALTER TABLE messages ADD COLUMN edit_grace_until TIMESTAMP",
+        "ALTER TABLE messages ADD COLUMN delivered INTEGER DEFAULT 0",
+        "ALTER TABLE profiles ADD COLUMN photo_order TEXT",
+        "ALTER TABLE profiles ADD COLUMN profile_completeness INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN last_email_digest TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN email_digest_enabled INTEGER DEFAULT 1",
     ]
     for sql in migrations:
         try:
@@ -6090,3 +6117,214 @@ def get_ghost_matches(profile_id: str, days_silent: int = 7) -> list[dict]:
         HAVING last_msg IS NULL OR last_msg < datetime('now', '-' || ? || ' days')
     """, (profile_id, profile_id, profile_id, days_silent)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Message Edit & Delete
+# ---------------------------------------------------------------------------
+
+def edit_message(message_id: str, sender_id: str, new_content: str) -> bool:
+    """Edit a message within grace period (5 minutes)."""
+    conn = get_db()
+    msg = conn.execute(
+        "SELECT * FROM messages WHERE id = ? AND from_id = ? AND deleted = 0",
+        (message_id, sender_id)
+    ).fetchone()
+    if not msg:
+        return False
+    from datetime import datetime, timezone, timedelta
+    # Check grace period: 5 minutes from send
+    try:
+        sent = datetime.fromisoformat(msg["created_at"].replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        sent = datetime.now(timezone.utc) - timedelta(minutes=10)  # default: expired
+    if datetime.now(timezone.utc) - sent > timedelta(minutes=5):
+        return False
+    # Save edit history
+    conn.execute(
+        "INSERT INTO message_edits (id, message_id, old_content, new_content) VALUES (?, ?, ?, ?)",
+        (uuid.uuid4().hex, message_id, msg["content"], new_content)
+    )
+    conn.execute(
+        "UPDATE messages SET content = ?, edited = 1 WHERE id = ?",
+        (new_content, message_id)
+    )
+    conn.commit()
+    return True
+
+
+def soft_delete_message(message_id: str, sender_id: str) -> bool:
+    """Soft-delete a message (sender only)."""
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE messages SET deleted = 1, content = '' WHERE id = ? AND from_id = ?",
+        (message_id, sender_id)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_message_edit_history(message_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM message_edits WHERE message_id = ? ORDER BY edited_at DESC",
+        (message_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_message_delivered(message_id: str) -> bool:
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE messages SET delivered = 1 WHERE id = ? AND delivered = 0",
+        (message_id,)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_message_status(message_id: str) -> dict:
+    """Get delivery/read status of a message."""
+    conn = get_db()
+    msg = conn.execute(
+        "SELECT id, delivered, read, read_at, edited, deleted FROM messages WHERE id = ?",
+        (message_id,)
+    ).fetchone()
+    if not msg:
+        return {}
+    return dict(msg)
+
+
+# ---------------------------------------------------------------------------
+# Photo Reorder
+# ---------------------------------------------------------------------------
+
+def set_photo_order(profile_id: str, photo_ids: list[str]):
+    """Set custom photo display order."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE profiles SET photo_order = ? WHERE id = ?",
+        (json.dumps(photo_ids), profile_id)
+    )
+    conn.commit()
+
+
+def get_photo_order(profile_id: str) -> list[str]:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT photo_order FROM profiles WHERE id = ?", (profile_id,)
+    ).fetchone()
+    if row and row["photo_order"]:
+        return json.loads(row["photo_order"])
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Profile Completeness
+# ---------------------------------------------------------------------------
+
+def calculate_profile_completeness(profile_id: str) -> int:
+    """Calculate and store profile completeness percentage."""
+    conn = get_db()
+    profile = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+    if not profile:
+        return 0
+    fields = [
+        ("name", 10), ("age", 5), ("gender", 5), ("seeking", 5),
+        ("photo", 10), ("headline", 5), ("about_me", 10),
+        ("interests", 5), ("big_five", 10), ("values_data", 5),
+        ("communication_style", 5), ("financial_values", 5),
+        ("love_language", 5), ("dealbreakers", 5),
+        ("open_ended", 5), ("self_disclosure", 5),
+    ]
+    score = 0
+    for field, weight in fields:
+        val = profile[field] if field in profile.keys() else None
+        if val and str(val).strip() and str(val) != '{}' and str(val) != '[]':
+            score += weight
+    # Bonus for photos
+    photo_count = conn.execute(
+        "SELECT COUNT(*) FROM photos WHERE profile_id = ?", (profile_id,)
+    ).fetchone()[0]
+    if photo_count >= 3:
+        score = min(score + 5, 100)
+    # Bonus for prompts
+    prompt_count = conn.execute(
+        "SELECT COUNT(*) FROM profile_prompts WHERE profile_id = ?", (profile_id,)
+    ).fetchone()[0]
+    if prompt_count >= 2:
+        score = min(score + 5, 100)
+    score = min(score, 100)
+    conn.execute("UPDATE profiles SET profile_completeness = ? WHERE id = ?", (score, profile_id))
+    conn.commit()
+    return score
+
+
+# ---------------------------------------------------------------------------
+# Retention / Digest
+# ---------------------------------------------------------------------------
+
+def get_inactive_users(days: int = 7) -> list[dict]:
+    """Get users inactive for N+ days who haven't received a digest recently."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT u.id, u.email, u.display_name, p.name, p.id as profile_id,
+               (SELECT COUNT(*) FROM likes l WHERE l.target_type='profile' AND l.target_id=p.id
+                AND l.created_at > datetime('now', '-' || ? || ' days')) as new_likes,
+               (SELECT COUNT(*) FROM likes l1 JOIN likes l2
+                ON l1.from_id=l2.target_id AND l1.target_id=l2.from_id
+                AND l1.target_type='profile' AND l2.target_type='profile'
+                WHERE (l1.from_id=p.id OR l1.target_id=p.id)
+                AND l1.created_at > datetime('now', '-' || ? || ' days')) as new_matches
+        FROM users u
+        JOIN profiles p ON p.id = u.profile_id
+        WHERE p.last_active < datetime('now', '-' || ? || ' days')
+          AND p.deactivated = 0
+          AND u.email_digest_enabled = 1
+          AND (u.last_email_digest IS NULL OR u.last_email_digest < datetime('now', '-3 days'))
+    """, (days, days, days)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def log_retention_email(user_id: str, email_type: str):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO retention_emails (id, user_id, email_type) VALUES (?, ?, ?)",
+        (uuid.uuid4().hex, user_id, email_type)
+    )
+    from datetime import datetime, timezone
+    conn.execute(
+        "UPDATE users SET last_email_digest = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), user_id)
+    )
+    conn.commit()
+
+
+def get_profile_completion_tips(profile_id: str) -> list[str]:
+    """Return actionable tips for improving profile."""
+    conn = get_db()
+    profile = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+    if not profile:
+        return []
+    tips = []
+    if not profile["photo"]:
+        tips.append("Add a profile photo to get 10x more matches")
+    if not profile["headline"]:
+        tips.append("Write a headline to stand out in discover")
+    if not profile["about_me"]:
+        tips.append("Fill out your About Me section")
+    if not profile["interests"]:
+        tips.append("Add your interests for better matching")
+    photo_count = conn.execute(
+        "SELECT COUNT(*) FROM photos WHERE profile_id = ?", (profile_id,)
+    ).fetchone()[0]
+    if photo_count < 3:
+        tips.append(f"Add {3 - photo_count} more photo{'s' if 3-photo_count > 1 else ''} to your gallery")
+    prompt_count = conn.execute(
+        "SELECT COUNT(*) FROM profile_prompts WHERE profile_id = ?", (profile_id,)
+    ).fetchone()[0]
+    if prompt_count < 2:
+        tips.append("Add profile prompts to spark conversations")
+    if not profile["big_five"]:
+        tips.append("Complete the personality questionnaire for accurate matches")
+    return tips

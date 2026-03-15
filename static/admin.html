@@ -307,7 +307,7 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.1.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.3.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -452,6 +452,7 @@ async function renderDashboard(){
             <div class="stat-card"><div class="num" style="color:${pendingPhotos>0?'var(--yellow)':'var(--green)'}">${pendingPhotos}</div><div class="label">Photos Pending</div></div>
             <div class="stat-card" id="dash-sessions-stat"><div class="num">--</div><div class="label">Active Sessions</div></div>
             <div class="stat-card"><div class="num" style="color:var(--green);font-size:16px">Puter.js</div><div class="label">Narratives</div></div>
+            <div class="stat-card" id="dash-inactive-stat"><div class="num">--</div><div class="label">Inactive (7d)</div></div>
         </div>`;
 
         html+=`<div id="engagement-chart-slot"></div>`;
@@ -470,6 +471,7 @@ async function renderDashboard(){
             <button class="btn btn-secondary" onclick="showView('sessions')">Active Sessions</button>
             <button class="btn btn-secondary" onclick="showView('invites')">Manage Invites</button>
             <button class="btn btn-secondary" onclick="showView('feedback')">Submit Feedback</button>
+            <button class="btn btn-secondary" onclick="sendDigest()" style="border-color:var(--teal);color:var(--teal)">Send Digest Email</button>
         </div>`;
 
         html+=`</div>`;
@@ -481,6 +483,11 @@ async function renderDashboard(){
             if(el) el.innerHTML=`<div class="num" style="color:var(--teal)">${(d.sessions||[]).length}</div><div class="label">Active Sessions</div>`;
         }).catch(()=>{});
         loadEngagementChart();
+        // v2.3.0: Load inactive users count
+        loadInactiveUsers().then(count=>{
+            const el=document.getElementById('dash-inactive-stat');
+            if(el) el.innerHTML=`<div class="num" style="color:${count>0?'var(--peach)':'var(--green)'}">${count}</div><div class="label">Inactive (7d)</div>`;
+        });
         // Auto-refresh health every 60s while on dashboard
         if(_healthTimer) clearInterval(_healthTimer);
         _healthTimer=setInterval(()=>{if(document.getElementById('health-card')) loadHealthCard(); else clearInterval(_healthTimer);},60000);
@@ -2034,6 +2041,23 @@ async function triggerExport(url,filename){
         URL.revokeObjectURL(a.href);
         toast('Export downloaded','success');
     }catch(e){toast('Export error','error');}
+}
+
+// ─── v2.3.0: Retention / Digest ───
+async function sendDigest() {
+    try {
+        const resp = await adminFetch(API+'/api/admin/send-digest', {method:'POST'});
+        const data = await resp.json();
+        toast(`Digest sent to ${data.sent||0} inactive users`, 'success');
+    } catch { toast('Failed to send digest', 'error'); }
+}
+
+async function loadInactiveUsers() {
+    try {
+        const resp = await adminFetch(API+'/api/admin/inactive-users?days=7');
+        const users = await resp.json();
+        return Array.isArray(users) ? users.length : 0;
+    } catch { return 0; }
 }
 
 // ─── Utils ───

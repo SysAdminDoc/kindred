@@ -1,5 +1,5 @@
 """
-Kindred v2.2.0 - Internationalization (i18n) Framework
+Kindred v2.3.0 - Internationalization (i18n) Framework
 Simple JSON-based translation system.
 """
 

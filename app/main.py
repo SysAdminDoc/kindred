@@ -1,5 +1,5 @@
 """
-Kindred v2.2.0 - FastAPI Backend (User Server)
+Kindred v2.3.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -140,6 +140,11 @@ from app.database import (
     get_recently_active_profiles, get_new_profiles, get_ghost_matches,
     save_photo_hash, find_similar_photos,
     submit_appeal, get_user_suspensions,
+    edit_message, soft_delete_message, get_message_edit_history,
+    mark_message_delivered, get_message_status,
+    set_photo_order, get_photo_order,
+    calculate_profile_completeness, get_profile_completion_tips,
+    get_inactive_users, log_retention_email,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -159,7 +164,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="2.2.0")
+app = FastAPI(title="Kindred", version="2.3.0")
 
 # CORS middleware
 app.add_middleware(
@@ -2405,7 +2410,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -3486,7 +3491,7 @@ def notification_digest(since_hours: int = 24,
 
 
 # ---------------------------------------------------------------------------
-# Report with categories (v2.2.0)
+# Report with categories (v2.3.0)
 # ---------------------------------------------------------------------------
 
 class ReportRequest(BaseModel):
@@ -3509,7 +3514,7 @@ async def report_user(req: ReportRequest, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Appeal suspension (v2.2.0)
+# Appeal suspension (v2.3.0)
 # ---------------------------------------------------------------------------
 
 class AppealRequest(BaseModel):
@@ -3529,7 +3534,7 @@ async def get_my_suspensions(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Response stats (v2.2.0)
+# Response stats (v2.3.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/response-stats/{profile_id}")
@@ -3545,7 +3550,7 @@ async def get_my_ghost_matches(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Saved searches (v2.2.0)
+# Saved searches (v2.3.0)
 # ---------------------------------------------------------------------------
 
 class SaveSearchRequest(BaseModel):
@@ -3579,7 +3584,7 @@ async def remove_saved_search(search_id: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Discovery: recently active, new users (v2.2.0)
+# Discovery: recently active, new users (v2.3.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/discover/recently-active")
@@ -3589,6 +3594,104 @@ async def discover_recently_active(hours: int = 24, user=Depends(require_user)):
 @app.get("/api/discover/new-users")
 async def discover_new_users(days: int = 7, user=Depends(require_user)):
     return get_new_profiles(min(days, 30))
+
+
+# ---------------------------------------------------------------------------
+# Message Edit & Delete (v2.3.0)
+# ---------------------------------------------------------------------------
+
+class EditMessageRequest(BaseModel):
+    new_content: str
+
+@app.put("/api/messages/{message_id}")
+async def edit_msg(message_id: str, req: EditMessageRequest, user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    check = check_content(req.new_content)
+    if not check["clean"]:
+        raise HTTPException(400, check["reason"])
+    ok = edit_message(message_id, profile_id, req.new_content)
+    if not ok:
+        raise HTTPException(400, "Cannot edit: message not found or grace period expired")
+    return {"ok": True}
+
+
+@app.delete("/api/messages/{message_id}")
+async def delete_msg(message_id: str, user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    ok = soft_delete_message(message_id, profile_id)
+    if not ok:
+        raise HTTPException(404, "Message not found")
+    return {"ok": True}
+
+
+@app.get("/api/messages/{message_id}/status")
+async def msg_status(message_id: str, user=Depends(require_user)):
+    return get_message_status(message_id)
+
+
+@app.get("/api/messages/{message_id}/edits")
+async def msg_edit_history(message_id: str, user=Depends(require_user)):
+    return get_message_edit_history(message_id)
+
+
+@app.post("/api/messages/{message_id}/delivered")
+async def mark_delivered(message_id: str, user=Depends(require_user)):
+    mark_message_delivered(message_id)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Photo Reorder (v2.3.0)
+# ---------------------------------------------------------------------------
+
+class PhotoOrderRequest(BaseModel):
+    photo_ids: list[str]
+
+@app.put("/api/photos/order")
+async def reorder_photos(req: PhotoOrderRequest, user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    set_photo_order(profile_id, req.photo_ids)
+    return {"ok": True}
+
+@app.get("/api/photos/order")
+async def get_photo_display_order(user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    return {"order": get_photo_order(profile_id)}
+
+
+# ---------------------------------------------------------------------------
+# Profile Completeness (v2.3.0)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/profile-completeness")
+async def get_completeness(user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    score = calculate_profile_completeness(profile_id)
+    tips = get_profile_completion_tips(profile_id)
+    return {"completeness": score, "tips": tips}
+
+
+# ---------------------------------------------------------------------------
+# Retention: Email digest toggle (v2.3.0)
+# ---------------------------------------------------------------------------
+
+@app.put("/api/settings/email-digest")
+async def toggle_email_digest(enabled: bool = True, user=Depends(require_user)):
+    from app.database import get_db
+    conn = get_db()
+    conn.execute("UPDATE users SET email_digest_enabled = ? WHERE id = ?", (1 if enabled else 0, user["id"]))
+    conn.commit()
+    return {"ok": True, "enabled": enabled}
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v2.1.0 - Find Your Match</title>
+<title>Kindred v2.3.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -1121,12 +1121,40 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .discover-sort-btn { padding:6px 14px;border-radius:16px;border:1px solid var(--surface2);background:var(--surface0);color:var(--subtext0);cursor:pointer;font-size:.8rem;transition:all .2s; }
 .discover-sort-btn:hover { border-color:var(--mauve); }
 .discover-sort-btn.active { background:var(--mauve);color:var(--crust);border-color:var(--mauve); }
+
+/* ═══════════════════════════════════════════════════
+   v2.3.0 — Message Status, Actions, Accessibility
+   ═══════════════════════════════════════════════════ */
+.msg-status { display:inline-block;margin-left:4px;font-size:.7rem;color:var(--subtext0);vertical-align:middle; }
+.msg-status.delivered { color:var(--subtext0); }
+.msg-status.read { color:var(--blue); }
+.msg-edited { font-size:.7rem;color:var(--subtext0);font-style:italic;margin-left:4px; }
+.msg-deleted { font-style:italic;color:var(--subtext0); }
+.msg-actions { display:none;position:absolute;top:-8px;right:4px;background:var(--surface1);border-radius:8px;padding:2px;box-shadow:0 2px 8px rgba(0,0,0,.3); }
+.msg-bubble:hover .msg-actions { display:flex;gap:2px; }
+.msg-actions button { border:none;background:none;color:var(--subtext0);cursor:pointer;padding:2px 4px;font-size:.75rem;border-radius:4px; }
+.msg-actions button:hover { background:var(--surface2);color:var(--text); }
+
+/* Photo reorder grid */
+.photo-grid-reorder { display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0; }
+.photo-grid-reorder .photo-item { position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;cursor:grab;border:2px solid var(--surface2);transition:transform .15s,border-color .15s; }
+.photo-grid-reorder .photo-item:active { cursor:grabbing; }
+.photo-grid-reorder .photo-item.dragging { opacity:.5;border-color:var(--mauve);transform:scale(.95); }
+.photo-grid-reorder .photo-item.drag-over { border-color:var(--green);transform:scale(1.02); }
+.photo-grid-reorder .photo-item img { width:100%;height:100%;object-fit:cover; }
+.photo-grid-reorder .photo-order-num { position:absolute;top:4px;left:4px;background:var(--crust);color:var(--text);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:600; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+[role="dialog"] { outline:none; }
 </style>
 </head>
 <body>
 <script>try{if(localStorage.getItem('kindred_theme')==='latte')document.body.classList.add('theme-latte')}catch(e){}</script>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.1.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.3.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0" aria-label="Toggle theme">&#9790;</button>
         <div id="ws-status-dot" title="Connected" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s" aria-label="Connection status"></div>
@@ -1785,6 +1813,7 @@ async function viewProfilePage(pid,viewer){
         if(isOwner){
             left+=`<div id="verify-status" style="margin-bottom:8px"></div>`;
             left+=`<button class="btn btn-secondary" onclick="editProfilePage('${pid}')">Edit Profile</button>`;
+            left+=`<button class="btn btn-secondary" onclick="showProfilePreview()">Preview Profile</button>`;
             left+=`<label class="btn btn-secondary" style="cursor:pointer;text-align:center">Upload Photo<input type="file" accept="image/*" style="display:none" onchange="uploadPhotoWithCrop('${pid}',this.files[0])"></label>`;
         }
         left+=`<button class="btn btn-secondary" onclick="showView('matches')">Back to Matches</button>`;
@@ -1808,7 +1837,9 @@ async function viewProfilePage(pid,viewer){
         // Photo Gallery
         right+=`<div class="ms-section"><h2>Photos</h2>`;
         if(isOwner) right+=`<label class="btn btn-secondary" style="cursor:pointer;font-size:12px;padding:6px 14px;margin-bottom:8px;display:inline-block">Add Photos<input type="file" accept="image/*" multiple style="display:none" onchange="uploadGalleryPhoto('${pid}',this.files)"></label>`;
-        right+=`<div id="photo-gallery"></div></div>`;
+        right+=`<div id="photo-gallery"></div>`;
+        if(isOwner) right+=`<div id="photo-reorder-section" style="margin-top:12px"></div>`;
+        right+=`</div>`;
 
         // Video Intro
         right+=`<div class="ms-section"><h2>Video Intro</h2><div id="video-intro-container"></div>`;
@@ -1955,6 +1986,8 @@ async function viewProfilePage(pid,viewer){
                 <div style="padding:12px 0"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="notif-sounds-toggle" ${_notifSoundsEnabled?'checked':''} onchange="setNotifSounds(this.checked)" style="accent-color:var(--mauve)"> Enable Notification Sounds</label><p style="color:var(--overlay0);font-size:12px;margin-top:6px">Plays a subtle chime when new messages arrive.</p></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Typing Previews</summary>
                 <div style="padding:12px 0"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="typing-preview-toggle" ${typeof _typingPreviewEnabled!=='undefined'&&_typingPreviewEnabled?'checked':''} onchange="setTypingPreviewEnabled(this.checked)" style="accent-color:var(--mauve)"> Show typing previews to matches</label><p style="color:var(--overlay0);font-size:12px;margin-top:6px">Sends the first few characters of your message as a live preview. Both users must have this enabled.</p></div></details>
+                <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Email Digest</summary>
+                <div style="padding:12px 0">${renderEmailDigestSetting()}</div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Read Receipts</summary>
                 <div id="read-receipts-area" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Language</summary>
@@ -1978,6 +2011,15 @@ async function viewProfilePage(pid,viewer){
         }
         // Load photo gallery
         loadPhotoGallery(pid,isOwner);
+        // v2.3.0: Load photo reorder for owner
+        if(isOwner){
+            const reorderSection=document.getElementById('photo-reorder-section');
+            if(reorderSection){
+                renderPhotoReorder().then(html=>{
+                    if(html){reorderSection.innerHTML=html;const grid=document.getElementById('photo-reorder-grid');if(grid)initPhotoReorderDrag(grid);}
+                });
+            }
+        }
         // Load video intro + music
         loadVideoIntro(pid,isOwner);
         loadMusicPrefs(pid,isOwner);
@@ -1996,6 +2038,10 @@ async function viewProfilePage(pid,viewer){
             loadReadReceiptsSetting();
             loadAvailableLocales('lang-select');
             loadProfilePrompts(pid,true);
+            // v2.3.0: Completeness widget injected at top of right column
+            renderCompletenessWidget().then(html=>{
+                if(html){const rc=document.querySelector('.ms-right');if(rc)rc.insertAdjacentHTML('afterbegin',html);}
+            });
         }
         // Load prompts for all viewers
         if(!isOwner)loadProfilePrompts(pid,false);
@@ -2532,6 +2578,9 @@ function showReportModal(reportedId, reportedName){
     let selectedReason = null;
     const overlay = document.createElement('div');
     overlay.className = 'report-modal-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', `Report ${reportedName}`);
     overlay.innerHTML = `<div class="report-modal">
         <h3>Report ${escHtml(reportedName)}</h3>
         <p style="color:var(--subtext0);font-size:.85rem;margin-bottom:12px">Why are you reporting this user?</p>
@@ -2546,6 +2595,7 @@ function showReportModal(reportedId, reportedName){
     </div>`;
     document.body.appendChild(overlay);
     overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+    trapFocus(overlay);
     overlay.querySelectorAll('.reason-btn').forEach(btn => {
         btn.onclick = () => {
             overlay.querySelectorAll('.reason-btn').forEach(b => b.classList.remove('selected'));
@@ -2679,13 +2729,15 @@ async function openChat(meId,themId){
         let content;
         const gifMatch=m.content&&m.content.match(/^\[gif:(.*)\]$/);
         const voiceMatch=m.content&&m.content.match(/^\[voice:(.*)\]$/);
-        if(m.photo) content=`<img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')">`;
-        else if(gifMatch) content=`<img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px">`;
-        else if(voiceMatch) content=`<div class="voice-msg">&#127908; <audio controls src="/uploads/${escHtml(voiceMatch[1])}"></audio></div>`;
-        else content=escHtml(m.content);
-        let readTag=m.from_id===meId?(m.read_at?`<span style="color:var(--blue);font-size:10px"> Read</span>`:(m.read?`<span style="color:var(--overlay0);font-size:10px"> Delivered</span>`:``)):'';
+        const isSender=m.from_id===meId;
+        if(m.deleted)content='<span class="msg-deleted">This message was deleted</span>';
+        else if(m.photo)content=`<span class="msg-content"><img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')"></span>`;
+        else if(gifMatch)content=`<span class="msg-content"><img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px"></span>`;
+        else if(voiceMatch)content=`<span class="msg-content"><div class="voice-msg">&#127908; <audio controls src="/uploads/${escHtml(voiceMatch[1])}"></audio></div></span>`;
+        else content=`<span class="msg-content">${escHtml(m.content)}</span>`;
+        const editedTag=m.edited?'<span class="msg-edited">(edited)</span>':'';
         const reactions=(m.reactions||[]).map(r=>`<span class="reaction-badge" onclick="reactToMessage('${m.id}','${r.reaction}')">${r.reaction}<span class="r-count">${r.count}</span></span>`).join('');
-        return `<div class="msg-bubble ${m.from_id===meId?'msg-mine':'msg-theirs'}" style="position:relative">${content}<div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}${readTag}</div>${reactions?`<div class="reaction-bar">${reactions}</div>`:''}<span class="reaction-trigger" onclick="showReactionPicker(event,'${m.id}')">+</span></div>`;
+        return `<div class="msg-bubble ${isSender?'msg-mine':'msg-theirs'}" style="position:relative" data-msg-id="${m.id}">${content}${editedTag}${renderMsgStatus(m,isSender)}${renderMsgActions(m,isSender)}<div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}</div>${reactions?`<div class="reaction-bar">${reactions}</div>`:''}<span class="reaction-trigger" onclick="showReactionPicker(event,'${m.id}')">+</span></div>`;
     }).join('')}</div>
     <div><span id="typing-indicator" style="color:var(--overlay0);font-size:0.85em;min-height:1.2em;display:block"></span></div>
     <div class="msg-search-bar" id="msg-search-bar"><input type="text" id="msg-search-input" placeholder="Search messages..." oninput="doMsgSearch()"><button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="toggleMsgSearch()">Close</button></div><div id="msg-search-results"></div>
@@ -2697,6 +2749,322 @@ async function openChat(meId,themId){
 }
 
 function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+// ─── v2.3.0: Message Status Icons ───
+function renderMsgStatus(msg, isSender) {
+    if (!isSender) return '';
+    if (msg.deleted) return '';
+    let icon = '&#9675;'; // sent
+    let cls = '';
+    if (msg.read_at || msg.read) { icon = msg.read_at ? '&#10003;&#10003;' : '&#10003;&#10003;'; cls = 'read'; }
+    else if (msg.delivered) { icon = '&#10003;'; cls = 'delivered'; }
+    return `<span class="msg-status ${cls}">${icon}</span>`;
+}
+
+function renderMsgActions(msg, isSender) {
+    if (!isSender || msg.deleted) return '';
+    let html = '<div class="msg-actions">';
+    const sent = new Date(msg.created_at);
+    const fiveMin = 5 * 60 * 1000;
+    if (Date.now() - sent.getTime() < fiveMin) {
+        html += `<button onclick="editMessage('${msg.id}')" title="Edit">&#9998;</button>`;
+    }
+    html += `<button onclick="deleteMessage('${msg.id}')" title="Delete">&#128465;</button>`;
+    html += '</div>';
+    return html;
+}
+
+async function editMessage(messageId) {
+    const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
+    if (!msgEl) return;
+    const contentEl = msgEl.querySelector('.msg-content');
+    if (!contentEl) return;
+    const oldText = contentEl.textContent;
+    const newText = prompt('Edit message:', oldText);
+    if (!newText || newText === oldText) return;
+    try {
+        await authFetch(`/api/messages/${messageId}`, {
+            method: 'PUT',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({new_content: newText})
+        });
+        contentEl.textContent = newText;
+        if (!msgEl.querySelector('.msg-edited')) {
+            contentEl.insertAdjacentHTML('afterend', '<span class="msg-edited">(edited)</span>');
+        }
+        toast('Message edited', 'success');
+    } catch(e) { toast('Cannot edit: grace period may have expired', 'error'); }
+}
+
+async function deleteMessage(messageId) {
+    if (!confirm('Delete this message?')) return;
+    try {
+        await authFetch(`/api/messages/${messageId}`, {method:'DELETE'});
+        const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
+        if (msgEl) {
+            const contentEl = msgEl.querySelector('.msg-content');
+            if (contentEl) {
+                contentEl.innerHTML = '<span class="msg-deleted">This message was deleted</span>';
+            }
+            const actionsEl = msgEl.querySelector('.msg-actions');
+            if (actionsEl) actionsEl.remove();
+        }
+        toast('Message deleted', 'info');
+    } catch { toast('Failed to delete message', 'error'); }
+}
+
+// ─── v2.3.0: Clipboard Image Paste ───
+function setupChatPaste(inputEl) {
+    inputEl.addEventListener('paste', async (e) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const file = item.getAsFile();
+                if (!file) return;
+                const formData = new FormData();
+                formData.append('file', file, 'clipboard-image.png');
+                try {
+                    const resp = await authFetch('/api/upload/photo', {method:'POST', body: formData});
+                    const data = await resp.json();
+                    if (data.filename) {
+                        const chatPartnerId = getCurrentChatPartnerId();
+                        if (chatPartnerId) {
+                            await authFetch('/api/messages', {
+                                method:'POST',
+                                headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify({to_id: chatPartnerId, content: 'Photo', photo: data.filename})
+                            });
+                            toast('Image sent', 'success');
+                        }
+                    }
+                } catch { toast('Failed to upload image', 'error'); }
+                break;
+            }
+        }
+    });
+}
+
+function getCurrentChatPartnerId() {
+    return window._chatPartner || null;
+}
+
+// ─── v2.3.0: Photo Drag-to-Reorder ───
+async function renderPhotoReorder() {
+    try {
+        const resp = await authFetch('/api/photos');
+        const photos = await resp.json();
+        let order = [];
+        try {
+            const orderResp = await authFetch('/api/photos/order');
+            const orderData = await orderResp.json();
+            order = orderData.order || [];
+        } catch {}
+        const sorted = [...photos].sort((a, b) => {
+            const ai = order.indexOf(a.id);
+            const bi = order.indexOf(b.id);
+            return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+        let html = '<h3 style="margin-bottom:8px">Drag to reorder photos</h3>';
+        html += '<div class="photo-grid-reorder" id="photo-reorder-grid">';
+        sorted.forEach((p, i) => {
+            html += `<div class="photo-item" draggable="true" data-photo-id="${escHtml(p.id)}">
+                <span class="photo-order-num">${i+1}</span>
+                <img src="/uploads/${escHtml(p.filename)}" alt="Photo ${i+1}">
+            </div>`;
+        });
+        html += '</div>';
+        return html;
+    } catch { return ''; }
+}
+
+function initPhotoReorderDrag(container) {
+    let dragItem = null;
+    container.querySelectorAll('.photo-item').forEach(item => {
+        item.addEventListener('dragstart', e => {
+            dragItem = item;
+            item.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        item.addEventListener('dragend', () => {
+            item.classList.remove('dragging');
+            container.querySelectorAll('.photo-item').forEach(i => i.classList.remove('drag-over'));
+            const newOrder = [...container.querySelectorAll('.photo-item')].map(i => i.dataset.photoId);
+            authFetch('/api/photos/order', {
+                method:'PUT',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({photo_ids: newOrder})
+            }).catch(()=>{});
+            container.querySelectorAll('.photo-order-num').forEach((n, i) => n.textContent = i+1);
+        });
+        item.addEventListener('dragover', e => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            item.classList.add('drag-over');
+        });
+        item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+        item.addEventListener('drop', e => {
+            e.preventDefault();
+            if (dragItem && dragItem !== item) {
+                const parent = item.parentNode;
+                const items = [...parent.children];
+                const dragIdx = items.indexOf(dragItem);
+                const dropIdx = items.indexOf(item);
+                if (dragIdx < dropIdx) {
+                    parent.insertBefore(dragItem, item.nextSibling);
+                } else {
+                    parent.insertBefore(dragItem, item);
+                }
+            }
+        });
+    });
+}
+
+// ─── v2.3.0: Profile Preview ───
+async function showProfilePreview() {
+    try {
+        const [profileResp, photosResp, promptsResp] = await Promise.all([
+            authFetch('/api/my-profile'),
+            authFetch('/api/photos').catch(()=>null),
+            authFetch('/api/profile-prompts').catch(()=>null)
+        ]);
+        const profile = await profileResp.json();
+        const photos = photosResp ? await photosResp.json().catch(()=>[]) : [];
+        const prompts = promptsResp ? await promptsResp.json().catch(()=>[]) : [];
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.8);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', 'Profile Preview');
+
+        let photoHtml = '';
+        if (profile.photo) {
+            photoHtml = `<img src="/uploads/${escHtml(profile.photo)}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px 12px 0 0">`;
+        }
+
+        let promptsHtml = Array.isArray(prompts) ? prompts.map(p => `
+            <div style="background:var(--surface1);border-radius:8px;padding:10px;margin-top:8px">
+                <div style="font-size:.8rem;color:var(--mauve);margin-bottom:4px">${escHtml(p.prompt_text||p.prompt||'')}</div>
+                <div style="font-size:.9rem">${escHtml(p.answer||'')}</div>
+            </div>
+        `).join('') : '';
+
+        const photoArr = Array.isArray(photos) ? photos : (photos.photos || []);
+
+        overlay.innerHTML = `<div style="background:var(--surface0);border-radius:16px;width:90%;max-width:400px;color:var(--text);max-height:90vh;overflow-y:auto">
+            ${photoHtml}
+            <div style="padding:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <h2 style="margin:0">${escHtml(profile.name||'')}${profile.age ? ', '+profile.age : ''}</h2>
+                    ${profile.verified ? '<span style="color:var(--blue)">&#10003; Verified</span>' : ''}
+                </div>
+                ${profile.headline ? `<p style="color:var(--subtext0);margin:4px 0">${escHtml(profile.headline)}</p>` : ''}
+                ${profile.about_me ? `<p style="margin:8px 0;font-size:.9rem">${escHtml(profile.about_me)}</p>` : ''}
+                ${promptsHtml}
+                ${photoArr.length > 1 ? `<div style="display:flex;gap:4px;margin-top:12px;overflow-x:auto">
+                    ${photoArr.slice(0,6).map(p => `<img src="/uploads/${escHtml(p.filename)}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;flex-shrink:0">`).join('')}
+                </div>` : ''}
+                <p style="text-align:center;margin-top:16px;color:var(--subtext0);font-size:.8rem">This is how others see your profile</p>
+                <button onclick="this.closest('[role=dialog]').remove()" style="width:100%;padding:10px;background:var(--mauve);color:var(--crust);border:none;border-radius:10px;cursor:pointer;margin-top:8px;font-weight:600">Close Preview</button>
+            </div>
+        </div>`;
+        overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+        trapFocus(overlay);
+    } catch(e) { toast('Failed to load preview', 'error'); }
+}
+
+// ─── v2.3.0: Profile Completeness Widget ───
+async function renderCompletenessWidget() {
+    try {
+        const resp = await authFetch('/api/profile-completeness');
+        const data = await resp.json();
+        if (data.completeness >= 100) return '';
+        const pct = data.completeness;
+        const color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--peach)';
+        let html = `<div style="background:var(--surface0);border-radius:12px;padding:14px;margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <span style="font-weight:600;font-size:.9rem">Profile Completeness</span>
+                <span style="color:${color};font-weight:600">${pct}%</span>
+            </div>
+            <div style="background:var(--surface2);border-radius:6px;height:8px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:${color};border-radius:6px;transition:width .5s"></div>
+            </div>`;
+        if (data.tips && data.tips.length > 0) {
+            html += '<div style="margin-top:8px">';
+            data.tips.slice(0, 3).forEach(tip => {
+                html += `<p style="font-size:.8rem;color:var(--subtext0);margin:4px 0">&#8594; ${escHtml(tip)}</p>`;
+            });
+            html += '</div>';
+        }
+        html += '</div>';
+        return html;
+    } catch { return ''; }
+}
+
+// ─── v2.3.0: Email Digest Toggle ───
+function renderEmailDigestSetting() {
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--surface2)">
+        <div>
+            <div style="font-weight:500">Email Digest</div>
+            <div style="font-size:.8rem;color:var(--subtext0)">Weekly summary of new likes, matches, and messages</div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">
+            <input type="checkbox" id="emailDigestToggle" checked onchange="toggleEmailDigest(this.checked)" style="opacity:0;width:0;height:0">
+            <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:var(--surface2);border-radius:12px;transition:.3s"></span>
+            <span style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:var(--text);border-radius:50%;transition:.3s"></span>
+        </label>
+    </div>`;
+}
+
+async function toggleEmailDigest(enabled) {
+    try {
+        await authFetch(`/api/settings/email-digest?enabled=${enabled}`, {method:'PUT'});
+        toast(enabled ? 'Email digest enabled' : 'Email digest disabled', 'info');
+    } catch { toast('Failed to update setting', 'error'); }
+}
+
+// ─── v2.3.0: Accessibility — Focus Trap ───
+function trapFocus(element) {
+    const focusable = element.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    element.addEventListener('keydown', e => {
+        if (e.key === 'Tab') {
+            if (e.shiftKey) {
+                if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+            } else {
+                if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+        }
+        if (e.key === 'Escape') {
+            element.remove();
+        }
+    });
+    first.focus();
+}
+
+// ─── v2.3.0: Accessibility — ARIA Live Region ───
+function ensureAriaLive() {
+    if (!document.getElementById('aria-live-region')) {
+        const region = document.createElement('div');
+        region.id = 'aria-live-region';
+        region.setAttribute('role', 'status');
+        region.setAttribute('aria-live', 'polite');
+        region.className = 'sr-only';
+        document.body.appendChild(region);
+    }
+}
+
+function announceToScreenReader(text) {
+    ensureAriaLive();
+    const region = document.getElementById('aria-live-region');
+    region.textContent = text;
+    setTimeout(() => { region.textContent = ''; }, 3000);
+}
 
 async function sendMsg(from,to){
     const inp=document.getElementById('msg-in');const txt=inp.value.trim();if(!txt)return;
@@ -3180,7 +3548,7 @@ async function rsvpAction(eid,status){
 window._heartbeatInterval=setInterval(()=>{if(activeProfile)fetch(API+'/api/heartbeat/'+activeProfile,{method:'POST'}).catch(()=>{});},60000);
 
 // ─── Toast ───
-function toast(m,t=''){const c=document.getElementById('toastContainer');while(c.children.length>=5)c.removeChild(c.firstChild);const e=document.createElement('div');e.className='toast '+t;e.textContent=m;c.appendChild(e);requestAnimationFrame(()=>e.classList.add('show'));setTimeout(()=>{e.classList.remove('show');setTimeout(()=>e.remove(),300);},3500);}
+function toast(m,t=''){const c=document.getElementById('toastContainer');while(c.children.length>=5)c.removeChild(c.firstChild);const e=document.createElement('div');e.className='toast '+t;e.textContent=m;c.appendChild(e);requestAnimationFrame(()=>e.classList.add('show'));setTimeout(()=>{e.classList.remove('show');setTimeout(()=>e.remove(),300);},3500);announceToScreenReader(m);}
 function showSkeleton(el,count=3){el.innerHTML=Array(count).fill('<div class="skeleton skeleton-card"></div>').join('');}
 function showEmpty(el,icon,title,desc,btnText,btnAction){el.innerHTML=`<div class="empty-state"><div class="empty-icon">${icon}</div><div class="empty-title">${title}</div><div class="empty-desc">${desc}</div>${btnText?`<button class="btn btn-primary" onclick="${btnAction}">${btnText}</button>`:''}</div>`;}
 
@@ -5210,19 +5578,24 @@ async function openChat(meId,themId){
         let content;
         const gifMatch=m.content&&m.content.match(/^\[gif:(.*)\]$/);
         const voiceMatch=m.content&&m.content.match(/^\[voice:(.*)\]$/);
-        if(m.photo)content=`<img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')">`;
-        else if(gifMatch)content=`<img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px">`;
-        else if(voiceMatch)content=`<div class="voice-msg">&#127908; <audio controls src="/uploads/${escHtml(voiceMatch[1])}"></audio></div>`;
-        else{content=escHtml(m.content);content=scanLinksInMessage(content);}
+        const isSender=m.from_id===meId;
+        if(m.deleted)content='<span class="msg-deleted">This message was deleted</span>';
+        else if(m.photo)content=`<span class="msg-content"><img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')"></span>`;
+        else if(gifMatch)content=`<span class="msg-content"><img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px"></span>`;
+        else if(voiceMatch)content=`<span class="msg-content"><div class="voice-msg">&#127908; <audio controls src="/uploads/${escHtml(voiceMatch[1])}"></audio></div></span>`;
+        else{let t=escHtml(m.content);t=scanLinksInMessage(t);content=`<span class="msg-content">${t}</span>`;}
         // Quote block for replies
         const quoteBlock=(m.reply_to_content||m.reply_to_name)?renderQuoteBlock(m.reply_to_content,m.reply_to_name):'';
-        let readTag=m.from_id===meId?(m.read_at?`<span style="color:var(--blue);font-size:10px"> Read</span>`:(m.read?`<span style="color:var(--overlay0);font-size:10px"> Delivered</span>`:``)):'';
         const reactions=(m.reactions||[]).map(r=>`<span class="reaction-badge" onclick="reactToMessage('${m.id}','${r.reaction}')">${r.reaction}<span class="r-count">${r.count}</span></span>`).join('');
         const isPinned=m.is_pinned?'is-pinned':'';
-        return `<div class="msg-bubble ${m.from_id===meId?'msg-mine':'msg-theirs'} ${isPinned}" style="position:relative" data-msg-id="${m.id}">
-            ${quoteBlock}${content}
-            <div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}${readTag}</div>
+        const editedTag=m.edited?'<span class="msg-edited">(edited)</span>':'';
+        const msgStatus=renderMsgStatus(m,isSender);
+        const msgActions=renderMsgActions(m,isSender);
+        return `<div class="msg-bubble ${isSender?'msg-mine':'msg-theirs'} ${isPinned}" style="position:relative" data-msg-id="${m.id}">
+            ${quoteBlock}${content}${editedTag}${msgStatus}
+            <div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}</div>
             ${reactions?`<div class="reaction-bar">${reactions}</div>`:''}
+            ${msgActions}
             <span class="reaction-trigger" onclick="showReactionPicker(event,'${m.id}')">+</span>
             <button class="msg-reply-btn" onclick="setReplyTo('${m.id}','${escHtml(m.from_name||pr.name)}','${escHtml((m.content||'').slice(0,80))}')">Reply</button>
             <button class="msg-pin-btn" onclick="${m.is_pinned?`unpinMessage('${m.id}','${meId}','${themId}')`:`pinMessage('${m.id}','${meId}','${themId}')`}">${m.is_pinned?'Unpin':'Pin'}</button>
@@ -5257,6 +5630,8 @@ async function openChat(meId,themId){
             msgInput.parentElement.style.position='relative';
             msgInput.parentElement.appendChild(picker);
         }
+        // v2.3.0: Clipboard paste support
+        if(msgInput) setupChatPaste(msgInput);
     },100);
     // Phase 1 v2.1.0: Conversation starters for empty chats
     loadConversationStarters(themId,md.messages.length);
@@ -5265,6 +5640,7 @@ async function openChat(meId,themId){
 function showChatExtras(meId,themId){
     const overlay=document.createElement('div');
     overlay.className='modal-overlay';
+    overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','Conversation Options');
     overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
     overlay.innerHTML=`<div class="modal"><h2>Conversation Options</h2>
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
@@ -5275,6 +5651,7 @@ function showChatExtras(meId,themId){
         <div class="btn-row" style="margin-top:12px"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button></div>
     </div>`;
     document.body.appendChild(overlay);
+    trapFocus(overlay);
 }
 
 function showChatGames(meId,themId){

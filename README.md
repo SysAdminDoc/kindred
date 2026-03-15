@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-2.2.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.3.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -47,6 +47,9 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Real-time WebSocket messaging with typing indicators and read receipts
 - Voice messages (MediaRecorder API recording + playback)
 - Message reactions (emoji) and GIF search (Tenor API)
+- Message editing (5-minute grace period) and soft-delete
+- Message status indicators (sent/delivered/read)
+- Clipboard image paste in chat
 - Message search across conversations
 - Group chat with real-time WebSocket messaging
 - Polls in groups (create, vote, results)

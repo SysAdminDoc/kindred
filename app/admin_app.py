@@ -1,5 +1,5 @@
 """
-Kindred v2.2.0 - Admin Server
+Kindred v2.3.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -59,10 +59,11 @@ from app.database import (
     get_safety_reports_queue, review_safety_report,
     suspend_user, unsuspend_user, get_pending_appeals, review_appeal,
     check_suspension_expired,
+    get_inactive_users, log_retention_email,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="2.2.0")
+admin_app = FastAPI(title="Kindred Admin", version="2.3.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -391,7 +392,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
@@ -757,7 +758,7 @@ def admin_extended_stats(admin: dict = Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Safety Reports Queue (v2.2.0)
+# Safety Reports Queue (v2.3.0)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/reports-queue")
@@ -779,7 +780,7 @@ async def admin_review_report(report_id: str, req: ReviewReportRequest, admin=De
 
 
 # ---------------------------------------------------------------------------
-# Suspensions (v2.2.0)
+# Suspensions (v2.3.0)
 # ---------------------------------------------------------------------------
 
 class SuspendRequest(BaseModel):
@@ -824,6 +825,25 @@ async def admin_review_appeal(suspension_id: str, req: AppealReviewRequest, admi
 async def admin_check_expired(admin=Depends(require_admin)):
     count = check_suspension_expired()
     return {"expired": count}
+
+
+# ---------------------------------------------------------------------------
+# Retention (v2.3.0)
+# ---------------------------------------------------------------------------
+
+@admin_app.get("/api/admin/inactive-users")
+async def admin_inactive_users(days: int = 7, admin=Depends(require_admin)):
+    return get_inactive_users(days)
+
+@admin_app.post("/api/admin/send-digest")
+async def admin_send_digest(admin=Depends(require_admin)):
+    """Trigger retention email digest for inactive users."""
+    users = get_inactive_users(7)
+    for u in users:
+        log_retention_email(u["id"], "weekly_digest")
+    from app.audit import log_audit
+    log_audit(admin["id"], "send_digest", details=f"Sent to {len(users)} users")
+    return {"sent": len(users)}
 
 
 # ─── Static Files ───
