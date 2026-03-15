@@ -317,7 +317,7 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.4.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v2.5.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -1017,6 +1017,20 @@ async function renderAnalytics(){
             <div class="analytics-card"><div class="value" style="color:var(--rosewater)">${d.webhook_deliveries!=null?d.webhook_deliveries:'--'}</div><div class="label">Webhook Deliveries</div></div>
         </div>`;
 
+        // v2.5.0: AI Suggestion Stats
+        html+=`<div class="section-head">AI Conversation Suggestions</div>`;
+        html+=`<div id="ai-suggest-stats-row"><div class="analytics-cards">
+            <div class="analytics-card"><div class="value" style="color:var(--sapphire)" id="ai-stat-total">--</div><div class="label">Suggestions Generated</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--green)" id="ai-stat-used">--</div><div class="label">Suggestions Used</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--peach)" id="ai-stat-rate">--</div><div class="label">Usage Rate</div></div>
+        </div></div>`;
+
+        // v2.5.0: Active Boosts
+        html+=`<div class="section-head" style="display:flex;justify-content:space-between;align-items:center">Active Boosts <button onclick="deactivateExpiredBoosts()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--surface1);background:var(--surface0);color:var(--subtext0);cursor:pointer">Deactivate Expired</button></div>`;
+        html+=`<div id="active-boosts-row"><div class="analytics-cards">
+            <div class="analytics-card"><div class="value" style="color:var(--yellow)" id="boost-stat-count">--</div><div class="label">Active Boosts</div></div>
+        </div><div id="boost-list" style="margin-top:10px"></div></div>`;
+
         // Top viewed profiles
         const topProfiles=d.top_viewed_profiles||[];
         if(topProfiles.length){
@@ -1034,6 +1048,9 @@ async function renderAnalytics(){
 
         html+=`</div>`;
         app.innerHTML=html;
+        // v2.5.0: load AI suggestion stats and active boosts async
+        loadAISuggestionStats();
+        loadActiveBoostsAdmin();
     }catch(e){app.innerHTML='<div class="empty"><h3>Error loading analytics</h3><p>The analytics endpoint may not be available yet.</p></div>';console.error(e);}
 }
 
@@ -2380,7 +2397,140 @@ async function renderOperationsView() {
         <h2 style="margin-bottom:16px">Operations</h2>
         ${flagsHtml}
         ${requestHtml}
+        <div class="section-head" style="margin-top:24px">API Key Management</div>
+        <div id="api-key-mgmt">
+            <div style="background:var(--mantle);border-radius:8px;padding:14px;margin-bottom:14px">
+                <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
+                    <div><label style="font-size:11px;color:var(--overlay0);display:block;margin-bottom:4px">Key Name</label><input type="text" id="new-key-name" placeholder="e.g., CI/CD, Partner API" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--surface1);background:var(--surface0);color:var(--text);font-size:13px"></div>
+                    <div><label style="font-size:11px;color:var(--overlay0);display:block;margin-bottom:4px">Permissions</label><select id="new-key-perms" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--surface1);background:var(--surface0);color:var(--text);font-size:13px"><option value="read">Read Only</option><option value="read-write">Read + Write</option></select></div>
+                    <button onclick="createApiKey()" style="padding:8px 16px;border-radius:6px;border:none;background:var(--mauve);color:var(--crust);font-size:13px;font-weight:600;cursor:pointer">Create Key</button>
+                </div>
+            </div>
+            <div id="api-keys-list"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
     </div>`;
+    loadApiKeys();
+}
+
+// ─── v2.5.0: API Key Management ───
+async function loadApiKeys(){
+    const el=document.getElementById('api-keys-list');
+    if(!el)return;
+    try{
+        const r=await adminFetch(API+'/api/admin/api-keys');
+        const d=await r.json();
+        const keys=d.keys||[];
+        if(!keys.length){el.innerHTML='<p style="color:var(--overlay0);font-size:13px">No API keys yet.</p>';return;}
+        el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="color:var(--overlay0);text-align:left;border-bottom:1px solid var(--surface1)">
+                <th style="padding:8px">Name</th><th style="padding:8px">Permissions</th><th style="padding:8px">Last Used</th><th style="padding:8px">Created</th><th style="padding:8px">Status</th><th style="padding:8px"></th>
+            </tr></thead><tbody>${keys.map(k=>`<tr style="border-bottom:1px solid var(--surface0)">
+                <td style="padding:8px;font-weight:600">${escHtml(k.name)}</td>
+                <td style="padding:8px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${k.permissions==='read-write'?'rgba(203,166,247,.15)':'rgba(116,199,236,.15)'};color:${k.permissions==='read-write'?'var(--mauve)':'var(--sapphire)'}">${escHtml(k.permissions||'read')}</span></td>
+                <td style="padding:8px;color:var(--overlay0)">${k.last_used?new Date(k.last_used).toLocaleDateString():'Never'}</td>
+                <td style="padding:8px;color:var(--overlay0)">${k.created_at?new Date(k.created_at).toLocaleDateString():''}</td>
+                <td style="padding:8px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${k.active!==false?'rgba(166,227,161,.15)':'rgba(243,139,168,.1)'};color:${k.active!==false?'var(--green)':'var(--red)'}">${k.active!==false?'Active':'Revoked'}</span></td>
+                <td style="padding:8px">${k.active!==false?`<button onclick="revokeApiKey('${escHtml(k.id)}')" style="font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--red);background:transparent;color:var(--red);cursor:pointer">Revoke</button>`:'--'}</td>
+            </tr>`).join('')}</tbody></table>`;
+    }catch(e){
+        const el2=document.getElementById('api-keys-list');
+        if(el2)el2.innerHTML='<p style="color:var(--overlay0);font-size:13px">API keys endpoint not yet available.</p>';
+    }
+}
+
+async function createApiKey(){
+    const name=document.getElementById('new-key-name')?.value?.trim();
+    const perms=document.getElementById('new-key-perms')?.value||'read';
+    if(!name){toast('Key name required','error');return;}
+    try{
+        const r=await adminFetch(API+'/api/admin/api-keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,permissions:perms})});
+        const d=await r.json();
+        if(d.raw_key){showRawKeyModal(d.raw_key,name);}
+        else{toast('Key created','success');}
+        document.getElementById('new-key-name').value='';
+        loadApiKeys();
+    }catch(e){toast('Failed to create key','error');}
+}
+
+function showRawKeyModal(rawKey,name){
+    const overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML=`<div style="background:var(--mantle);border-radius:12px;padding:24px;max-width:480px;width:90%;border:1px solid var(--surface1)">
+        <h3 style="margin-bottom:8px;color:var(--green)">API Key Created</h3>
+        <p style="font-size:13px;color:var(--overlay0);margin-bottom:14px">Copy this key now — it will <strong style="color:var(--peach)">not be shown again</strong>.</p>
+        <div style="background:var(--crust);border-radius:8px;padding:10px 14px;font-family:monospace;font-size:13px;word-break:break-all;color:var(--text);border:1px solid var(--surface1);margin-bottom:14px" id="raw-key-display">${escHtml(rawKey)}</div>
+        <div style="display:flex;gap:8px">
+            <button onclick="navigator.clipboard.writeText('${rawKey.replace(/'/g,"\\'")}');toast('Copied!','success')" style="flex:1;padding:8px;border-radius:6px;border:none;background:var(--mauve);color:var(--crust);font-weight:600;cursor:pointer">Copy Key</button>
+            <button onclick="this.closest('[style*=fixed]').remove()" style="padding:8px 16px;border-radius:6px;border:1px solid var(--surface1);background:transparent;color:var(--subtext0);cursor:pointer">Close</button>
+        </div>
+    </div>`;
+    document.body.appendChild(overlay);
+}
+
+async function revokeApiKey(keyId){
+    try{
+        await adminFetch(API+'/api/admin/api-keys/'+keyId,{method:'DELETE'});
+        toast('Key revoked','success');
+        loadApiKeys();
+    }catch(e){toast('Failed to revoke key','error');}
+}
+
+// ─── v2.5.0: AI Suggestion Stats ───
+async function loadAISuggestionStats(){
+    try{
+        const r=await adminFetch(API+'/api/admin/suggestion-stats');
+        const d=await r.json();
+        const total=d.total||0,used=d.used||0;
+        const rate=total>0?((used/total)*100).toFixed(1)+'%':'0%';
+        const tEl=document.getElementById('ai-stat-total');
+        const uEl=document.getElementById('ai-stat-used');
+        const rEl=document.getElementById('ai-stat-rate');
+        if(tEl)tEl.textContent=total;
+        if(uEl)uEl.textContent=used;
+        if(rEl)rEl.textContent=rate;
+    }catch(e){
+        // endpoint not available yet — leave placeholders
+    }
+}
+
+// ─── v2.5.0: Active Boosts Admin ───
+async function loadActiveBoostsAdmin(){
+    try{
+        const r=await adminFetch(API+'/api/admin/boosts/active');
+        const d=await r.json();
+        const boosts=d.boosts||[];
+        const countEl=document.getElementById('boost-stat-count');
+        if(countEl)countEl.textContent=boosts.length;
+        const listEl=document.getElementById('boost-list');
+        if(!listEl)return;
+        if(!boosts.length){listEl.innerHTML='<p style="color:var(--overlay0);font-size:13px">No active boosts.</p>';return;}
+        const now=Date.now();
+        listEl.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="color:var(--overlay0);text-align:left;border-bottom:1px solid var(--surface1)">
+                <th style="padding:8px">User</th><th style="padding:8px">Type</th><th style="padding:8px">Expires</th>
+            </tr></thead><tbody>${boosts.map(b=>{
+                const exp=b.expires_at?new Date(b.expires_at):null;
+                const msLeft=exp?exp-now:0;
+                const hLeft=msLeft>0?Math.floor(msLeft/3600000)+'h '+Math.floor((msLeft%3600000)/60000)+'m':'Expired';
+                return `<tr style="border-bottom:1px solid var(--surface0)">
+                    <td style="padding:8px;font-weight:600">${escHtml(b.user_name||b.profile_id||'')}</td>
+                    <td style="padding:8px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:rgba(249,226,175,.15);color:var(--yellow)">${escHtml(b.boost_type||'standard')}</span></td>
+                    <td style="padding:8px;color:${msLeft>0?'var(--subtext0)':'var(--red)'}">${hLeft}</td>
+                </tr>`;
+            }).join('')}</tbody></table>`;
+    }catch(e){
+        const listEl=document.getElementById('boost-list');
+        if(listEl)listEl.innerHTML='<p style="color:var(--overlay0);font-size:13px">Boosts endpoint not yet available.</p>';
+    }
+}
+
+async function deactivateExpiredBoosts(){
+    try{
+        const r=await adminFetch(API+'/api/admin/boosts/deactivate-expired',{method:'POST'});
+        const d=await r.json();
+        toast(`Deactivated ${d.deactivated||0} expired boost(s)`,'success');
+        loadActiveBoostsAdmin();
+    }catch(e){toast('Failed to deactivate expired boosts','error');}
 }
 
 // ─── Utils ───

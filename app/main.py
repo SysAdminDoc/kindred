@@ -1,5 +1,5 @@
 """
-Kindred v2.4.0 - FastAPI Backend (User Server)
+Kindred v2.5.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -167,7 +167,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="2.4.0")
+app = FastAPI(title="Kindred", version="2.5.0")
 
 # CORS middleware
 app.add_middleware(
@@ -2432,7 +2432,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.4.0",
+        "version": "2.5.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -3513,7 +3513,7 @@ def notification_digest(since_hours: int = 24,
 
 
 # ---------------------------------------------------------------------------
-# Report with categories (v2.4.0)
+# Report with categories (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class ReportRequest(BaseModel):
@@ -3536,7 +3536,7 @@ async def report_user(req: ReportRequest, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Appeal suspension (v2.4.0)
+# Appeal suspension (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class AppealRequest(BaseModel):
@@ -3556,7 +3556,7 @@ async def get_my_suspensions(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Response stats (v2.4.0)
+# Response stats (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/response-stats/{profile_id}")
@@ -3572,7 +3572,7 @@ async def get_my_ghost_matches(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Saved searches (v2.4.0)
+# Saved searches (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class SaveSearchRequest(BaseModel):
@@ -3606,7 +3606,7 @@ async def remove_saved_search(search_id: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Discovery: recently active, new users (v2.4.0)
+# Discovery: recently active, new users (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/discover/recently-active")
@@ -3619,7 +3619,7 @@ async def discover_new_users(days: int = 7, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Message Edit & Delete (v2.4.0)
+# Message Edit & Delete (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class EditMessageRequest(BaseModel):
@@ -3667,7 +3667,7 @@ async def mark_delivered(message_id: str, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Photo Reorder (v2.4.0)
+# Photo Reorder (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class PhotoOrderRequest(BaseModel):
@@ -3690,7 +3690,7 @@ async def get_photo_display_order(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Profile Completeness (v2.4.0)
+# Profile Completeness (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/profile-completeness")
@@ -3704,7 +3704,7 @@ async def get_completeness(user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Retention: Email digest toggle (v2.4.0)
+# Retention: Email digest toggle (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @app.put("/api/settings/email-digest")
@@ -3717,7 +3717,7 @@ async def toggle_email_digest(enabled: bool = True, user=Depends(require_user)):
 
 
 # ---------------------------------------------------------------------------
-# Admin Messages for users (v2.4.0)
+# Admin Messages for users (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/admin-messages")
@@ -3732,6 +3732,201 @@ async def read_admin_message(message_id: str, user=Depends(require_user)):
 @app.get("/api/feature-flags/{flag_name}")
 async def check_feature_flag(flag_name: str, user=Depends(require_user)):
     return {"name": flag_name, "enabled": is_feature_enabled(flag_name)}
+
+
+# ---------------------------------------------------------------------------
+# Video Calling (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/video-call/{match_user_id}")
+async def initiate_video_call(match_user_id: str, user=Depends(require_user)):
+    """Initiate a video call with a matched user. Returns Jitsi room URL."""
+    from app.database import create_video_call
+    call = create_video_call(user["id"], match_user_id)
+    jitsi_url = f"https://meet.jit.si/{call['room_id']}"
+    await ws_manager.send_notification_to_profile(match_user_id, {
+        "type": "video_call",
+        "caller_id": user["id"],
+        "call_id": call["id"],
+        "room_url": jitsi_url,
+    })
+    return {"call": call, "room_url": jitsi_url}
+
+
+@app.put("/api/video-call/{call_id}/status")
+async def update_call_status(call_id: str, body: dict = Body(...), user=Depends(require_user)):
+    from app.database import update_video_call_status
+    status = body.get("status")
+    if status not in ("active", "ended", "declined", "missed"):
+        raise HTTPException(400, detail="Invalid status")
+    update_video_call_status(call_id, status)
+    return {"ok": True}
+
+
+@app.get("/api/video-call/history")
+async def get_call_history(user=Depends(require_user)):
+    from app.database import get_user_call_history
+    return {"calls": get_user_call_history(user["id"])}
+
+
+# ---------------------------------------------------------------------------
+# AI Conversation Suggestions (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/conversation/{match_id}/suggest")
+async def get_ai_suggestions(match_id: str, user=Depends(require_user)):
+    """Generate conversation suggestions. Actual AI generation happens client-side via Puter.js.
+    This endpoint saves/retrieves cached suggestions."""
+    from app.database import save_ai_suggestion
+    suggestions = [
+        "What's something you've been really excited about lately?",
+        "If you could travel anywhere tomorrow, where would you go?",
+        "What's the best advice you've ever received?",
+    ]
+    saved = []
+    for s in suggestions:
+        saved.append(save_ai_suggestion(user["id"], match_id, s, "reply"))
+    return {"suggestions": saved}
+
+
+@app.post("/api/suggestion/{suggestion_id}/used")
+async def mark_suggestion_as_used(suggestion_id: str, user=Depends(require_user)):
+    from app.database import mark_suggestion_used
+    mark_suggestion_used(suggestion_id)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Compatibility Recalculation (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/compatibility/recalculate")
+async def recalculate_compatibility(user=Depends(require_user)):
+    """Recalculate compatibility scores after questionnaire update."""
+    import json as _json
+    from app.database import log_compatibility_recalc, get_db as _get_db
+    from app.engine import compute_compatibility, find_matches
+    user_profile = get_profile(user.get("profile_id") or "")
+    if not user_profile:
+        return {"recalculated": 0, "results": []}
+    all_profiles = get_all_profiles()
+    candidates = [p for p in all_profiles if p["id"] != (user_profile.get("id") or "")]
+    results = []
+    for other in candidates:
+        try:
+            result = compute_compatibility(user_profile, other)
+            new_score = result.get("total", 0)
+            log_compatibility_recalc(
+                user["id"],
+                _json.dumps({}),
+                _json.dumps({"total": new_score}),
+                "manual",
+            )
+            results.append({"match_id": other["id"], "new_score": new_score})
+        except Exception:
+            continue
+    return {"recalculated": len(results), "results": results}
+
+
+@app.get("/api/compatibility/recalc-history")
+async def get_recalc_history_endpoint(user=Depends(require_user)):
+    from app.database import get_recalc_history
+    return {"history": get_recalc_history(user["id"])}
+
+
+# ---------------------------------------------------------------------------
+# OAuth / Social Login (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/oauth/accounts")
+async def get_linked_accounts(user=Depends(require_user)):
+    from app.database import get_oauth_accounts
+    return {"accounts": get_oauth_accounts(user["id"])}
+
+
+@app.delete("/api/oauth/{provider}")
+async def unlink_oauth(provider: str, user=Depends(require_user)):
+    from app.database import unlink_oauth_account
+    if not unlink_oauth_account(user["id"], provider):
+        raise HTTPException(404, detail="Account not linked")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Profile Boost (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/profile/boost")
+async def boost_profile(body: dict = Body(...), user=Depends(require_user)):
+    from app.database import create_profile_boost, get_active_boost
+    existing = get_active_boost(user["id"])
+    if existing:
+        raise HTTPException(400, detail="Already have an active boost")
+    boost_type = body.get("type", "standard")
+    duration = body.get("duration_hours", 1)
+    if duration > 24:
+        duration = 24
+    boost = create_profile_boost(user["id"], boost_type, duration)
+    return {"boost": boost}
+
+
+@app.get("/api/profile/boost")
+async def get_boost_status(user=Depends(require_user)):
+    from app.database import get_active_boost
+    return {"boost": get_active_boost(user["id"])}
+
+
+# ---------------------------------------------------------------------------
+# Public API (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/public/profiles")
+async def public_profiles(request: Request, limit: int = 20, offset: int = 0):
+    """Public API: list profiles (requires API key)."""
+    from app.database import validate_api_key, get_db as _get_db
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or not validate_api_key(api_key):
+        raise HTTPException(401, detail="Invalid or missing API key")
+    conn = _get_db()
+    rows = conn.execute("""
+        SELECT p.id, p.display_name, p.age, p.gender, p.bio, p.created_at
+        FROM profiles p JOIN users u ON u.id = p.user_id
+        WHERE u.is_active = 1 AND (u.shadow_banned IS NULL OR u.shadow_banned = 0)
+        ORDER BY p.created_at DESC LIMIT ? OFFSET ?
+    """, (min(limit, 100), offset)).fetchall()
+    return {"profiles": [dict(r) for r in rows]}
+
+
+@app.get("/api/public/events")
+async def public_events(request: Request, limit: int = 20, offset: int = 0):
+    """Public API: list upcoming events (requires API key)."""
+    from app.database import validate_api_key, get_db as _get_db
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or not validate_api_key(api_key):
+        raise HTTPException(401, detail="Invalid or missing API key")
+    conn = _get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    rows = conn.execute("""
+        SELECT id, name, description, event_date, location, created_at
+        FROM events WHERE event_date >= ?
+        ORDER BY event_date ASC LIMIT ? OFFSET ?
+    """, (now, min(limit, 100), offset)).fetchall()
+    return {"events": [dict(r) for r in rows]}
+
+
+@app.get("/api/public/stats")
+async def public_stats(request: Request):
+    """Public API: platform stats (requires API key)."""
+    from app.database import validate_api_key, get_db as _get_db
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or not validate_api_key(api_key):
+        raise HTTPException(401, detail="Invalid or missing API key")
+    conn = _get_db()
+    users = conn.execute("SELECT COUNT(*) FROM users WHERE is_active = 1").fetchone()[0]
+    matches = conn.execute("SELECT COUNT(*) FROM likes WHERE mutual = 1").fetchone()[0]
+    events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+    groups = conn.execute("SELECT COUNT(*) FROM groups").fetchone()[0]
+    return {"users": users, "matches": matches, "events": events, "groups": groups}
 
 
 # ---------------------------------------------------------------------------

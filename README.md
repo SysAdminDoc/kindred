@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-2.4.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.5.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -41,9 +41,12 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Location-based matching with distance filtering
 - Mutual friends indicator
 - Smart conversation starters (personalized from shared interests)
+- Compatibility recalculation (re-score after questionnaire updates)
+- AI conversation suggestions (template + Puter.js powered)
 - Date feedback and rating system
 
 **Social Platform**
+- Video calling via Jitsi Meet (in-app call initiation with WebSocket signaling)
 - Real-time WebSocket messaging with typing indicators and read receipts
 - Voice messages (MediaRecorder API recording + playback)
 - Message reactions (emoji) and GIF search (Tenor API)
@@ -58,7 +61,8 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Profile prompts (Hinge-style "Two truths and a lie", "My ideal Sunday", etc.)
 - Profile themes (Cosmic, Forest, Sunset, Ocean, Aurora)
 - Status updates and activity feed
-- Groups and events with RSVP + calendar view
+- Groups and events with RSVP + calendar view + Leaflet map view
+- Profile boost (premium visibility boost with countdown timer)
 - Video intros and music preferences with cross-user compatibility scoring
 - "This or That" compatibility games between matched pairs
 - Who Viewed Me and Who Liked You feeds
@@ -178,6 +182,9 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Database vacuum scheduler
 - API rate limit dashboard (admin)
 - Health check endpoint (`/api/health`)
+- Read-only public API (profiles, events, stats with API key auth)
+- OAuth social login scaffolding (Google, Apple)
+- API key management (admin create/revoke with HMAC hashing)
 
 ## Tech Stack
 

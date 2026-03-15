@@ -1,5 +1,5 @@
 """
-Kindred v2.4.0 - Admin Server
+Kindred v2.5.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -69,7 +69,7 @@ from app.database import (
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="2.4.0")
+admin_app = FastAPI(title="Kindred Admin", version="2.5.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -764,7 +764,7 @@ def admin_extended_stats(admin: dict = Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Safety Reports Queue (v2.4.0)
+# Safety Reports Queue (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/reports-queue")
@@ -786,7 +786,7 @@ async def admin_review_report(report_id: str, req: ReviewReportRequest, admin=De
 
 
 # ---------------------------------------------------------------------------
-# Suspensions (v2.4.0)
+# Suspensions (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class SuspendRequest(BaseModel):
@@ -834,7 +834,7 @@ async def admin_check_expired(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Retention (v2.4.0)
+# Retention (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/inactive-users")
@@ -853,7 +853,7 @@ async def admin_send_digest(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Shadow Bans (v2.4.0)
+# Shadow Bans (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class ShadowBanRequest(BaseModel):
@@ -880,7 +880,7 @@ async def admin_list_shadow_bans(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Canned Responses (v2.4.0)
+# Canned Responses (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class CannedResponseRequest(BaseModel):
@@ -904,7 +904,7 @@ async def admin_delete_canned(response_id: str, admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Feature Flags (v2.4.0)
+# Feature Flags (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class FeatureFlagRequest(BaseModel):
@@ -926,7 +926,7 @@ async def admin_list_flags(admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Request Stats & Error Rate (v2.4.0)
+# Request Stats & Error Rate (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/request-stats")
@@ -940,7 +940,7 @@ async def admin_cleanup_logs(days: int = 7, admin=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Admin Messaging (v2.4.0)
+# Admin Messaging (v2.5.0)
 # ---------------------------------------------------------------------------
 
 class AdminMessageRequest(BaseModel):
@@ -969,7 +969,7 @@ async def admin_batch_msg(req: BatchMessageRequest, admin=Depends(require_admin)
 
 
 # ---------------------------------------------------------------------------
-# Analytics (v2.4.0)
+# Analytics (v2.5.0)
 # ---------------------------------------------------------------------------
 
 @admin_app.get("/api/admin/retention-cohorts")
@@ -979,6 +979,73 @@ async def admin_retention(weeks: int = 8, admin=Depends(require_admin)):
 @admin_app.get("/api/admin/funnel")
 async def admin_funnel(admin=Depends(require_admin)):
     return get_funnel_data()
+
+
+# ---------------------------------------------------------------------------
+# API Key Management (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@admin_app.post("/admin/api-keys")
+async def create_api_key_endpoint(body: dict = Body(...), admin=Depends(require_admin)):
+    from app.database import create_api_key
+    from app.audit import log_audit
+    name = body.get("name", "Unnamed Key")
+    permissions = body.get("permissions", "read")
+    rate_limit = body.get("rate_limit", "100/hour")
+    key = create_api_key(name, permissions, rate_limit)
+    log_audit(admin["id"], "create_api_key", "api_key", key["id"], f"name={name}")
+    return {"key": key}
+
+
+@admin_app.get("/admin/api-keys")
+async def list_api_keys(admin=Depends(require_admin)):
+    from app.database import get_api_keys
+    return {"keys": get_api_keys()}
+
+
+@admin_app.delete("/admin/api-keys/{key_id}")
+async def revoke_api_key_endpoint(key_id: str, admin=Depends(require_admin)):
+    from app.database import revoke_api_key
+    from app.audit import log_audit
+    if not revoke_api_key(key_id):
+        raise HTTPException(404, detail="Key not found")
+    log_audit(admin["id"], "revoke_api_key", "api_key", key_id)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# AI Suggestion Stats (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@admin_app.get("/admin/ai-suggestion-stats")
+async def ai_suggestion_stats(admin=Depends(require_admin)):
+    from app.database import get_ai_suggestion_stats
+    return get_ai_suggestion_stats()
+
+
+# ---------------------------------------------------------------------------
+# Boost Management (v2.5.0)
+# ---------------------------------------------------------------------------
+
+@admin_app.get("/admin/active-boosts")
+async def get_active_boosts(admin=Depends(require_admin)):
+    from app.database import get_db
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    rows = conn.execute("""
+        SELECT b.*, p.display_name FROM profile_boosts b
+        LEFT JOIN profiles p ON p.user_id = b.user_id
+        WHERE b.active = 1 AND b.expires_at > ?
+        ORDER BY b.started_at DESC
+    """, (now,)).fetchall()
+    return {"boosts": [dict(r) for r in rows]}
+
+
+@admin_app.post("/admin/deactivate-expired-boosts")
+async def deactivate_boosts(admin=Depends(require_admin)):
+    from app.database import deactivate_expired_boosts
+    count = deactivate_expired_boosts()
+    return {"deactivated": count}
 
 
 # ─── Static Files ───

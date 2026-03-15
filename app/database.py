@@ -1,5 +1,5 @@
 """
-Kindred v2.4.0 - Database Layer
+Kindred v2.5.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -11,6 +11,7 @@ voice messages, profile prompts, super likes, stories, polls,
 user sessions, user locations, recovery codes.
 """
 
+import hashlib
 import json
 import math
 import sqlite3
@@ -1073,6 +1074,71 @@ def init_db():
             FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_admin_messages_user ON admin_messages(to_user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS video_calls (
+            id TEXT PRIMARY KEY,
+            caller_id TEXT NOT NULL,
+            callee_id TEXT NOT NULL,
+            room_id TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            started_at TEXT,
+            ended_at TEXT,
+            duration_seconds INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ai_suggestions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
+            suggestion_text TEXT NOT NULL,
+            suggestion_type TEXT DEFAULT 'reply',
+            used INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS compatibility_recalcs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            triggered_by TEXT DEFAULT 'questionnaire_update',
+            old_scores TEXT,
+            new_scores TEXT,
+            recalc_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS oauth_accounts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            provider_user_id TEXT NOT NULL,
+            email TEXT,
+            access_token TEXT,
+            refresh_token TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(provider, provider_user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS profile_boosts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            boost_type TEXT DEFAULT 'standard',
+            multiplier REAL DEFAULT 2.0,
+            started_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            key_hash TEXT NOT NULL,
+            permissions TEXT DEFAULT 'read',
+            rate_limit TEXT DEFAULT '100/hour',
+            last_used_at TEXT,
+            created_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        );
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -1136,12 +1202,12 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v2.4.0
+        # v2.5.0
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
         # Phase 3
         "ALTER TABLE notification_preferences ADD COLUMN read_receipts_enabled INTEGER DEFAULT 1",
-        # v2.4.0
+        # v2.5.0
         "ALTER TABLE safety_reports ADD COLUMN status TEXT DEFAULT 'open'",
         "ALTER TABLE safety_reports ADD COLUMN reason_category TEXT",
         "ALTER TABLE safety_reports ADD COLUMN reviewed_by TEXT",
@@ -1151,7 +1217,7 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN avg_reply_minutes REAL",
         "ALTER TABLE profiles ADD COLUMN last_message_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN suspended INTEGER DEFAULT 0",
-        # v2.4.0
+        # v2.5.0
         "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN edit_grace_until TIMESTAMP",
@@ -1160,7 +1226,7 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN profile_completeness INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN last_email_digest TIMESTAMP",
         "ALTER TABLE users ADD COLUMN email_digest_enabled INTEGER DEFAULT 1",
-        # v2.4.0
+        # v2.5.0
         "ALTER TABLE users ADD COLUMN shadow_banned INTEGER DEFAULT 0",
         "ALTER TABLE profiles ADD COLUMN ip_fingerprint TEXT",
     ]
@@ -6690,3 +6756,253 @@ def get_funnel_data() -> dict:
             {"name": "First Date", "count": first_date},
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# Video Calls (v2.5.0)
+# ---------------------------------------------------------------------------
+
+def create_video_call(caller_id: str, callee_id: str) -> dict:
+    """Create a video call room between two matched users."""
+    from datetime import datetime, timezone
+    conn = get_db()
+    call_id = uuid.uuid4().hex
+    room_id = f"kindred-{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO video_calls (id, caller_id, callee_id, room_id, status, created_at)
+        VALUES (?, ?, ?, ?, 'pending', ?)
+    """, (call_id, caller_id, callee_id, room_id, now))
+    conn.commit()
+    return {"id": call_id, "room_id": room_id, "caller_id": caller_id, "callee_id": callee_id, "status": "pending", "created_at": now}
+
+
+def update_video_call_status(call_id: str, status: str) -> bool:
+    from datetime import datetime, timezone
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    extras = ""
+    params = [status]
+    if status == "active":
+        extras = ", started_at = ?"
+        params.append(now)
+    elif status in ("ended", "declined", "missed"):
+        extras = ", ended_at = ?"
+        params.append(now)
+    params.extend([call_id])
+    c = conn.execute(f"UPDATE video_calls SET status = ?{extras} WHERE id = ?", params)
+    conn.commit()
+    return c.rowcount > 0
+
+
+def get_video_call(call_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute("SELECT * FROM video_calls WHERE id = ?", (call_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_call_history(user_id: str, limit: int = 20) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM video_calls WHERE caller_id = ? OR callee_id = ?
+        ORDER BY created_at DESC LIMIT ?
+    """, (user_id, user_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# AI Suggestions (v2.5.0)
+# ---------------------------------------------------------------------------
+
+def save_ai_suggestion(user_id: str, conversation_id: str, suggestion_text: str, suggestion_type: str = "reply") -> dict:
+    from datetime import datetime, timezone
+    conn = get_db()
+    sid = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO ai_suggestions (id, user_id, conversation_id, suggestion_text, suggestion_type, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (sid, user_id, conversation_id, suggestion_text, suggestion_type, now))
+    conn.commit()
+    return {"id": sid, "suggestion_text": suggestion_text, "suggestion_type": suggestion_type}
+
+
+def mark_suggestion_used(suggestion_id: str) -> bool:
+    conn = get_db()
+    c = conn.execute("UPDATE ai_suggestions SET used = 1 WHERE id = ?", (suggestion_id,))
+    conn.commit()
+    return c.rowcount > 0
+
+
+def get_ai_suggestion_stats() -> dict:
+    conn = get_db()
+    total = conn.execute("SELECT COUNT(*) FROM ai_suggestions").fetchone()[0]
+    used = conn.execute("SELECT COUNT(*) FROM ai_suggestions WHERE used = 1").fetchone()[0]
+    return {"total": total, "used": used, "usage_rate": round(used / total * 100, 1) if total > 0 else 0}
+
+
+# ---------------------------------------------------------------------------
+# Compatibility Recalculation (v2.5.0)
+# ---------------------------------------------------------------------------
+
+def log_compatibility_recalc(user_id: str, old_scores: str, new_scores: str, triggered_by: str = "questionnaire_update") -> dict:
+    from datetime import datetime, timezone
+    conn = get_db()
+    rid = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    count = conn.execute("SELECT COUNT(*) FROM compatibility_recalcs WHERE user_id = ?", (user_id,)).fetchone()[0]
+    conn.execute("""
+        INSERT INTO compatibility_recalcs (id, user_id, triggered_by, old_scores, new_scores, recalc_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (rid, user_id, triggered_by, old_scores, new_scores, count + 1, now))
+    conn.commit()
+    return {"id": rid, "recalc_count": count + 1}
+
+
+def get_recalc_history(user_id: str, limit: int = 10) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM compatibility_recalcs WHERE user_id = ?
+        ORDER BY created_at DESC LIMIT ?
+    """, (user_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# OAuth Accounts (v2.5.0)
+# ---------------------------------------------------------------------------
+
+def link_oauth_account(user_id: str, provider: str, provider_user_id: str, email: str = None) -> dict:
+    from datetime import datetime, timezone
+    conn = get_db()
+    oid = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO oauth_accounts (id, user_id, provider, provider_user_id, email, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (oid, user_id, provider, provider_user_id, email, now))
+    conn.commit()
+    return {"id": oid, "provider": provider}
+
+
+def get_oauth_accounts(user_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, provider, provider_user_id, email, created_at FROM oauth_accounts WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def unlink_oauth_account(user_id: str, provider: str) -> bool:
+    conn = get_db()
+    c = conn.execute("DELETE FROM oauth_accounts WHERE user_id = ? AND provider = ?", (user_id, provider))
+    conn.commit()
+    return c.rowcount > 0
+
+
+def find_user_by_oauth(provider: str, provider_user_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute("""
+        SELECT u.* FROM users u JOIN oauth_accounts o ON u.id = o.user_id
+        WHERE o.provider = ? AND o.provider_user_id = ?
+    """, (provider, provider_user_id)).fetchone()
+    return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Profile Boosts (v2.5.0)
+# ---------------------------------------------------------------------------
+
+def create_profile_boost(user_id: str, boost_type: str = "standard", duration_hours: int = 1) -> dict:
+    from datetime import datetime, timedelta, timezone
+    conn = get_db()
+    bid = uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(hours=duration_hours)
+    multiplier = 3.0 if boost_type == "super" else 2.0
+    conn.execute("""
+        INSERT INTO profile_boosts (id, user_id, boost_type, multiplier, started_at, expires_at, active)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+    """, (bid, user_id, boost_type, multiplier, now.isoformat(), expires.isoformat()))
+    conn.commit()
+    return {"id": bid, "boost_type": boost_type, "multiplier": multiplier, "expires_at": expires.isoformat()}
+
+
+def get_active_boost(user_id: str) -> dict | None:
+    from datetime import datetime, timezone
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    row = conn.execute("""
+        SELECT * FROM profile_boosts WHERE user_id = ? AND active = 1 AND expires_at > ?
+        ORDER BY started_at DESC LIMIT 1
+    """, (user_id, now)).fetchone()
+    return dict(row) if row else None
+
+
+def get_boosted_profiles() -> list[str]:
+    """Get list of user IDs with active boosts (for discover sorting)."""
+    from datetime import datetime, timezone
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    rows = conn.execute("""
+        SELECT DISTINCT user_id FROM profile_boosts WHERE active = 1 AND expires_at > ?
+    """, (now,)).fetchall()
+    return [r["user_id"] for r in rows]
+
+
+def deactivate_expired_boosts() -> int:
+    from datetime import datetime, timezone
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    c = conn.execute("UPDATE profile_boosts SET active = 0 WHERE active = 1 AND expires_at <= ?", (now,))
+    conn.commit()
+    return c.rowcount
+
+
+# ---------------------------------------------------------------------------
+# API Keys (v2.5.0)
+# ---------------------------------------------------------------------------
+
+def create_api_key(name: str, permissions: str = "read", rate_limit: str = "100/hour") -> dict:
+    """Create a new API key. Returns the raw key (only shown once)."""
+    from datetime import datetime, timezone
+    conn = get_db()
+    kid = uuid.uuid4().hex[:12]
+    raw_key = f"krd_{uuid.uuid4().hex}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO api_keys (id, name, key_hash, permissions, rate_limit, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (kid, name, key_hash, permissions, rate_limit, now))
+    conn.commit()
+    return {"id": kid, "name": name, "key": raw_key, "permissions": permissions, "rate_limit": rate_limit}
+
+
+def validate_api_key(raw_key: str) -> dict | None:
+    from datetime import datetime, timezone
+    conn = get_db()
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    row = conn.execute("SELECT * FROM api_keys WHERE key_hash = ? AND active = 1", (key_hash,)).fetchone()
+    if row:
+        conn.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+                     (datetime.now(timezone.utc).isoformat(), row["id"]))
+        conn.commit()
+        return dict(row)
+    return None
+
+
+def get_api_keys() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, name, permissions, rate_limit, last_used_at, created_at, active FROM api_keys ORDER BY created_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def revoke_api_key(key_id: str) -> bool:
+    conn = get_db()
+    c = conn.execute("UPDATE api_keys SET active = 0 WHERE id = ?", (key_id,))
+    conn.commit()
+    return c.rowcount > 0
