@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v1.7.0 - Find Your Match</title>
+<title>Kindred v1.8.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -948,12 +948,35 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .link-warn { display:inline-flex; align-items:center; gap:3px; background:rgba(250,179,135,.12); border:1px solid var(--peach); border-radius:4px; padding:1px 5px; font-size:11px; color:var(--peach); cursor:default; position:relative; }
 .link-warn[data-tooltip]:hover::after { content:attr(data-tooltip); position:absolute; bottom:110%; left:0; background:var(--surface0); color:var(--text); font-size:11px; padding:4px 8px; border-radius:6px; white-space:nowrap; border:1px solid var(--surface1); z-index:50; pointer-events:none; min-width:160px; }
 .link-safe { display:inline-flex; align-items:center; gap:3px; background:rgba(166,227,161,.1); border:1px solid var(--green); border-radius:4px; padding:1px 5px; font-size:11px; color:var(--green); }
+
+/* ═══════════════════════════════════════════════════
+   Phase 1 v1.8.0 — Unread Badge Counts
+   ═══════════════════════════════════════════════════ */
+.tab-badge{position:absolute;top:-4px;right:-4px;background:var(--red);color:var(--base);font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+
+/* ═══════════════════════════════════════════════════
+   Phase 1 v1.8.0 — Emoji Picker
+   ═══════════════════════════════════════════════════ */
+.emoji-picker-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;opacity:0.7;transition:opacity 0.2s}
+.emoji-picker-btn:hover{opacity:1}
+.emoji-picker-popup{position:absolute;bottom:100%;right:0;background:var(--surface0);border:1px solid var(--surface2);border-radius:var(--radius);padding:8px;display:none;z-index:1000;width:280px;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.3)}
+.emoji-picker-popup.show{display:grid;grid-template-columns:repeat(8,1fr);gap:2px}
+.emoji-picker-popup button{background:none;border:none;font-size:22px;cursor:pointer;padding:4px;border-radius:4px;transition:background 0.15s}
+.emoji-picker-popup button:hover{background:var(--surface2)}
+
+/* ═══════════════════════════════════════════════════
+   Phase 1 v1.8.0 — Announcement Banner
+   ═══════════════════════════════════════════════════ */
+.announcement-banner{background:var(--surface0);border-left:4px solid var(--blue);padding:10px 16px;margin-bottom:12px;border-radius:0 var(--radius) var(--radius) 0;display:flex;align-items:center;gap:10px}
+.announcement-banner.warning{border-left-color:var(--yellow)}
+.announcement-banner.maintenance{border-left-color:var(--peach)}
+.announcement-banner .ann-close{background:none;border:none;color:var(--subtext0);cursor:pointer;font-size:18px;margin-left:auto}
 </style>
 </head>
 <body>
 <script>try{if(localStorage.getItem('kindred_theme')==='latte')document.body.classList.add('theme-latte')}catch(e){}</script>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.7.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.8.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
         <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0" aria-label="Toggle theme">&#9790;</button>
         <div id="ws-status-dot" title="Connected" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s" aria-label="Connection status"></div>
@@ -1280,6 +1303,11 @@ function loginAs(id){
     showView('myprofile');
     if(authToken) pollNotifications();
     connectWS();
+    // Phase 1 v1.8.0: Start unread polling + announcements + availability
+    pollUnreadCounts();
+    if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
+    loadAnnouncements();
+    loadAvailability();
 }
 
 function logout(){
@@ -1288,7 +1316,9 @@ function logout(){
     currentUser=null;
     try{localStorage.removeItem('kindred_token')}catch(e){}
     if(notifInterval){clearInterval(notifInterval);notifInterval=null;}
+    if(_unreadInterval){clearInterval(_unreadInterval);_unreadInterval=null;}
     if(window._heartbeatInterval){clearInterval(window._heartbeatInterval);window._heartbeatInterval=null;}
+    if(window._wsPingInterval){clearInterval(window._wsPingInterval);window._wsPingInterval=null;}
     if(window._wsReconnectTimeout){clearTimeout(window._wsReconnectTimeout);window._wsReconnectTimeout=null;}
     document.getElementById('notif-panel').style.display='none';
     disconnectWS();
@@ -1725,6 +1755,16 @@ async function viewProfilePage(pid,viewer){
         // Settings section (owner only)
         if(isOwner){
             right+=`<div class="ms-section"><h2>Settings</h2>
+                <details open style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0;font-weight:600">Availability Status</summary>
+                <div style="display:flex;flex-direction:column;gap:8px;padding:12px 0">
+                    <select id="availability-select" onchange="updateAvailability()" style="padding:8px;border-radius:var(--radius);border:1px solid var(--surface2);background:var(--surface0);color:var(--text)">
+                        <option value="active">Active</option>
+                        <option value="free_tonight">Free Tonight</option>
+                        <option value="free_weekend">Free This Weekend</option>
+                        <option value="looking_to_chat">Looking to Chat</option>
+                        <option value="taking_break">Taking a Break</option>
+                    </select>
+                </div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Notification Preferences</summary>
                 <div id="notif-prefs" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Push Notifications</summary>
@@ -1975,6 +2015,7 @@ async function showMatchesFor(pid){
             if(m.dating_energy) badges.push(`<span class="badge-energy">${escHtml(m.dating_energy)}</span>`);
             if(m.relationship_intent) badges.push(`<span class="badge-intent">${escHtml(m.relationship_intent)}</span>`);
             if(m.super_liked_you) badges.push('<span class="super-liked-badge">&#11088;</span>');
+            if(m.availability_status&&m.availability_status!=='active') badges.push(`<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--green);color:var(--base);margin-left:4px">${m.availability_status.replace(/_/g,' ')}</span>`);
             const expiryHtml=getExpiryBadgeHtml(m);
             const isExpired=expiryHtml.includes('Expired')&&!expiryHtml.includes('Expires in');
             return `<div class="match-card${isExpired?' expired':''} match-reveal" style="animation-delay:${i*.06}s" onclick="showDetail('${pid}','${m.profile_id}')">
@@ -2404,7 +2445,8 @@ async function renderInbox(){
         const blindBadge=isBlind?'<span class="convo-blind-badge">&#129638; Blind</span>':'';
         const displayName=isBlind?`Mystery Match`:escHtml(c.partner_name);
         const previewText=isBlind?'[Blind Date - identity hidden]':escHtml(c.last_message);
-        return `<div class="convo-item" onclick="openChat('${activeProfile}','${c.partner_id}')">${dot}<strong>${displayName}</strong>${blindBadge}${turnBadge}<span style="color:var(--overlay0);font-size:12px;margin-left:8px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${previewText}</span>${c.unread>0?`<span class="convo-unread">${c.unread}</span>`:''}</div>`;
+        const pcUnread=(_unreadCounts.per_conversation&&_unreadCounts.per_conversation[c.partner_id])||c.unread||0;
+        return `<div class="convo-item" onclick="openChat('${activeProfile}','${c.partner_id}')">${dot}<strong>${displayName}</strong>${blindBadge}${turnBadge}<span style="color:var(--overlay0);font-size:12px;margin-left:8px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${previewText}</span>${pcUnread>0?`<span class="convo-unread">${pcUnread}</span>`:''}</div>`;
     }).join('');
     staggerListItems(inbox);
 }
@@ -2629,6 +2671,7 @@ async function doSearch(){
             ${p.headline?`<div class="sc-headline">"${escHtml(p.headline)}"</div>`:''}
             ${p.dating_energy?`<span class="badge-energy">${escHtml(p.dating_energy)}</span>`:''}
             ${p.relationship_intent?`<span class="badge-intent">${escHtml(p.relationship_intent)}</span>`:''}
+            ${p.availability_status&&p.availability_status!=='active'?`<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--green);color:var(--base)">${p.availability_status.replace(/_/g,' ')}</span>`:''}
         </div>`).join('')+'</div>';
         // Load mutual friends for each result (non-blocking)
         d.results.filter(p=>p.id!==activeProfile).forEach(p=>loadMutualFriends(p.id,'mutual-sc-'+p.id));
@@ -4193,6 +4236,7 @@ function connectWSEnhanced(){
     };
     ws.onclose=()=>{
         ws=null;
+        if(window._wsPingInterval){clearInterval(window._wsPingInterval);window._wsPingInterval=null;}
         if(!_wsReconnecting)setWsStatus('disconnected');
         setWsStatus('reconnecting');
         if(wsReconnectTimer)clearTimeout(wsReconnectTimer);
@@ -4203,9 +4247,15 @@ function connectWSEnhanced(){
         window._wsReconnectTimeout=wsReconnectTimer;
     };
     ws.onerror=()=>{ws?.close();};
-    const wsHB=setInterval(()=>{
-        if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:'heartbeat'}));
-        else clearInterval(wsHB);
+    // Phase 1 v1.8.0: heartbeat + ping
+    if(window._wsPingInterval)clearInterval(window._wsPingInterval);
+    window._wsPingInterval=setInterval(()=>{
+        if(ws&&ws.readyState===WebSocket.OPEN){
+            ws.send(JSON.stringify({type:'ping'}));
+            ws.send(JSON.stringify({type:'heartbeat'}));
+        } else {
+            clearInterval(window._wsPingInterval);
+        }
     },30000);
 }
 function wsSendQueued(payload){
@@ -4980,6 +5030,17 @@ async function openChat(meId,themId){
     // Load async extras
     loadPinnedMessages(meId,themId);
     loadProfileBadges(themId,'chat-badges-'+themId);
+    // Phase 1 v1.8.0: Attach emoji picker to chat input
+    setTimeout(()=>{
+        const msgInput=document.getElementById('msg-in');
+        if(msgInput&&msgInput.parentElement){
+            const picker=createEmojiPicker('msg-in');
+            msgInput.parentElement.style.position='relative';
+            msgInput.parentElement.appendChild(picker);
+        }
+    },100);
+    // Phase 1 v1.8.0: Conversation starters for empty chats
+    loadConversationStarters(themId,md.messages.length);
 }
 
 function showChatExtras(meId,themId){
@@ -5128,6 +5189,180 @@ function showStoryOverlay(stories,idx,profileId,profileName,profilePhoto){
     if(isOwner)loadStoryViewers(story.id);
 }
 
+// ══════════════════════════════════════════════════════
+// ─── Phase 1 v1.8.0: Unread Badge Counts ───
+// ══════════════════════════════════════════════════════
+let _unreadCounts={total:0,per_conversation:{}};
+let _unreadInterval=null;
+
+async function pollUnreadCounts(){
+    if(!activeProfile)return;
+    try{
+        const r=await authFetch('/api/unread-counts');
+        if(r.ok){
+            _unreadCounts=await r.json();
+            updateUnreadBadges();
+        }
+    }catch(e){}
+}
+
+function updateUnreadBadges(){
+    // Update Messages tab badge
+    const msgTab=document.querySelector('.nav-tab[data-v="messages"]');
+    if(msgTab){
+        let badge=msgTab.querySelector('.tab-badge');
+        if(_unreadCounts.total>0){
+            if(!badge){
+                badge=document.createElement('span');
+                badge.className='tab-badge';
+                msgTab.appendChild(badge);
+            }
+            badge.textContent=_unreadCounts.total>99?'99+':_unreadCounts.total;
+        } else if(badge){
+            badge.remove();
+        }
+    }
+    // Update page title
+    if(_unreadCounts.total>0){
+        document.title=`(${_unreadCounts.total}) Kindred`;
+    } else {
+        document.title='Kindred';
+    }
+}
+
+// ══════════════════════════════════════════════════════
+// ─── Phase 1 v1.8.0: Emoji Picker ───
+// ══════════════════════════════════════════════════════
+const EMOJI_LIST=['😀','😂','🥰','😍','😊','😎','🤔','😅','😭','🥺','❤️','🔥','👍','👎','🎉','✨','💯','🙏','😘','🤗','😤','😱','🤣','💀','👀','🙌','💕','😏','🥳','😴','🤷','👋','💪','🌟','🎵','☕','🍕','🌈','⭐','💬'];
+
+function createEmojiPicker(inputId){
+    const container=document.createElement('div');
+    container.style.position='relative';
+    container.style.display='inline-block';
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='emoji-picker-btn';
+    btn.textContent='😀';
+    const popup=document.createElement('div');
+    popup.className='emoji-picker-popup';
+    EMOJI_LIST.forEach(e=>{
+        const eb=document.createElement('button');
+        eb.type='button';
+        eb.textContent=e;
+        eb.onclick=()=>{
+            const input=document.getElementById(inputId);
+            if(input){input.value+=e;input.focus();}
+            popup.classList.remove('show');
+        };
+        popup.appendChild(eb);
+    });
+    btn.onclick=(ev)=>{
+        ev.stopPropagation();
+        popup.classList.toggle('show');
+    };
+    document.addEventListener('click',()=>popup.classList.remove('show'));
+    container.appendChild(popup);
+    container.appendChild(btn);
+    return container;
+}
+
+// ══════════════════════════════════════════════════════
+// ─── Phase 1 v1.8.0: Conversation Starters ───
+// ══════════════════════════════════════════════════════
+async function loadConversationStarters(partnerId,messagesLen){
+    if(messagesLen!==0)return;
+    try{
+        const sr=await authFetch(`/api/starters/${partnerId}`);
+        if(!sr.ok)return;
+        const starters=await sr.json();
+        if(!starters.length)return;
+        const starterDiv=document.createElement('div');
+        starterDiv.style.cssText='padding:16px;text-align:center';
+        starterDiv.innerHTML=`
+            <p style="color:var(--subtext0);margin-bottom:12px">Break the ice! Try one of these:</p>
+            ${starters.map(s=>`
+                <button onclick="useStarter('${s.id||''}','${escHtml(s.content).replace(/'/g,"\\'")}','${partnerId}')"
+                    style="display:block;width:100%;margin:6px 0;padding:12px 16px;background:var(--surface0);border:1px solid var(--surface2);border-radius:var(--radius);color:var(--text);cursor:pointer;text-align:left;font-size:14px;transition:border-color 0.2s"
+                    onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--surface2)'"
+                >${escHtml(s.content)}</button>
+            `).join('')}
+        `;
+        const chatArea=document.getElementById('msgs');
+        if(chatArea)chatArea.prepend(starterDiv);
+    }catch(e){}
+}
+
+async function useStarter(starterId,text,partnerId){
+    const input=document.getElementById('msg-in');
+    if(input){input.value=text;input.focus();}
+    if(starterId){
+        try{await authFetch(`/api/starters/${starterId}/use`,{method:'POST'});}catch(e){}
+    }
+}
+
+// ══════════════════════════════════════════════════════
+// ─── Phase 1 v1.8.0: Availability Status ───
+// ══════════════════════════════════════════════════════
+async function updateAvailability(){
+    const sel=document.getElementById('availability-select');
+    if(!sel)return;
+    const status=sel.value;
+    await authFetch('/api/availability',{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({status})
+    });
+    toast('Status updated','success');
+}
+
+async function loadAvailability(){
+    if(!activeProfile)return;
+    try{
+        const r=await authFetch(`/api/availability/${activeProfile}`);
+        if(r.ok){
+            const a=await r.json();
+            const sel=document.getElementById('availability-select');
+            if(sel)sel.value=a.status||'active';
+        }
+    }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── Phase 1 v1.8.0: Announcement Banner ───
+// ══════════════════════════════════════════════════════
+async function loadAnnouncements(){
+    try{
+        const r=await fetch('/api/announcements');
+        if(!r.ok)return;
+        const anns=await r.json();
+        const dismissed=JSON.parse(safeGet('kindred_dismissed_anns','[]'));
+        const active=anns.filter(a=>!dismissed.includes(a.id));
+        if(!active.length)return;
+        let container=document.getElementById('announcement-container');
+        if(!container){
+            container=document.createElement('div');
+            container.id='announcement-container';
+            const app=document.getElementById('app');
+            if(app)app.parentElement.insertBefore(container,app);
+        }
+        container.innerHTML=active.map(a=>`
+            <div class="announcement-banner ${a.type||'info'}">
+                <div><strong>${escHtml(a.title)}</strong><br><span style="font-size:13px;color:var(--subtext0)">${escHtml(a.body)}</span></div>
+                <button class="ann-close" onclick="dismissAnnouncement('${a.id}')">&times;</button>
+            </div>
+        `).join('');
+    }catch(e){}
+}
+
+function dismissAnnouncement(id){
+    const dismissed=JSON.parse(safeGet('kindred_dismissed_anns','[]'));
+    dismissed.push(id);
+    safeSet('kindred_dismissed_anns',JSON.stringify(dismissed));
+    const container=document.getElementById('announcement-container');
+    if(container)container.innerHTML='';
+    loadAnnouncements();
+}
+
 // ── Use connectWSEnhanced in init ──
 const _origInit=init;
 async function init(){
@@ -5136,7 +5371,14 @@ async function init(){
     if(activeProfile){
         disconnectWS();
         connectWSEnhanced();
+        // Phase 1 v1.8.0: Start unread count polling
+        pollUnreadCounts();
+        if(!_unreadInterval)_unreadInterval=setInterval(pollUnreadCounts,30000);
+        // Phase 1 v1.8.0: Load availability
+        loadAvailability();
     }
+    // Phase 1 v1.8.0: Load announcements
+    if(authToken)loadAnnouncements();
 }
 
 init();

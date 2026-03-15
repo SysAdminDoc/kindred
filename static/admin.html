@@ -237,11 +237,40 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 .tpl-preview-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--surface0); }
 .tpl-preview-header h3 { color:var(--lavender); font-size:15px; }
 .tpl-preview-iframe { flex:1; border:none; border-radius:0 0 var(--radius) var(--radius); min-height:400px; background:#fff; }
+.user-search-bar{display:flex;gap:8px;margin-bottom:16px}
+.user-search-bar input{flex:1;padding:10px 14px;border-radius:var(--radius);border:1px solid var(--surface2);background:var(--surface0);color:var(--text);font-size:14px}
+.user-search-bar button{padding:10px 20px;border-radius:var(--radius);background:var(--accent);color:var(--base);border:none;cursor:pointer;font-weight:600}
+.user-table{width:100%;border-collapse:collapse}
+.user-table th,.user-table td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--surface1)}
+.user-table th{color:var(--subtext0);font-size:12px;text-transform:uppercase}
+.user-table tr:hover{background:var(--surface0)}
+.user-table .clickable{cursor:pointer;color:var(--accent);text-decoration:underline}
+.user-detail-card{background:var(--surface0);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.user-detail-card h3{margin:0 0 12px;color:var(--accent)}
+.user-detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.user-detail-grid .stat-item{background:var(--base);padding:12px;border-radius:8px}
+.user-detail-grid .stat-item label{display:block;font-size:11px;color:var(--subtext0);text-transform:uppercase;margin-bottom:4px}
+.user-detail-grid .stat-item span{font-size:18px;font-weight:700;color:var(--text)}
+.user-sessions-table{width:100%;border-collapse:collapse;margin-top:8px}
+.user-sessions-table th,.user-sessions-table td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--surface1);font-size:13px}
+.ann-form{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;background:var(--surface0);padding:16px;border-radius:var(--radius)}
+.ann-form input,.ann-form textarea,.ann-form select{padding:8px 12px;border-radius:8px;border:1px solid var(--surface2);background:var(--base);color:var(--text)}
+.ann-form textarea{min-height:60px;resize:vertical}
+.ann-form button{align-self:flex-start;padding:8px 20px;border-radius:8px;background:var(--accent);color:var(--base);border:none;cursor:pointer;font-weight:600}
+.ann-item{background:var(--surface0);border-radius:var(--radius);padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.ann-item .ann-content{flex:1}
+.ann-item .ann-title{font-weight:600;color:var(--text)}
+.ann-item .ann-body{font-size:13px;color:var(--subtext0);margin-top:4px}
+.ann-item .ann-meta{font-size:11px;color:var(--overlay0);margin-top:4px}
+.ann-type{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.ann-type-info{background:var(--blue);color:var(--base)}
+.ann-type-warning{background:var(--yellow);color:var(--base)}
+.ann-type-maintenance{background:var(--peach);color:var(--base)}
 </style>
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.7.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.8.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -270,6 +299,8 @@ const TABS=[
     {id:'auditlog',label:'Audit Log'},
     {id:'webhooks',label:'Webhooks'},
     {id:'emailtemplates',label:'Email Templates'},
+    {id:'users',label:'Users'},
+    {id:'announcements',label:'Announcements'},
 ];
 
 function adminHeaders(){
@@ -313,6 +344,8 @@ function showView(v){
     else if(v==='auditlog')renderAuditLog();
     else if(v==='webhooks')renderWebhooks();
     else if(v==='emailtemplates')renderEmailTemplates();
+    else if(v==='users') renderUsers();
+    else if(v==='announcements') renderAnnouncements();
 }
 
 function showLoginScreen(){
@@ -893,7 +926,7 @@ async function renderAnalytics(){
             <div class="analytics-card"><div class="value" style="color:var(--green)">${d.location_enabled_users!=null?d.location_enabled_users:'--'}</div><div class="label">Location-Enabled Users</div></div>
         </div>`;
 
-        // Extended feature metrics (v1.7.0)
+        // Extended feature metrics (v1.8.0)
         html+=`<div class="section-head">Extended Feature Metrics</div>`;
         html+=`<div class="analytics-cards">
             <div class="analytics-card"><div class="value" style="color:var(--flamingo)">${d.blind_dates_active!=null?d.blind_dates_active:'--'}</div><div class="label">Blind Dates Active</div></div>
@@ -1482,6 +1515,142 @@ async function previewEmailTemplate(id,name){
         const frame=document.getElementById('tpl-preview-frame');
         if(frame) frame.srcdoc=`<body style="font-family:sans-serif;padding:20px;color:#666"><p>Failed to load preview.</p></body>`;
     }
+}
+
+// ─── Users ───
+function renderUsers(){
+  const app=document.getElementById('app');
+  app.innerHTML=`<div class="card"><h2>User Management</h2>
+    <div class="user-search-bar">
+      <input type="text" id="user-search-input" placeholder="Search by email, name, or ID..." onkeydown="if(event.key==='Enter')searchUsers()">
+      <button onclick="searchUsers()">Search</button>
+    </div>
+    <div id="user-search-results"></div>
+    <div id="user-detail-view" style="display:none"></div>
+  </div>`;
+}
+
+async function searchUsers(){
+  const q=document.getElementById('user-search-input').value.trim();
+  if(q.length<2){toast('Enter at least 2 characters','error');return}
+  const r=await adminFetch(API+`/api/admin/users/search?q=${encodeURIComponent(q)}`);
+  if(!r.ok) return;
+  const users=await r.json();
+  const el=document.getElementById('user-search-results');
+  if(!users.length){el.innerHTML='<p style="color:var(--subtext0)">No users found.</p>';return}
+  el.innerHTML=`<table class="user-table"><thead><tr>
+    <th>Email</th><th>Name</th><th>Status</th><th>Verified</th><th>Tier</th><th>Joined</th>
+  </tr></thead><tbody>${users.map(u=>`<tr>
+    <td class="clickable" onclick="viewUserDetail('${u.id}')">${escHtml(u.email)}</td>
+    <td>${escHtml(u.display_name||u.profile_name||'—')}</td>
+    <td>${u.deactivated?'<span style="color:var(--red)">Deactivated</span>':'Active'}</td>
+    <td>${u.email_verified?'✓':'—'}</td>
+    <td>${escHtml(u.subscription_tier||'free')}</td>
+    <td>${u.created_at?new Date(u.created_at).toLocaleDateString():''}</td>
+  </tr>`).join('')}</tbody></table>`;
+  document.getElementById('user-detail-view').style.display='none';
+}
+
+async function viewUserDetail(userId){
+  const r=await adminFetch(API+`/api/admin/users/${userId}`);
+  if(!r.ok) return;
+  const u=await r.json();
+  const el=document.getElementById('user-detail-view');
+  el.style.display='block';
+  el.innerHTML=`
+    <div class="user-detail-card">
+      <h3>${escHtml(u.display_name||u.profile_name||u.email)}</h3>
+      <div class="user-detail-grid">
+        <div class="stat-item"><label>Email</label><span style="font-size:14px">${escHtml(u.email)}</span></div>
+        <div class="stat-item"><label>User ID</label><span style="font-size:11px;word-break:break-all">${u.id}</span></div>
+        <div class="stat-item"><label>Profile ID</label><span style="font-size:11px;word-break:break-all">${u.profile_id||'—'}</span></div>
+        <div class="stat-item"><label>Age</label><span>${u.age||'—'}</span></div>
+        <div class="stat-item"><label>Gender</label><span>${escHtml(u.gender||'—')}</span></div>
+        <div class="stat-item"><label>Location</label><span>${escHtml(u.location||'—')}</span></div>
+        <div class="stat-item"><label>Tier</label><span>${escHtml(u.subscription_tier||'free')}</span></div>
+        <div class="stat-item"><label>Verified</label><span>${u.verified?'Yes':'No'}</span></div>
+        <div class="stat-item"><label>Email Verified</label><span>${u.email_verified?'Yes':'No'}</span></div>
+        <div class="stat-item"><label>Admin</label><span>${u.is_admin?'Yes':'No'}</span></div>
+        <div class="stat-item"><label>Deactivated</label><span>${u.deactivated?'Yes':'No'}</span></div>
+        <div class="stat-item"><label>Onboarding</label><span>${u.onboarding_completed?'Complete':'Incomplete'}</span></div>
+      </div>
+    </div>
+    <div class="user-detail-card">
+      <h3>Activity Stats</h3>
+      <div class="user-detail-grid">
+        <div class="stat-item"><label>Messages Sent</label><span>${u.messages_sent||0}</span></div>
+        <div class="stat-item"><label>Messages Received</label><span>${u.messages_received||0}</span></div>
+        <div class="stat-item"><label>Matches</label><span>${u.matches_count||0}</span></div>
+        <div class="stat-item"><label>Profile Views</label><span>${u.profile_views||0}</span></div>
+        <div class="stat-item"><label>Photos</label><span>${u.photos_count||0}</span></div>
+        <div class="stat-item"><label>Reports Filed</label><span>${u.reports_filed||0}</span></div>
+        <div class="stat-item"><label>Reports Received</label><span style="color:${u.reports_received>0?'var(--red)':'inherit'}">${u.reports_received||0}</span></div>
+        <div class="stat-item"><label>Blocks Made</label><span>${u.blocks_made||0}</span></div>
+        <div class="stat-item"><label>Active Sessions</label><span>${u.active_sessions||0}</span></div>
+      </div>
+    </div>
+    ${u.recent_sessions&&u.recent_sessions.length?`<div class="user-detail-card">
+      <h3>Recent Sessions</h3>
+      <table class="user-sessions-table"><thead><tr><th>Device</th><th>IP</th><th>Last Active</th><th>Created</th></tr></thead>
+      <tbody>${u.recent_sessions.map(s=>`<tr>
+        <td>${escHtml(s.device||'Unknown')}</td>
+        <td>${escHtml(s.ip_address||'—')}</td>
+        <td>${s.last_active?new Date(s.last_active).toLocaleString():''}</td>
+        <td>${s.created_at?new Date(s.created_at).toLocaleString():''}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>`:''}
+    <button class="btn" onclick="document.getElementById('user-detail-view').style.display='none'" style="margin-top:8px">← Back to Results</button>
+  `;
+  el.scrollIntoView({behavior:'smooth'});
+}
+
+// ─── Announcements ───
+function renderAnnouncements(){
+  const app=document.getElementById('app');
+  app.innerHTML=`<div class="card"><h2>Announcements</h2>
+    <div class="ann-form">
+      <input type="text" id="ann-title" placeholder="Title">
+      <textarea id="ann-body" placeholder="Announcement body..."></textarea>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="ann-type"><option value="info">Info</option><option value="warning">Warning</option><option value="maintenance">Maintenance</option></select>
+        <button onclick="createAnnouncement()">Post Announcement</button>
+      </div>
+    </div>
+    <div id="ann-list">Loading...</div>
+  </div>`;
+  loadAnnouncements();
+}
+
+async function loadAnnouncements(){
+  const r=await adminFetch(API+'/api/admin/announcements');
+  if(!r.ok)return;
+  const anns=await r.json();
+  const el=document.getElementById('ann-list');
+  if(!anns.length){el.innerHTML='<p style="color:var(--subtext0)">No active announcements.</p>';return}
+  el.innerHTML=anns.map(a=>`<div class="ann-item">
+    <div class="ann-content">
+      <span class="ann-type ann-type-${a.type}">${a.type}</span>
+      <div class="ann-title" style="margin-top:6px">${escHtml(a.title)}</div>
+      <div class="ann-body">${escHtml(a.body)}</div>
+      <div class="ann-meta">Created: ${new Date(a.created_at).toLocaleString()}${a.expires_at?' · Expires: '+new Date(a.expires_at).toLocaleString():''}</div>
+    </div>
+    <button class="btn btn-sm" style="background:var(--red);color:var(--base)" onclick="deleteAnnouncement('${a.id}')">Remove</button>
+  </div>`).join('');
+}
+
+async function createAnnouncement(){
+  const title=document.getElementById('ann-title').value.trim();
+  const body=document.getElementById('ann-body').value.trim();
+  const type=document.getElementById('ann-type').value;
+  if(!title||!body){toast('Title and body required','error');return}
+  const r=await adminFetch(API+'/api/admin/announcements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,body,type})});
+  if(r.ok){toast('Announcement posted','success');loadAnnouncements();document.getElementById('ann-title').value='';document.getElementById('ann-body').value=''}
+  else toast('Failed to post','error');
+}
+
+async function deleteAnnouncement(id){
+  const r=await adminFetch(API+`/api/admin/announcements/${id}`,{method:'DELETE'});
+  if(r.ok){toast('Removed','success');loadAnnouncements()}
 }
 
 // ─── Utils ───

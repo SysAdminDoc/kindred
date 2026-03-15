@@ -1,5 +1,5 @@
 """
-Kindred v1.7.0 - FastAPI Backend (User Server)
+Kindred v1.8.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -118,6 +118,11 @@ from app.database import (
     create_safety_checkin, respond_safety_checkin, get_user_checkins,
     get_shared_dealbreakers, get_profile_completeness,
     log_rate_limit_hit,
+    set_availability, get_availability, get_available_profiles,
+    generate_starters, get_starters, mark_starter_used,
+    submit_date_feedback, get_date_feedback, get_feedback_stats,
+    get_unread_counts,
+    get_active_announcements,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -137,7 +142,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="1.7.0")
+app = FastAPI(title="Kindred", version="1.8.0")
 
 # CORS middleware
 app.add_middleware(
@@ -156,6 +161,14 @@ app.state.limiter = limiter
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(status_code=429, content={"detail": "Too many requests. Please slow down."})
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.detail, "code": exc.status_code}
+    )
 
 
 # File upload magic byte validation
@@ -463,6 +476,20 @@ class ThemeUpdate(BaseModel):
 
 class TypingPreviewUpdate(BaseModel):
     enabled: bool
+
+class AvailabilityUpdate(BaseModel):
+    status: str  # 'active', 'free_tonight', 'free_weekend', 'taking_break', 'custom'
+    custom_text: str | None = None
+    available_until: str | None = None
+
+class DateFeedbackSubmit(BaseModel):
+    date_schedule_id: str
+    partner_id: str
+    felt_safe: bool = True
+    had_fun: bool = True
+    accurate_match: bool = True
+    would_meet_again: bool | None = None
+    notes: str | None = None
 
 # ---------------------------------------------------------------------------
 # Startup
@@ -2227,6 +2254,10 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str, token: str =
             msg = _json.loads(data)
             msg_type = msg.get("type", "")
 
+            if isinstance(msg, dict) and msg.get("type") == "ping":
+                await websocket.send_json({"type": "pong", "timestamp": datetime.now(timezone.utc).isoformat()})
+                continue
+
             if msg_type == "message":
                 to_id = msg.get("to")
                 content = msg.get("content", "").strip()
@@ -2324,7 +2355,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "1.7.0",
+        "version": "1.8.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -3104,6 +3135,100 @@ def get_typing_preview(user: dict = Depends(require_user)):
     from app.database import get_db
     row = get_db().execute("SELECT typing_preview FROM users WHERE id=?", (user["id"],)).fetchone()
     return {"enabled": bool(row["typing_preview"]) if row and "typing_preview" in row.keys() else False}
+
+
+# ---------------------------------------------------------------------------
+# Availability Status
+# ---------------------------------------------------------------------------
+
+@app.get("/api/availability/{profile_id}")
+async def get_profile_availability(profile_id: str):
+    avail = get_availability(profile_id)
+    return avail or {"profile_id": profile_id, "status": "active", "custom_text": None}
+
+@app.put("/api/availability")
+async def update_availability(data: AvailabilityUpdate, user: dict = Depends(require_user)):
+    pid = user.get("profile_id")
+    if not pid:
+        raise HTTPException(400, "No profile")
+    set_availability(pid, data.status, data.custom_text, data.available_until)
+    return {"ok": True}
+
+@app.get("/api/available-now")
+async def get_available_now(user: dict = Depends(require_user)):
+    available = get_available_profiles()
+    return available
+
+
+# ---------------------------------------------------------------------------
+# Conversation Starters
+# ---------------------------------------------------------------------------
+
+@app.get("/api/starters/{target_id}")
+async def get_conversation_starters(target_id: str, user: dict = Depends(require_user)):
+    pid = user.get("profile_id")
+    if not pid:
+        raise HTTPException(400, "No profile")
+    existing = get_starters(pid, target_id)
+    if existing:
+        return existing
+    from_profile = get_profile(pid)
+    to_profile = get_profile(target_id)
+    if not from_profile or not to_profile:
+        raise HTTPException(404, "Profile not found")
+    starters = generate_starters(pid, target_id, from_profile, to_profile)
+    return starters
+
+@app.post("/api/starters/{starter_id}/use")
+async def use_starter(starter_id: str, user: dict = Depends(require_user)):
+    mark_starter_used(starter_id)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Date Feedback
+# ---------------------------------------------------------------------------
+
+@app.post("/api/date-feedback")
+async def post_date_feedback(fb: DateFeedbackSubmit, user: dict = Depends(require_user)):
+    pid = user.get("profile_id")
+    if not pid:
+        raise HTTPException(400, "No profile")
+    fid = submit_date_feedback(
+        fb.date_schedule_id, pid, fb.partner_id,
+        fb.felt_safe, fb.had_fun, fb.accurate_match,
+        fb.would_meet_again, fb.notes
+    )
+    return {"id": fid}
+
+@app.get("/api/date-feedback/{date_schedule_id}")
+async def get_feedback_for_date(date_schedule_id: str, user: dict = Depends(require_user)):
+    return get_date_feedback(date_schedule_id)
+
+@app.get("/api/feedback-stats/{profile_id}")
+async def get_profile_feedback_stats(profile_id: str, user: dict = Depends(require_user)):
+    return get_feedback_stats(profile_id)
+
+
+# ---------------------------------------------------------------------------
+# Unread Counts
+# ---------------------------------------------------------------------------
+
+@app.get("/api/unread-counts")
+async def get_my_unread_counts(user: dict = Depends(require_user)):
+    pid = user.get("profile_id")
+    if not pid:
+        raise HTTPException(400, "No profile")
+    return get_unread_counts(pid)
+
+
+# ---------------------------------------------------------------------------
+# Announcements (read-only for users)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/announcements")
+async def get_announcements():
+    return get_active_announcements()
 
 
 # ---------------------------------------------------------------------------

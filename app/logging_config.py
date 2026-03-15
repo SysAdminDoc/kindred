@@ -1,5 +1,5 @@
 """
-Kindred v1.7.0 - Structured Logging
+Kindred v1.8.0 - Structured Logging
 JSON or text format, configurable via KINDRED_LOG_LEVEL and KINDRED_LOG_FORMAT.
 """
 

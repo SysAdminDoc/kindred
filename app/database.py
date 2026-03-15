@@ -1,5 +1,5 @@
 """
-Kindred v1.7.0 - Database Layer
+Kindred v1.8.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -840,6 +840,57 @@ def init_db():
             ran_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             db_size_bytes INTEGER
         );
+
+        CREATE TABLE IF NOT EXISTS availability_status (
+            profile_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'active',
+            custom_text TEXT,
+            available_until TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS conversation_starters (
+            id TEXT PRIMARY KEY,
+            from_id TEXT NOT NULL,
+            to_id TEXT NOT NULL,
+            starter_type TEXT NOT NULL DEFAULT 'interest',
+            content TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (from_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (to_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_starters_pair ON conversation_starters(from_id, to_id);
+
+        CREATE TABLE IF NOT EXISTS date_feedback (
+            id TEXT PRIMARY KEY,
+            date_schedule_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            partner_id TEXT NOT NULL,
+            felt_safe INTEGER DEFAULT 1,
+            had_fun INTEGER DEFAULT 1,
+            accurate_match INTEGER DEFAULT 1,
+            would_meet_again INTEGER,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (date_schedule_id) REFERENCES date_schedules(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (partner_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(date_schedule_id, profile_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS announcements (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            type TEXT DEFAULT 'info',
+            active INTEGER DEFAULT 1,
+            created_by TEXT NOT NULL,
+            expires_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+        );
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -903,6 +954,9 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
+        # v1.8.0
+        "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
+        "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
     ]
     for sql in migrations:
         try:
@@ -4661,3 +4715,328 @@ def get_webhook_delivery_count() -> int:
         return conn.execute("SELECT COUNT(*) FROM webhooks WHERE enabled=1").fetchone()[0]
     except Exception:
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Availability Status
+# ---------------------------------------------------------------------------
+
+def set_availability(profile_id: str, status: str, custom_text: str = None, available_until: str = None):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO availability_status (profile_id, status, custom_text, available_until, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(profile_id) DO UPDATE SET
+            status=excluded.status, custom_text=excluded.custom_text,
+            available_until=excluded.available_until, updated_at=datetime('now')
+    """, (profile_id, status, custom_text, available_until))
+    conn.commit()
+
+
+def get_availability(profile_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute("SELECT * FROM availability_status WHERE profile_id=?", (profile_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_available_profiles(status: str = None) -> list[dict]:
+    conn = get_db()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM availability_status WHERE status=? ORDER BY updated_at DESC",
+            (status,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM availability_status ORDER BY updated_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Conversation Starters
+# ---------------------------------------------------------------------------
+
+def generate_starters(from_id: str, to_id: str, from_profile: dict, to_profile: dict) -> list[dict]:
+    """Generate personalized conversation starters based on shared traits."""
+    import json as _json
+    starters = []
+    conn = get_db()
+
+    # Shared music
+    from_music = conn.execute(
+        "SELECT song_title, artist FROM music_preferences WHERE profile_id=?", (from_id,)
+    ).fetchall()
+    to_music = conn.execute(
+        "SELECT song_title, artist FROM music_preferences WHERE profile_id=?", (to_id,)
+    ).fetchall()
+    from_artists = {r["artist"].lower() for r in from_music}
+    to_artists = {r["artist"].lower() for r in to_music}
+    shared_artists = from_artists & to_artists
+    if shared_artists:
+        artist = next(iter(shared_artists)).title()
+        starters.append({
+            "type": "music",
+            "content": f"You both listen to {artist}! What's your favorite song by them?"
+        })
+
+    # Shared interests
+    from_interests = (from_profile.get("interests") or "").lower().split(",")
+    to_interests = (to_profile.get("interests") or "").lower().split(",")
+    from_set = {i.strip() for i in from_interests if i.strip()}
+    to_set = {i.strip() for i in to_interests if i.strip()}
+    shared = from_set & to_set
+    if shared:
+        interest = next(iter(shared)).title()
+        starters.append({
+            "type": "interest",
+            "content": f"You're both into {interest}! How did you get started with that?"
+        })
+
+    # Communication style match
+    from_comm = from_profile.get("communication_style")
+    to_comm = to_profile.get("communication_style")
+    if from_comm and to_comm:
+        try:
+            fc = _json.loads(from_comm) if isinstance(from_comm, str) else from_comm
+            tc = _json.loads(to_comm) if isinstance(to_comm, str) else to_comm
+            if fc.get("love_language") == tc.get("love_language"):
+                ll = fc.get("love_language", "").replace("_", " ").title()
+                starters.append({
+                    "type": "compatibility",
+                    "content": f"You both value {ll} — what does that look like in your ideal relationship?"
+                })
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+    # Prompts-based
+    from_prompts = conn.execute(
+        "SELECT prompt, answer FROM profile_prompts WHERE profile_id=? LIMIT 3", (from_id,)
+    ).fetchall()
+    to_prompts = conn.execute(
+        "SELECT prompt, answer FROM profile_prompts WHERE profile_id=? LIMIT 3", (to_id,)
+    ).fetchall()
+    if to_prompts:
+        p = to_prompts[0]
+        starters.append({
+            "type": "prompt",
+            "content": f"I loved your answer to \"{p['prompt']}\" — tell me more!"
+        })
+
+    # Generic fallbacks
+    if len(starters) < 2:
+        defaults = [
+            {"type": "general", "content": "What's the best thing that happened to you this week?"},
+            {"type": "general", "content": "If you could travel anywhere tomorrow, where would you go?"},
+            {"type": "general", "content": "What's something you're passionate about that most people don't know?"},
+        ]
+        for d in defaults:
+            if len(starters) >= 3:
+                break
+            starters.append(d)
+
+    # Save generated starters
+    for s in starters[:3]:
+        conn.execute(
+            "INSERT INTO conversation_starters (id, from_id, to_id, starter_type, content) VALUES (?,?,?,?,?)",
+            (uuid.uuid4().hex, from_id, to_id, s["type"], s["content"])
+        )
+    conn.commit()
+    return starters[:3]
+
+
+def get_starters(from_id: str, to_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM conversation_starters WHERE from_id=? AND to_id=? ORDER BY created_at DESC LIMIT 3",
+        (from_id, to_id)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_starter_used(starter_id: str):
+    conn = get_db()
+    conn.execute("UPDATE conversation_starters SET used=1 WHERE id=?", (starter_id,))
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Date Feedback
+# ---------------------------------------------------------------------------
+
+def submit_date_feedback(date_schedule_id: str, profile_id: str, partner_id: str,
+                         felt_safe: bool, had_fun: bool, accurate_match: bool,
+                         would_meet_again: bool = None, notes: str = None) -> str:
+    conn = get_db()
+    fid = uuid.uuid4().hex
+    conn.execute("""
+        INSERT INTO date_feedback (id, date_schedule_id, profile_id, partner_id,
+            felt_safe, had_fun, accurate_match, would_meet_again, notes)
+        VALUES (?,?,?,?,?,?,?,?,?)
+    """, (fid, date_schedule_id, profile_id, partner_id,
+          1 if felt_safe else 0, 1 if had_fun else 0,
+          1 if accurate_match else 0,
+          1 if would_meet_again else (0 if would_meet_again is not None else None),
+          notes))
+    conn.commit()
+    return fid
+
+
+def get_date_feedback(date_schedule_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM date_feedback WHERE date_schedule_id=? ORDER BY created_at",
+        (date_schedule_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_feedback_stats(profile_id: str) -> dict:
+    conn = get_db()
+    row = conn.execute("""
+        SELECT COUNT(*) as total,
+               AVG(felt_safe) as avg_safe,
+               AVG(had_fun) as avg_fun,
+               AVG(accurate_match) as avg_accurate,
+               SUM(CASE WHEN would_meet_again=1 THEN 1 ELSE 0 END) as meet_again_count
+        FROM date_feedback WHERE partner_id=?
+    """, (profile_id,)).fetchone()
+    return dict(row) if row else {"total": 0}
+
+
+# ---------------------------------------------------------------------------
+# Unread Message Counts
+# ---------------------------------------------------------------------------
+
+def get_unread_counts(profile_id: str) -> dict:
+    """Get total unread messages and per-conversation unread counts."""
+    conn = get_db()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE to_id=? AND read=0",
+        (profile_id,)
+    ).fetchone()[0]
+    per_conv = conn.execute("""
+        SELECT from_id, COUNT(*) as unread
+        FROM messages WHERE to_id=? AND read=0
+        GROUP BY from_id
+    """, (profile_id,)).fetchall()
+    return {
+        "total": total,
+        "per_conversation": {r["from_id"]: r["unread"] for r in per_conv}
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin: User Search & Detail
+# ---------------------------------------------------------------------------
+
+def search_users(query: str, limit: int = 50) -> list[dict]:
+    conn = get_db()
+    pattern = f"%{query}%"
+    rows = conn.execute("""
+        SELECT u.id, u.email, u.display_name, u.profile_id, u.is_admin,
+               u.created_at, u.deactivated, u.email_verified,
+               u.subscription_tier, u.onboarding_completed,
+               p.name as profile_name, p.age, p.gender, p.verified,
+               p.profile_views, p.last_active
+        FROM users u
+        LEFT JOIN profiles p ON u.profile_id = p.id
+        WHERE u.email LIKE ? OR u.display_name LIKE ? OR p.name LIKE ? OR u.id = ?
+        ORDER BY u.created_at DESC
+        LIMIT ?
+    """, (pattern, pattern, pattern, query, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_user_detail(user_id: str) -> dict | None:
+    conn = get_db()
+    user = conn.execute("""
+        SELECT u.*, p.name as profile_name, p.age, p.gender, p.seeking,
+               p.verified, p.profile_views, p.last_active, p.created_at as profile_created,
+               p.deactivated as profile_deactivated, p.location, p.headline
+        FROM users u
+        LEFT JOIN profiles p ON u.profile_id = p.id
+        WHERE u.id = ?
+    """, (user_id,)).fetchone()
+    if not user:
+        return None
+    d = dict(user)
+    d.pop("password_hash", None)
+    pid = d.get("profile_id")
+
+    # Message stats
+    if pid:
+        d["messages_sent"] = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE from_id=?", (pid,)
+        ).fetchone()[0]
+        d["messages_received"] = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE to_id=?", (pid,)
+        ).fetchone()[0]
+        d["matches_count"] = conn.execute("""
+            SELECT COUNT(*) FROM likes l1
+            JOIN likes l2 ON l1.target_id = l2.from_id AND l1.from_id = l2.target_id
+            WHERE l1.from_id=? AND l1.target_type='profile' AND l2.target_type='profile'
+        """, (pid,)).fetchone()[0]
+        d["reports_filed"] = conn.execute(
+            "SELECT COUNT(*) FROM safety_reports WHERE reporter_id=?", (pid,)
+        ).fetchone()[0]
+        d["reports_received"] = conn.execute(
+            "SELECT COUNT(*) FROM safety_reports WHERE reported_id=?", (pid,)
+        ).fetchone()[0]
+        d["blocks_made"] = conn.execute(
+            "SELECT COUNT(*) FROM blocks WHERE blocker_id=?", (pid,)
+        ).fetchone()[0]
+        d["photos_count"] = conn.execute(
+            "SELECT COUNT(*) FROM photos WHERE profile_id=?", (pid,)
+        ).fetchone()[0]
+
+    # Session count
+    d["active_sessions"] = conn.execute(
+        "SELECT COUNT(*) FROM user_sessions WHERE user_id=?", (user_id,)
+    ).fetchone()[0]
+
+    # Login history (recent sessions)
+    sessions = conn.execute(
+        "SELECT device, ip_address, last_active, created_at FROM user_sessions WHERE user_id=? ORDER BY last_active DESC LIMIT 10",
+        (user_id,)
+    ).fetchall()
+    d["recent_sessions"] = [dict(s) for s in sessions]
+
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Announcements
+# ---------------------------------------------------------------------------
+
+def create_announcement(title: str, body: str, ann_type: str, created_by: str, expires_at: str = None) -> str:
+    conn = get_db()
+    aid = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO announcements (id, title, body, type, created_by, expires_at) VALUES (?,?,?,?,?,?)",
+        (aid, title, body, ann_type, created_by, expires_at)
+    )
+    conn.commit()
+    return aid
+
+
+def get_active_announcements() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM announcements
+        WHERE active=1 AND (expires_at IS NULL OR expires_at > datetime('now'))
+        ORDER BY created_at DESC
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def deactivate_announcement(ann_id: str) -> bool:
+    conn = get_db()
+    conn.execute("UPDATE announcements SET active=0 WHERE id=?", (ann_id,))
+    conn.commit()
+    return True
+
+
+def get_total_date_feedback_count() -> int:
+    conn = get_db()
+    return conn.execute("SELECT COUNT(*) FROM date_feedback").fetchone()[0]

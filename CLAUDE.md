@@ -1,4 +1,4 @@
-# Kindred v1.7.0
+# Kindred v1.8.0
 
 Compatibility-first dating + social platform. Open source, privacy-first.
 
@@ -74,7 +74,7 @@ Copy `.env.example` to `.env` and customize. Key vars:
 - `KINDRED_DEFAULT_THEME` - Default theme: mocha or latte
 
 ## Database Tables
-profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log
+profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log, availability_status, conversation_starters, date_feedback, announcements
 
 ## Key Features
 - **8-dimension matching**: Personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker
@@ -126,7 +126,12 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - **Search**: Multi-filter (gender, seeking, age, location)
 - **Notification sounds**: AudioContext two-tone beep
 - **Admin dashboard**: Stats, health check, backups, sessions, stories moderation, audit log, webhooks, rate limits, vacuum, email templates
-- **Settings**: Notification preferences, password change, blocked users, profile deactivation, incognito, location, language, theme, typing preview
+- **Settings**: Notification preferences, password change, blocked users, profile deactivation, incognito, location, language, theme, typing preview, availability status
+- **Unread badge counts**: Tab badge on Messages, page title update, per-conversation unread counts
+- **Emoji picker**: 40-emoji grid popup in chat input
+- **Conversation starters**: Ice-breaker suggestions for empty chats
+- **Availability status**: Active/Free Tonight/Free This Weekend/Looking to Chat/Taking a Break with badges on cards
+- **Announcement banners**: Dismissible system announcements (info/warning/maintenance types)
 - **Message pagination**: Load older messages, optimistic send UI
 - **Message reactions**: Emoji reactions on messages
 - **Daily suggestions**: Top Picks curated daily match suggestions
@@ -148,6 +153,16 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - **Webhook system**: Configurable outbound webhooks with HMAC signing
 - **Email templates**: Catppuccin-themed HTML templates for all notifications
 - **Health check**: `/api/health` endpoint with server status, DB size, version
+- **Unread badge counts**: Tab badges, page title count, per-conversation unread via polling
+- **Emoji picker**: 40-emoji floating grid popup on chat input
+- **Conversation starters**: Personalized ice-breaker suggestions for empty chats (shared music, interests, prompts)
+- **Availability status**: User-set status (active/away/busy/offline) with badges on cards
+- **Announcement banners**: Admin-posted dismissible banners (info/warning/maintenance)
+- **Date feedback**: Post-date rating and feedback system with stats
+- **WebSocket heartbeat**: Dual ping+heartbeat every 30s with cleanup on close/logout
+- **Structured error responses**: All HTTPExceptions return `{error, code}` JSON format
+- **Admin user search**: Search users by email/name/ID with detailed activity view
+- **Admin announcements**: Create/delete platform-wide announcements
 
 ## Key Architecture
 - Dual-server: user (8000) + admin (8001) sharing same SQLite DB
@@ -158,7 +173,7 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - Database IDs: full `uuid4().hex` (32 hex chars) for collision safety
 - `save_profile()`: proper UPSERT (`ON CONFLICT DO UPDATE`) — no CASCADE data loss
 - Database migrations via `_migrate()` with targeted `duplicate column` error handling
-- Schema version tracking via `schema_versions` table (currently v6)
+- Schema version tracking via `schema_versions` table (currently v7)
 - CORS defaults to `localhost:8000,8001` (configurable via env)
 - Rate limiting on auth endpoints (slowapi) with admin dashboard
 - File upload magic byte validation on all upload endpoints (photos, gallery, stories, voice, video)
@@ -178,6 +193,7 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 
 ## Version History
 
+- **v1.8.0** - Phase 1: UX polish + admin tools. User: unread badge counts (tab badges, page title, per-conversation via polling), emoji picker (40-emoji floating grid), smart conversation starters (personalized from shared music/interests/communication/prompts), availability status (active/away/busy/offline with profile badges), announcement banners (dismissible, type-colored). Backend: date feedback system (post-date ratings + stats), structured error responses ({error,code} format), WebSocket ping heartbeat (30s dual ping+heartbeat). Admin: user search + detail view (activity stats, sessions), announcement CRUD (info/warning/maintenance types), expanded stats. Database: schema v7, 4 new tables (availability_status, conversation_starters, date_feedback, announcements), 16 new CRUD functions
 - **v1.7.0** - Core Dating: icebreaker games (word association, would you rather, 20 questions), date scheduling (ICS export), blind date mode (48h reveal), dealbreaker warnings, second look (passed profiles), compatibility insights. Social: threaded replies (quote-reply), shared playlists, event photo albums, profile badges (achievement system), story reactions (emoji), pinned messages. Trust & Safety: message cooldown (rate limiting), undo block (grace period), safety check-in (emergency contacts), link preview scanning. UX: dark/light theme toggle (Catppuccin Mocha/Latte), keyboard shortcuts, profile completeness coaching, animated transitions, typing previews, WebSocket auto-reconnect (exponential backoff). Ops: audit log (admin actions), webhook system (outbound, HMAC signed), email templates (HTML, themed), database vacuum scheduler, API rate limit dashboard. **Security audit (120 fixes)**: removed conn.close() pool corruption, replaced INSERT OR REPLACE with UPSERT, fixed block_profile column names, extended UUIDs to full hex, added WebSocket JWT auth, added auth to 47 unprotected endpoints, fixed 2FA bypass at login, added message sender verification, fixed 30+ XSS injection points with escHtml(), persisted JWT secret to file, locked CORS to localhost, added file validation to all upload endpoints, switched to SQLite backup API, added transaction wrapping, fixed memory leaks, HTML-escaped email templates, thread-safe i18n
 - **v1.6.0** - Core Dating: voice messages (MediaRecorder), profile prompts (Hinge-style), super like with notification, match expiry (7-day countdown), location-based matching (geolocation + distance), compatibility radar chart (canvas spider). Social: stories/moments (24h ephemeral), polls in groups, mutual friends indicator, message search. Safety: incognito mode, session management (view/revoke), account deletion (GDPR), data export (GDPR), 2FA recovery codes. UX: notification sounds (AudioContext), image cropping (Canvas API). Ops: health check endpoint, database backup scheduler with rotation/restore, i18n framework (JSON locales). Admin: health status card, backup management tab, session management tab, stories moderation, expanded analytics, i18n management
 - **v1.5.0** - Features: daily match suggestions (top picks), message reactions, who viewed me, who liked you (premium-gatable), group chat (WebSocket), events calendar view, GIF search (Tenor), guided onboarding tour, 2FA TOTP. Infrastructure: content filtering (profanity/spam), premium subscription scaffolding, analytics events tracking, PWA (manifest + service worker + push notifications). Admin: analytics dashboard (summary cards, daily signups chart, engagement metrics), content filter log viewer

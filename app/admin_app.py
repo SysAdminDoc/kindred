@@ -1,5 +1,5 @@
 """
-Kindred v1.7.0 - Admin Server
+Kindred v1.8.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -49,10 +49,13 @@ from app.database import (
     get_rate_limit_stats, log_rate_limit_hit,
     run_vacuum, get_last_vacuum,
     get_webhook_delivery_count,
+    search_users, get_user_detail,
+    create_announcement, get_active_announcements, deactivate_announcement,
+    get_total_date_feedback_count,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="1.7.0")
+admin_app = FastAPI(title="Kindred Admin", version="1.8.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -88,6 +91,13 @@ class FeedbackSubmit(BaseModel):
     safety_rating: int | None = None
     would_meet_again: bool | None = None
     notes: str | None = None
+
+
+class AnnouncementCreate(BaseModel):
+    title: str
+    body: str
+    type: str = "info"  # info, warning, maintenance
+    expires_at: str | None = None
 
 
 class AdminLogin(BaseModel):
@@ -130,6 +140,7 @@ def admin_login(body: AdminLogin):
 def admin_stats(admin: dict = Depends(require_admin)):
     stats = get_stats()
     stats["ai_narratives"] = "Puter.js (client-side)"
+    stats["date_feedback_count"] = get_total_date_feedback_count()
     return stats
 
 
@@ -357,7 +368,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "1.7.0",
+        "version": "1.8.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
@@ -547,6 +558,44 @@ def admin_preview_email_template(template_id: str, admin: dict = Depends(require
     html = preview_template(template_id)
     from starlette.responses import HTMLResponse
     return HTMLResponse(content=html)
+
+
+# ─── User Search ───
+@admin_app.get("/api/admin/users/search")
+async def admin_search_users(q: str = "", limit: int = 50, admin: dict = Depends(require_admin)):
+    if not q or len(q) < 2:
+        return []
+    return search_users(q, limit)
+
+
+@admin_app.get("/api/admin/users/{user_id}")
+async def admin_user_detail(user_id: str, admin: dict = Depends(require_admin)):
+    detail = get_user_detail(user_id)
+    if not detail:
+        raise HTTPException(404, "User not found")
+    return detail
+
+
+# ─── Announcements ───
+@admin_app.get("/api/admin/announcements")
+async def admin_get_announcements(admin: dict = Depends(require_admin)):
+    return get_active_announcements()
+
+
+@admin_app.post("/api/admin/announcements")
+async def admin_create_announcement(ann: AnnouncementCreate, admin: dict = Depends(require_admin)):
+    from app.audit import log_audit
+    aid = create_announcement(ann.title, ann.body, ann.type, admin["id"], ann.expires_at)
+    log_audit(admin["id"], "create_announcement", "announcement", aid)
+    return {"id": aid}
+
+
+@admin_app.delete("/api/admin/announcements/{ann_id}")
+async def admin_delete_announcement(ann_id: str, admin: dict = Depends(require_admin)):
+    from app.audit import log_audit
+    deactivate_announcement(ann_id)
+    log_audit(admin["id"], "delete_announcement", "announcement", ann_id)
+    return {"ok": True}
 
 
 # ─── Expanded Stats ───

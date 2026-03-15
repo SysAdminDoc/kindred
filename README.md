@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-1.7.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.8.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -40,6 +40,8 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Match expiry (7-day countdown without messaging)
 - Location-based matching with distance filtering
 - Mutual friends indicator
+- Smart conversation starters (personalized from shared interests)
+- Date feedback and rating system
 
 **Social Platform**
 - Real-time WebSocket messaging with typing indicators and read receipts
@@ -76,6 +78,10 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Animated page transitions
 - Typing previews (opt-in)
 - WebSocket auto-reconnection with exponential backoff
+- Unread badge counts (tab badges, page title, per-conversation)
+- Emoji picker (40-emoji floating grid)
+- Availability status (active/away/busy/offline with profile badges)
+- Announcement banners (platform-wide dismissible notices)
 - Link preview scanning (suspicious URL warnings)
 
 **Trust & Safety**
@@ -122,6 +128,8 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Email template preview
 - Rate limit dashboard
 - Database vacuum controls
+- User search with detailed activity view
+- Announcement management (create/delete platform-wide notices)
 
 **Platform**
 - Progressive Web App (installable, offline caching)
