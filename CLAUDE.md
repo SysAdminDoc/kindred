@@ -8,9 +8,9 @@ Compatibility-first dating + social platform. Open source, privacy-first.
 - **Embeddings**: sentence-transformers (all-MiniLM-L6-v2) for semantic similarity
 - **Narratives**: Puter.js (client-side, no API key)
 - **Frontend**: Single-file SPA (vanilla JS), Catppuccin Mocha/Latte themes
-- **Auth**: JWT (pyjwt + passlib[bcrypt]), 72-hour token expiry, env-configurable secret
-- **Security**: CORS middleware, rate limiting (slowapi), file magic byte validation, auth on all mutating endpoints
-- **Config**: python-dotenv, `app/config.py` centralizes all settings
+- **Auth**: JWT (pyjwt + passlib[bcrypt]), 72-hour token expiry, persistent secret (file-backed), 2FA TOTP enforcement
+- **Security**: CORS locked to localhost by default, rate limiting (slowapi), file magic byte validation, auth on all endpoints (user + admin), WebSocket JWT auth, XSS-safe HTML escaping, input length limits on regex
+- **Config**: python-dotenv, `app/config.py` centralizes all settings, JWT secret auto-persisted to `.jwt_secret`
 
 ## Project Structure
 ```
@@ -33,8 +33,8 @@ kindred/
     database.py         # SQLite CRUD: 60+ tables, thread-local pooling, schema versioning
     content_filter.py   # Profanity/spam detection + censoring
     logging_config.py   # Structured JSON/text logging
-    backup.py           # Database backup scheduler with rotation
-    i18n.py             # Internationalization framework (JSON locales)
+    backup.py           # Database backup scheduler with rotation (SQLite backup API)
+    i18n.py             # Internationalization framework (JSON locales, contextvars)
     audit.py            # Admin action audit logging
     webhooks.py         # Configurable outbound webhooks
     email_templates.py  # HTML email templates (Catppuccin themed)
@@ -55,7 +55,7 @@ python start.py
 
 ## Configuration
 Copy `.env.example` to `.env` and customize. Key vars:
-- `KINDRED_JWT_SECRET` - JWT signing key (auto-generated if not set)
+- `KINDRED_JWT_SECRET` - JWT signing key (auto-persisted to `.jwt_secret` if not set)
 - `KINDRED_ADMIN_EMAIL` / `KINDRED_ADMIN_PASSWORD` - Default admin creds
 - `KINDRED_HOST` / `KINDRED_USER_PORT` / `KINDRED_ADMIN_PORT` - Server binding
 - `KINDRED_CORS_ORIGINS` - Comma-separated allowed origins
@@ -151,28 +151,34 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 
 ## Key Architecture
 - Dual-server: user (8000) + admin (8001) sharing same SQLite DB
-- `app/config.py`: Central config from env vars / .env file (JWT secret auto-generated)
+- `app/config.py`: Central config from env vars / .env file, JWT secret auto-persisted to `.jwt_secret`
 - `authFetch` pattern: frontend wrapper auto-includes JWT Authorization header
-- `ConnectionManager`: per-profile WebSocket connection lists (multi-tab support) with auto-reconnect
-- Thread-local SQLite connection pooling with WAL mode + busy timeout
-- Database migrations via `_migrate()` with try/except ALTER TABLE
+- `ConnectionManager`: per-profile WebSocket connection lists (multi-tab support) with JWT-authenticated connections + auto-reconnect
+- Thread-local SQLite connection pooling with WAL mode + busy timeout (no manual `conn.close()`)
+- Database IDs: full `uuid4().hex` (32 hex chars) for collision safety
+- `save_profile()`: proper UPSERT (`ON CONFLICT DO UPDATE`) — no CASCADE data loss
+- Database migrations via `_migrate()` with targeted `duplicate column` error handling
 - Schema version tracking via `schema_versions` table (currently v6)
-- CORS middleware on both servers
+- CORS defaults to `localhost:8000,8001` (configurable via env)
 - Rate limiting on auth endpoints (slowapi) with admin dashboard
-- File upload magic byte validation (prevents extension spoofing)
-- Auth (`require_user`) on all mutating user endpoints
+- File upload magic byte validation on all upload endpoints (photos, gallery, stories, voice, video)
+- Auth (`require_user`) on all user endpoints, (`require_admin`) on all admin endpoints
+- 2FA TOTP enforced at login when enabled, password re-verification for disable
+- XSS prevention: `escHtml()` applied to all user data in frontend innerHTML
+- Multi-statement DB operations wrapped in explicit transactions
 - Puter.js CDN for match narratives - zero backend cost, template fallbacks
 - Docker + docker-compose for deployment
 - Pillow for auto-thumbnail generation
-- Background backup scheduler (configurable interval + retention)
-- i18n: JSON locale files in `locales/`, `t()` helper, fallback to English
-- Audit logging for admin actions
+- Background backup scheduler using SQLite backup API (configurable interval + retention)
+- i18n: JSON locale files in `locales/`, `t()` helper with `contextvars` (thread-safe), fallback to English
+- Audit logging for admin actions (LIKE wildcard escaped)
 - Webhook system with HMAC-SHA256 signature verification
-- HTML email templates with Catppuccin dark theme styling
+- HTML email templates with HTML-escaped user data + Catppuccin dark theme styling
+- Content filter: input truncated to 10K chars before regex (DoS prevention)
 
 ## Version History
 
-- **v1.7.0** - Core Dating: icebreaker games (word association, would you rather, 20 questions), date scheduling (ICS export), blind date mode (48h reveal), dealbreaker warnings, second look (passed profiles), compatibility insights. Social: threaded replies (quote-reply), shared playlists, event photo albums, profile badges (achievement system), story reactions (emoji), pinned messages. Trust & Safety: message cooldown (rate limiting), undo block (grace period), safety check-in (emergency contacts), link preview scanning. UX: dark/light theme toggle (Catppuccin Mocha/Latte), keyboard shortcuts, profile completeness coaching, animated transitions, typing previews, WebSocket auto-reconnect (exponential backoff). Ops: audit log (admin actions), webhook system (outbound, HMAC signed), email templates (HTML, themed), database vacuum scheduler, API rate limit dashboard
+- **v1.7.0** - Core Dating: icebreaker games (word association, would you rather, 20 questions), date scheduling (ICS export), blind date mode (48h reveal), dealbreaker warnings, second look (passed profiles), compatibility insights. Social: threaded replies (quote-reply), shared playlists, event photo albums, profile badges (achievement system), story reactions (emoji), pinned messages. Trust & Safety: message cooldown (rate limiting), undo block (grace period), safety check-in (emergency contacts), link preview scanning. UX: dark/light theme toggle (Catppuccin Mocha/Latte), keyboard shortcuts, profile completeness coaching, animated transitions, typing previews, WebSocket auto-reconnect (exponential backoff). Ops: audit log (admin actions), webhook system (outbound, HMAC signed), email templates (HTML, themed), database vacuum scheduler, API rate limit dashboard. **Security audit (120 fixes)**: removed conn.close() pool corruption, replaced INSERT OR REPLACE with UPSERT, fixed block_profile column names, extended UUIDs to full hex, added WebSocket JWT auth, added auth to 47 unprotected endpoints, fixed 2FA bypass at login, added message sender verification, fixed 30+ XSS injection points with escHtml(), persisted JWT secret to file, locked CORS to localhost, added file validation to all upload endpoints, switched to SQLite backup API, added transaction wrapping, fixed memory leaks, HTML-escaped email templates, thread-safe i18n
 - **v1.6.0** - Core Dating: voice messages (MediaRecorder), profile prompts (Hinge-style), super like with notification, match expiry (7-day countdown), location-based matching (geolocation + distance), compatibility radar chart (canvas spider). Social: stories/moments (24h ephemeral), polls in groups, mutual friends indicator, message search. Safety: incognito mode, session management (view/revoke), account deletion (GDPR), data export (GDPR), 2FA recovery codes. UX: notification sounds (AudioContext), image cropping (Canvas API). Ops: health check endpoint, database backup scheduler with rotation/restore, i18n framework (JSON locales). Admin: health status card, backup management tab, session management tab, stories moderation, expanded analytics, i18n management
 - **v1.5.0** - Features: daily match suggestions (top picks), message reactions, who viewed me, who liked you (premium-gatable), group chat (WebSocket), events calendar view, GIF search (Tenor), guided onboarding tour, 2FA TOTP. Infrastructure: content filtering (profanity/spam), premium subscription scaffolding, analytics events tracking, PWA (manifest + service worker + push notifications). Admin: analytics dashboard (summary cards, daily signups chart, engagement metrics), content filter log viewer
 - **v1.4.0** - Security: refresh token rotation, configurable bcrypt rounds, email verification flow, photo moderation queue. Infrastructure: structured JSON/text logging, new DB tables (refresh_tokens, email_verifications, photo_moderation, questionnaire_progress), schema v3 migration. Backend: questionnaire progress save/restore endpoints, logout/logout-all, refresh token endpoint. Admin: photo moderation review (approve/reject). Frontend: OpenGraph/description meta tags, theme-color, expanded mobile responsive (768px + 400px breakpoints), ARIA roles (banner/main/status+live), keyboard focus-visible outlines, sr-only utility, questionnaire progress persistence (save/load via API), skeleton loading states for Matches/Feed/Discover/Groups/Events

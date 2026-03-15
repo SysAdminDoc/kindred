@@ -93,13 +93,22 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Message cooldown (rate limit for new matches)
 - Link preview scanning (suspicious URL warnings)
 - Rate-limited auth endpoints
-- File upload magic byte validation
-- JWT authentication on all mutating endpoints
+- File upload magic byte validation on all upload endpoints
+- JWT authentication on all user and admin endpoints
+- WebSocket JWT authentication (prevents impersonation)
+- XSS prevention (HTML escaping on all user-rendered content)
+- Persistent JWT secret (file-backed, survives restarts)
+- CORS locked to localhost by default
+- UPSERT-based profile saves (prevents CASCADE data loss)
+- Full UUID IDs (collision-safe)
+- Transaction-wrapped multi-statement operations
+- Input length limits on regex processing (DoS prevention)
+- HTML-escaped email templates
 
 **Admin Dashboard**
-- Separate admin portal on its own port
+- Separate admin portal on its own port (all endpoints require admin auth)
 - Health check endpoint with server status monitoring
-- Database backup scheduler with rotation and restore
+- Database backup scheduler with rotation and restore (SQLite backup API)
 - Analytics dashboard with engagement metrics and charts
 - Content filter log viewer
 - Stories moderation
@@ -108,6 +117,11 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Verification and photo moderation review queues
 - Safety report triage
 - Platform statistics
+- Audit log with action filtering
+- Webhook management (CRUD + HMAC-signed delivery)
+- Email template preview
+- Rate limit dashboard
+- Database vacuum controls
 
 **Platform**
 - Progressive Web App (installable, offline caching)
@@ -130,9 +144,9 @@ Kindred is a dating and social platform built around genuine compatibility inste
 | Embeddings | sentence-transformers (all-MiniLM-L6-v2) |
 | Narratives | Puter.js (client-side) |
 | Frontend | Vanilla JS single-file SPA |
-| Auth | JWT (pyjwt + passlib/bcrypt) |
-| Security | CORS, slowapi rate limiting, magic byte validation |
-| Theme | Catppuccin Mocha |
+| Auth | JWT (pyjwt + passlib/bcrypt), 2FA TOTP, WebSocket JWT |
+| Security | CORS (locked to localhost), slowapi rate limiting, magic byte validation, XSS escaping |
+| Theme | Catppuccin Mocha (dark) / Latte (light) |
 | Deploy | Docker, docker-compose |
 
 ## Project Structure
@@ -142,9 +156,9 @@ kindred/
   start.py              # Turnkey launcher
   app/
     config.py           # Centralized env-based config
-    main.py             # User API server (70+ endpoints)
+    main.py             # User API server (120+ endpoints)
     admin_app.py        # Admin API server
-    database.py         # SQLite CRUD (20+ tables)
+    database.py         # SQLite CRUD (70+ tables)
     engine.py           # 8-dimension matching engine
     questions.py        # Questionnaire definitions
   static/
@@ -194,13 +208,13 @@ Copy `.env.example` to `.env` to customize:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KINDRED_JWT_SECRET` | *auto-generated* | JWT signing key |
+| `KINDRED_JWT_SECRET` | *auto-persisted* | JWT signing key (saved to `.jwt_secret`) |
 | `KINDRED_ADMIN_EMAIL` | `admin@kindred.local` | Default admin email |
 | `KINDRED_ADMIN_PASSWORD` | `admin` | Default admin password |
 | `KINDRED_HOST` | `127.0.0.1` | Server bind address |
 | `KINDRED_USER_PORT` | `8000` | User portal port |
 | `KINDRED_ADMIN_PORT` | `8001` | Admin portal port |
-| `KINDRED_CORS_ORIGINS` | `*` | Allowed CORS origins |
+| `KINDRED_CORS_ORIGINS` | `localhost:8000,8001` | Allowed CORS origins |
 | `KINDRED_RATE_LIMIT` | `60/minute` | General rate limit |
 | `KINDRED_RATE_LIMIT_AUTH` | `10/minute` | Auth endpoint rate limit |
 | `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
