@@ -24,7 +24,12 @@ def create_backup() -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"kindred_backup_{timestamp}.db"
     backup_path = BACKUP_DIR / backup_name
-    shutil.copy2(str(DB_PATH), str(backup_path))
+    import sqlite3
+    src = sqlite3.connect(str(DB_PATH))
+    dst = sqlite3.connect(str(backup_path))
+    src.backup(dst)
+    dst.close()
+    src.close()
     logger.info(f"Database backup created: {backup_name}")
     _rotate_backups()
     return backup_name
@@ -72,7 +77,10 @@ def _scheduler_loop():
             create_backup()
         except Exception as e:
             logger.error(f"Scheduled backup failed: {e}")
-        time.sleep(interval)
+        elapsed = 0
+        while _running and elapsed < interval:
+            time.sleep(10)
+            elapsed += 10
 
 
 def start_backup_scheduler():

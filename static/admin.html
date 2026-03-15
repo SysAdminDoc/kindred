@@ -292,6 +292,7 @@ function renderNav(){
 }
 
 function showView(v){
+    if(window._rateLimitTimer) clearInterval(window._rateLimitTimer);
     if(!adminToken){showLoginScreen();return;}
     document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.v===v));
     if(v==='dashboard')renderDashboard();
@@ -321,7 +322,7 @@ function showLoginScreen(){
         <p class="subtitle">Kindred Administration Portal</p>
         <div style="text-align:left">
             <div class="form-group"><label>Email</label><input type="text" id="admin-email" placeholder="admin@kindred.local" value="admin@kindred.local" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
-            <div class="form-group"><label>Password</label><input type="text" id="admin-pass" placeholder="Password" style="-webkit-text-security:disc" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+            <div class="form-group"><label>Password</label><input type="password" id="admin-pass" placeholder="Password" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
             <button class="btn btn-primary" onclick="doAdminLogin()" style="width:100%;margin-top:8px">Sign In</button>
             <div id="admin-error" style="color:var(--red);font-size:13px;margin-top:10px;text-align:center"></div>
         </div>
@@ -1095,7 +1096,7 @@ async function loadVacuumSection(){
     const slot=document.getElementById('vacuum-section');
     if(!slot) return;
     try{
-        const d=await adminFetch(API+'/api/admin/vacuum').then(r=>r.json()).catch(()=>({}));
+        const d=await adminFetch(API+'/api/admin/vacuum/status').then(r=>r.json()).catch(()=>({}));
         const lastVacuum=d.last_vacuum?new Date(d.last_vacuum).toLocaleString():'Never';
         const nextVacuum=d.next_scheduled?new Date(d.next_scheduled).toLocaleString():'Not scheduled';
         const dbSize=d.db_size_mb!=null?d.db_size_mb.toFixed(2)+' MB':(d.db_size||'--');

@@ -12,6 +12,7 @@ user sessions, user locations, recovery codes.
 """
 
 import json
+import math
 import sqlite3
 import threading
 import uuid
@@ -906,8 +907,9 @@ def _migrate(conn):
     for sql in migrations:
         try:
             conn.execute(sql)
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
 
 
 # ---------------------------------------------------------------------------
@@ -916,9 +918,9 @@ def _migrate(conn):
 
 def save_profile(data: dict) -> str:
     conn = get_db()
-    profile_id = data.get("id") or str(uuid.uuid4())[:8]
+    profile_id = data.get("id") or uuid.uuid4().hex
     conn.execute("""
-        INSERT OR REPLACE INTO profiles
+        INSERT INTO profiles
         (id, name, age, gender, seeking, big_five, attachment, values_data,
          tradeoffs, self_disclosure, love_language, dealbreakers, open_ended,
          scenario_answers, behavioral_answers, embedding, photo,
@@ -926,6 +928,20 @@ def save_profile(data: dict) -> str:
          communication_style, financial_values, dating_energy, dating_pace,
          relationship_intent)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+         name=excluded.name, age=excluded.age, gender=excluded.gender,
+         seeking=excluded.seeking, big_five=excluded.big_five,
+         attachment=excluded.attachment, values_data=excluded.values_data,
+         tradeoffs=excluded.tradeoffs, self_disclosure=excluded.self_disclosure,
+         love_language=excluded.love_language, dealbreakers=excluded.dealbreakers,
+         open_ended=excluded.open_ended, scenario_answers=excluded.scenario_answers,
+         behavioral_answers=excluded.behavioral_answers, embedding=excluded.embedding,
+         photo=excluded.photo, weight_prefs=excluded.weight_prefs,
+         privacy=excluded.privacy, invite_code=excluded.invite_code,
+         communication_style=excluded.communication_style,
+         financial_values=excluded.financial_values,
+         dating_energy=excluded.dating_energy, dating_pace=excluded.dating_pace,
+         relationship_intent=excluded.relationship_intent
     """, (
         profile_id,
         data.get("name", "Anonymous"),
@@ -954,7 +970,7 @@ def save_profile(data: dict) -> str:
         data.get("relationship_intent"),
     ))
     conn.commit()
-    conn.close()
+
     return profile_id
 
 
@@ -971,14 +987,14 @@ def update_profile_field(profile_id: str, field: str, value) -> bool:
         value = json.dumps(value)
     conn.execute(f"UPDATE profiles SET {field} = ? WHERE id = ?", (value, profile_id))
     conn.commit()
-    conn.close()
+
     return True
 
 
 def get_profile(profile_id: str) -> dict | None:
     conn = get_db()
     row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
-    conn.close()
+
     if row is None:
         return None
     return _row_to_dict(row)
@@ -987,7 +1003,7 @@ def get_profile(profile_id: str) -> dict | None:
 def get_all_profiles() -> list[dict]:
     conn = get_db()
     rows = conn.execute("SELECT * FROM profiles ORDER BY created_at DESC").fetchall()
-    conn.close()
+
     return [_row_to_dict(r) for r in rows]
 
 
@@ -995,7 +1011,7 @@ def delete_profile(profile_id: str) -> bool:
     conn = get_db()
     cursor = conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -1062,13 +1078,13 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 def send_message(from_id: str, to_id: str, content: str, photo: str = "") -> str:
     conn = get_db()
-    msg_id = str(uuid.uuid4())[:12]
+    msg_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO messages (id, from_id, to_id, content, photo) VALUES (?,?,?,?,?)",
         (msg_id, from_id, to_id, content, photo or None)
     )
     conn.commit()
-    conn.close()
+
     return msg_id
 
 
@@ -1080,7 +1096,7 @@ def get_conversation(id_a: str, id_b: str, limit: int = 100) -> list[dict]:
         ORDER BY created_at ASC
         LIMIT ?
     """, (id_a, id_b, id_b, id_a, limit)).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1090,7 +1106,7 @@ def get_conversation_count(id_a: str, id_b: str) -> int:
         SELECT COUNT(*) as c FROM messages
         WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?)
     """, (id_a, id_b, id_b, id_a)).fetchone()
-    conn.close()
+
     return row["c"]
 
 
@@ -1101,26 +1117,31 @@ def get_last_message_sender(id_a: str, id_b: str) -> str | None:
         WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?)
         ORDER BY created_at DESC LIMIT 1
     """, (id_a, id_b, id_b, id_a)).fetchone()
-    conn.close()
+
     return row["from_id"] if row else None
 
 
 def get_conversations_for(profile_id: str) -> list[dict]:
-    """Get list of unique conversation partners with last message."""
     conn = get_db()
     rows = conn.execute("""
-        SELECT
-            CASE WHEN from_id=? THEN to_id ELSE from_id END as partner_id,
-            content as last_message,
-            created_at as last_time,
-            from_id as last_sender,
-            SUM(CASE WHEN to_id=? AND read=0 THEN 1 ELSE 0 END) as unread
-        FROM messages
-        WHERE from_id=? OR to_id=?
-        GROUP BY partner_id
-        ORDER BY last_time DESC
-    """, (profile_id, profile_id, profile_id, profile_id)).fetchall()
-    conn.close()
+        SELECT m.content as last_message, m.from_id as last_sender,
+               m.created_at as last_time, latest.partner_id,
+               (SELECT COUNT(*) FROM messages
+                WHERE from_id=latest.partner_id AND to_id=? AND read=0) as unread
+        FROM messages m
+        INNER JOIN (
+            SELECT
+                CASE WHEN from_id=? THEN to_id ELSE from_id END as partner_id,
+                MAX(created_at) as max_created
+            FROM messages WHERE from_id=? OR to_id=?
+            GROUP BY partner_id
+        ) latest ON (
+            ((m.from_id=? AND m.to_id=latest.partner_id) OR (m.from_id=latest.partner_id AND m.to_id=?))
+            AND m.created_at = latest.max_created
+        )
+        ORDER BY m.created_at DESC
+    """, (profile_id, profile_id, profile_id, profile_id, profile_id, profile_id)).fetchall()
+
     return [dict(r) for r in rows]
 
 
@@ -1131,7 +1152,7 @@ def mark_messages_read(from_id: str, to_id: str):
         (from_id, to_id)
     )
     conn.commit()
-    conn.close()
+
 
 
 # ---------------------------------------------------------------------------
@@ -1140,13 +1161,13 @@ def mark_messages_read(from_id: str, to_id: str):
 
 def create_invite(created_by: str | None = None) -> str:
     conn = get_db()
-    code = str(uuid.uuid4())[:8].upper()
+    code = uuid.uuid4().hex.upper()
     conn.execute(
         "INSERT INTO invites (code, created_by) VALUES (?,?)",
         (code, created_by)
     )
     conn.commit()
-    conn.close()
+
     return code
 
 
@@ -1156,21 +1177,21 @@ def use_invite(code: str, used_by: str) -> bool:
         "SELECT * FROM invites WHERE code=? AND used_by IS NULL", (code,)
     ).fetchone()
     if row is None:
-        conn.close()
+    
         return False
     conn.execute(
         "UPDATE invites SET used_by=?, used_at=CURRENT_TIMESTAMP WHERE code=?",
         (used_by, code)
     )
     conn.commit()
-    conn.close()
+
     return True
 
 
 def get_all_invites() -> list[dict]:
     conn = get_db()
     rows = conn.execute("SELECT * FROM invites ORDER BY created_at DESC").fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1183,7 +1204,7 @@ def save_feedback(profile_a: str, profile_b: str, went_on_date: bool,
                   safety_rating: int | None = None,
                   would_meet_again: bool | None = None) -> str:
     conn = get_db()
-    fb_id = str(uuid.uuid4())[:8]
+    fb_id = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO feedback
         (id, profile_a, profile_b, went_on_date, rating, notes, safety_rating, would_meet_again)
@@ -1192,7 +1213,7 @@ def save_feedback(profile_a: str, profile_b: str, went_on_date: bool,
          safety_rating, int(would_meet_again) if would_meet_again is not None else None)
     )
     conn.commit()
-    conn.close()
+
     return fb_id
 
 
@@ -1202,7 +1223,7 @@ def get_feedback_for(profile_id: str) -> list[dict]:
         "SELECT * FROM feedback WHERE profile_a=? OR profile_b=? ORDER BY created_at DESC",
         (profile_id, profile_id)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1213,7 +1234,7 @@ def get_feedback_for(profile_id: str) -> list[dict]:
 def create_date_plan(profile_a: str, profile_b: str, proposed_by: str,
                      suggestion: str, proposed_time: str | None = None) -> str:
     conn = get_db()
-    plan_id = str(uuid.uuid4())[:8]
+    plan_id = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO date_plans
         (id, profile_a, profile_b, proposed_by, suggestion, proposed_time)
@@ -1221,7 +1242,7 @@ def create_date_plan(profile_a: str, profile_b: str, proposed_by: str,
         (plan_id, profile_a, profile_b, proposed_by, suggestion, proposed_time)
     )
     conn.commit()
-    conn.close()
+
     return plan_id
 
 
@@ -1232,7 +1253,7 @@ def update_date_plan(plan_id: str, status: str) -> bool:
         (status, plan_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -1244,7 +1265,7 @@ def get_date_plans(profile_id: str) -> list[dict]:
         ORDER BY created_at DESC""",
         (profile_id, profile_id)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1256,7 +1277,7 @@ def get_date_plans_between(id_a: str, id_b: str) -> list[dict]:
         ORDER BY created_at DESC""",
         (id_a, id_b, id_b, id_a)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1277,7 +1298,7 @@ def log_behavioral_event(profile_id: str, event_type: str,
          json.dumps(metadata) if metadata else None)
     )
     conn.commit()
-    conn.close()
+
 
 
 def get_behavioral_profile(profile_id: str) -> dict:
@@ -1295,7 +1316,7 @@ def get_behavioral_profile(profile_id: str) -> dict:
         "SELECT target_id, COUNT(*) as c FROM behavioral_events WHERE profile_id=? AND event_type='profile_revisit' GROUP BY target_id ORDER BY c DESC LIMIT 20",
         (profile_id,)
     ).fetchall()
-    conn.close()
+
     return {
         "frequent_views": {r["target_id"]: r["c"] for r in views},
         "messaged_first": {r["target_id"]: r["c"] for r in msg_first},
@@ -1310,13 +1331,13 @@ def get_behavioral_profile(profile_id: str) -> dict:
 def create_safety_report(reporter_id: str, reported_id: str,
                          report_type: str, notes: str | None = None) -> str:
     conn = get_db()
-    report_id = str(uuid.uuid4())[:8]
+    report_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO safety_reports (id, reporter_id, reported_id, report_type, notes) VALUES (?,?,?,?,?)",
         (report_id, reporter_id, reported_id, report_type, notes)
     )
     conn.commit()
-    conn.close()
+
     return report_id
 
 
@@ -1327,14 +1348,14 @@ def get_safety_reports_for(profile_id: str) -> int:
         "SELECT COUNT(*) as c FROM safety_reports WHERE reported_id=?",
         (profile_id,)
     ).fetchone()
-    conn.close()
+
     return row["c"]
 
 
 def get_all_safety_reports() -> list[dict]:
     conn = get_db()
     rows = conn.execute("SELECT * FROM safety_reports ORDER BY created_at DESC").fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1344,13 +1365,13 @@ def get_all_safety_reports() -> list[dict]:
 
 def create_blog_post(profile_id: str, title: str, content: str) -> str:
     conn = get_db()
-    post_id = str(uuid.uuid4())[:8]
+    post_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO profile_blog_posts (id, profile_id, title, content) VALUES (?,?,?,?)",
         (post_id, profile_id, title, content)
     )
     conn.commit()
-    conn.close()
+
     return post_id
 
 
@@ -1360,7 +1381,7 @@ def get_blog_posts(profile_id: str, limit: int = 20) -> list[dict]:
         "SELECT * FROM profile_blog_posts WHERE profile_id=? ORDER BY created_at DESC LIMIT ?",
         (profile_id, limit)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1371,7 +1392,7 @@ def delete_blog_post(post_id: str, profile_id: str) -> bool:
         (post_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -1381,13 +1402,13 @@ def delete_blog_post(post_id: str, profile_id: str) -> bool:
 
 def create_profile_comment(profile_id: str, from_id: str, content: str) -> str:
     conn = get_db()
-    comment_id = str(uuid.uuid4())[:8]
+    comment_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO profile_comments (id, profile_id, from_id, content) VALUES (?,?,?,?)",
         (comment_id, profile_id, from_id, content)
     )
     conn.commit()
-    conn.close()
+
     return comment_id
 
 
@@ -1397,7 +1418,7 @@ def get_profile_comments(profile_id: str, limit: int = 50) -> list[dict]:
         "SELECT * FROM profile_comments WHERE profile_id=? ORDER BY created_at DESC LIMIT ?",
         (profile_id, limit)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1409,7 +1430,7 @@ def delete_profile_comment(comment_id: str, profile_id: str) -> bool:
         (comment_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -1419,13 +1440,13 @@ def delete_profile_comment(comment_id: str, profile_id: str) -> bool:
 
 def send_friend_request(profile_id: str, friend_id: str) -> str:
     conn = get_db()
-    req_id = str(uuid.uuid4())[:8]
+    req_id = uuid.uuid4().hex
     conn.execute(
         "INSERT OR IGNORE INTO profile_friends (id, profile_id, friend_id, status) VALUES (?,?,?,?)",
         (req_id, profile_id, friend_id, "pending")
     )
     conn.commit()
-    conn.close()
+
     return req_id
 
 
@@ -1433,12 +1454,13 @@ def respond_friend_request(profile_id: str, friend_id: str, accept: bool) -> boo
     """Accept or decline a pending friend request FROM friend_id TO profile_id."""
     conn = get_db()
     if accept:
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE profile_friends SET status='accepted' WHERE profile_id=? AND friend_id=? AND status='pending'",
             (friend_id, profile_id)
         )
-        # Create the reciprocal record
-        rec_id = str(uuid.uuid4())[:8]
+        if cursor.rowcount == 0:
+            return False
+        rec_id = uuid.uuid4().hex
         conn.execute(
             "INSERT OR IGNORE INTO profile_friends (id, profile_id, friend_id, status) VALUES (?,?,?,?)",
             (rec_id, profile_id, friend_id, "accepted")
@@ -1449,7 +1471,6 @@ def respond_friend_request(profile_id: str, friend_id: str, accept: bool) -> boo
             (friend_id, profile_id)
         )
     conn.commit()
-    conn.close()
     return True
 
 
@@ -1464,7 +1485,7 @@ def get_friends(profile_id: str) -> list[dict]:
            ORDER BY pf.created_at DESC""",
         (profile_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1480,7 +1501,7 @@ def get_friend_requests(profile_id: str) -> list[dict]:
            ORDER BY pf.created_at DESC""",
         (profile_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1495,7 +1516,7 @@ def remove_friend(profile_id: str, friend_id: str) -> bool:
         (friend_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return True
 
 
@@ -1505,7 +1526,7 @@ def are_friends(id_a: str, id_b: str) -> bool:
         "SELECT 1 FROM profile_friends WHERE profile_id=? AND friend_id=? AND status='accepted'",
         (id_a, id_b)
     ).fetchone()
-    conn.close()
+
     return row is not None
 
 
@@ -1513,7 +1534,7 @@ def increment_profile_views(profile_id: str):
     conn = get_db()
     conn.execute("UPDATE profiles SET profile_views = COALESCE(profile_views, 0) + 1 WHERE id=?", (profile_id,))
     conn.commit()
-    conn.close()
+
 
 
 # ---------------------------------------------------------------------------
@@ -1561,7 +1582,7 @@ def get_stats() -> dict:
     """).fetchall():
         age_dist[row["bracket"]] = row["c"]
 
-    conn.close()
+
     return {
         "profiles": profiles,
         "messages": messages,
@@ -1587,27 +1608,27 @@ def get_stats() -> dict:
 def create_user(email: str, password_hash: str, display_name: str = "",
                 is_admin: bool = False) -> str:
     conn = get_db()
-    user_id = str(uuid.uuid4())[:8]
+    user_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO users (id, email, password_hash, display_name, is_admin) VALUES (?,?,?,?,?)",
         (user_id, email.lower().strip(), password_hash, display_name or email.split("@")[0], int(is_admin))
     )
     conn.commit()
-    conn.close()
+
     return user_id
 
 
 def get_user_by_email(email: str) -> dict | None:
     conn = get_db()
     row = conn.execute("SELECT * FROM users WHERE email = ?", (email.lower().strip(),)).fetchone()
-    conn.close()
+
     return dict(row) if row else None
 
 
 def get_user_by_id(user_id: str) -> dict | None:
     conn = get_db()
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
+
     return dict(row) if row else None
 
 
@@ -1615,7 +1636,7 @@ def link_profile_to_user(user_id: str, profile_id: str):
     conn = get_db()
     conn.execute("UPDATE users SET profile_id = ? WHERE id = ?", (profile_id, user_id))
     conn.commit()
-    conn.close()
+
 
 
 # ---------------------------------------------------------------------------
@@ -1625,13 +1646,13 @@ def link_profile_to_user(user_id: str, profile_id: str):
 def create_notification(user_id: str, ntype: str, title: str,
                         body: str = "", link: str = "") -> str:
     conn = get_db()
-    nid = str(uuid.uuid4())[:8]
+    nid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO notifications (id, user_id, type, title, body, link) VALUES (?,?,?,?,?,?)",
         (nid, user_id, ntype, title, body, link)
     )
     conn.commit()
-    conn.close()
+
     return nid
 
 
@@ -1641,7 +1662,7 @@ def get_notifications(user_id: str, limit: int = 50) -> list[dict]:
         "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
         (user_id, limit)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1651,7 +1672,7 @@ def get_unread_notification_count(user_id: str) -> int:
         "SELECT COUNT(*) as c FROM notifications WHERE user_id=? AND read=0",
         (user_id,)
     ).fetchone()
-    conn.close()
+
     return row["c"]
 
 
@@ -1659,14 +1680,14 @@ def mark_notifications_read(user_id: str):
     conn = get_db()
     conn.execute("UPDATE notifications SET read=1 WHERE user_id=? AND read=0", (user_id,))
     conn.commit()
-    conn.close()
+
 
 
 def mark_notification_read(notification_id: str):
     conn = get_db()
     conn.execute("UPDATE notifications SET read=1 WHERE id=?", (notification_id,))
     conn.commit()
-    conn.close()
+
 
 
 # ---------------------------------------------------------------------------
@@ -1684,16 +1705,16 @@ def toggle_like(from_id: str, target_type: str, target_id: str,
     if existing:
         conn.execute("DELETE FROM likes WHERE id=?", (existing["id"],))
         conn.commit()
-        conn.close()
+    
         return False
     else:
-        like_id = str(uuid.uuid4())[:8]
+        like_id = uuid.uuid4().hex
         conn.execute(
             "INSERT INTO likes (id, from_id, target_type, target_id, reaction) VALUES (?,?,?,?,?)",
             (like_id, from_id, target_type, target_id, reaction)
         )
         conn.commit()
-        conn.close()
+    
         return True
 
 
@@ -1703,7 +1724,7 @@ def get_likes(target_type: str, target_id: str) -> list[dict]:
         "SELECT l.*, p.name as from_name FROM likes l JOIN profiles p ON p.id=l.from_id WHERE l.target_type=? AND l.target_id=? ORDER BY l.created_at DESC",
         (target_type, target_id)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1713,7 +1734,7 @@ def get_like_count(target_type: str, target_id: str) -> int:
         "SELECT COUNT(*) as c FROM likes WHERE target_type=? AND target_id=?",
         (target_type, target_id)
     ).fetchone()
-    conn.close()
+
     return row["c"]
 
 
@@ -1723,7 +1744,7 @@ def has_liked(from_id: str, target_type: str, target_id: str) -> bool:
         "SELECT 1 FROM likes WHERE from_id=? AND target_type=? AND target_id=?",
         (from_id, target_type, target_id)
     ).fetchone()
-    conn.close()
+
     return row is not None
 
 
@@ -1733,13 +1754,13 @@ def has_liked(from_id: str, target_type: str, target_id: str) -> bool:
 
 def create_status_update(profile_id: str, content: str, mood: str = "") -> str:
     conn = get_db()
-    sid = str(uuid.uuid4())[:8]
+    sid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO status_updates (id, profile_id, content, mood) VALUES (?,?,?,?)",
         (sid, profile_id, content, mood or None)
     )
     conn.commit()
-    conn.close()
+
     return sid
 
 
@@ -1749,7 +1770,7 @@ def get_status_updates(profile_id: str, limit: int = 20) -> list[dict]:
         "SELECT * FROM status_updates WHERE profile_id=? ORDER BY created_at DESC LIMIT ?",
         (profile_id, limit)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1766,7 +1787,7 @@ def get_friend_status_feed(profile_id: str, limit: int = 50) -> list[dict]:
            ORDER BY s.created_at DESC LIMIT ?""",
         (profile_id, profile_id, limit)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1777,7 +1798,7 @@ def delete_status_update(status_id: str, profile_id: str) -> bool:
         (status_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -1792,7 +1813,7 @@ def update_last_seen(profile_id: str):
         (profile_id,)
     )
     conn.commit()
-    conn.close()
+
 
 
 def get_online_status(profile_id: str, minutes: int = 5) -> bool:
@@ -1802,7 +1823,7 @@ def get_online_status(profile_id: str, minutes: int = 5) -> bool:
         "SELECT 1 FROM profiles WHERE id=? AND last_active > datetime('now', ?)",
         (profile_id, f"-{minutes} minutes")
     ).fetchone()
-    conn.close()
+
     return row is not None
 
 
@@ -1818,7 +1839,7 @@ def get_online_friends(profile_id: str, minutes: int = 5) -> list[dict]:
            ORDER BY p.last_active DESC""",
         (profile_id, f"-{minutes} minutes")
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1829,7 +1850,7 @@ def get_online_friends(profile_id: str, minutes: int = 5) -> list[dict]:
 def add_photo(profile_id: str, filename: str, caption: str = "",
               is_primary: bool = False) -> str:
     conn = get_db()
-    photo_id = str(uuid.uuid4())[:8]
+    photo_id = uuid.uuid4().hex
     if is_primary:
         conn.execute("UPDATE photos SET is_primary=0 WHERE profile_id=?", (profile_id,))
     conn.execute(
@@ -1837,7 +1858,7 @@ def add_photo(profile_id: str, filename: str, caption: str = "",
         (photo_id, profile_id, filename, caption or None, int(is_primary))
     )
     conn.commit()
-    conn.close()
+
     return photo_id
 
 
@@ -1847,7 +1868,7 @@ def get_photos(profile_id: str) -> list[dict]:
         "SELECT * FROM photos WHERE profile_id=? ORDER BY is_primary DESC, created_at DESC",
         (profile_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1858,22 +1879,26 @@ def delete_photo(photo_id: str, profile_id: str) -> bool:
         (photo_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
 def set_primary_photo(photo_id: str, profile_id: str) -> bool:
     conn = get_db()
-    conn.execute("UPDATE photos SET is_primary=0 WHERE profile_id=?", (profile_id,))
-    cursor = conn.execute(
-        "UPDATE photos SET is_primary=1 WHERE id=? AND profile_id=?",
-        (photo_id, profile_id)
-    )
-    row = conn.execute("SELECT filename FROM photos WHERE id=?", (photo_id,)).fetchone()
-    if row:
-        conn.execute("UPDATE profiles SET photo=? WHERE id=?", (row["filename"], profile_id))
-    conn.commit()
-    conn.close()
+    conn.execute("BEGIN")
+    try:
+        conn.execute("UPDATE photos SET is_primary=0 WHERE profile_id=?", (profile_id,))
+        cursor = conn.execute(
+            "UPDATE photos SET is_primary=1 WHERE id=? AND profile_id=?",
+            (photo_id, profile_id)
+        )
+        row = conn.execute("SELECT filename FROM photos WHERE id=?", (photo_id,)).fetchone()
+        if row:
+            conn.execute("UPDATE profiles SET photo=? WHERE id=?", (row["filename"], profile_id))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
     return cursor.rowcount > 0
 
 
@@ -1885,7 +1910,7 @@ def search_profiles(query: str = "", gender: str = "", seeking: str = "",
                     age_min: int = 0, age_max: int = 999,
                     location: str = "", limit: int = 50) -> list[dict]:
     conn = get_db()
-    sql = "SELECT * FROM profiles WHERE 1=1"
+    sql = "SELECT * FROM profiles WHERE (deactivated IS NULL OR deactivated=0)"
     params = []
     if query:
         sql += " AND (name LIKE ? OR about_me LIKE ? OR headline LIKE ? OR interests LIKE ?)"
@@ -1909,7 +1934,7 @@ def search_profiles(query: str = "", gender: str = "", seeking: str = "",
     sql += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
     rows = conn.execute(sql, params).fetchall()
-    conn.close()
+
     return [_row_to_dict(r) for r in rows]
 
 
@@ -1920,13 +1945,13 @@ def search_profiles(query: str = "", gender: str = "", seeking: str = "",
 def log_activity(profile_id: str, action: str, target_type: str = "",
                  target_id: str = "", detail: str = "") -> str:
     conn = get_db()
-    aid = str(uuid.uuid4())[:8]
+    aid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO activity_feed (id, profile_id, action, target_type, target_id, detail) VALUES (?,?,?,?,?,?)",
         (aid, profile_id, action, target_type or None, target_id or None, detail or None)
     )
     conn.commit()
-    conn.close()
+
     return aid
 
 
@@ -1943,7 +1968,7 @@ def get_activity_feed(profile_id: str, limit: int = 50) -> list[dict]:
            ORDER BY a.created_at DESC LIMIT ?""",
         (profile_id, profile_id, limit)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -1952,21 +1977,22 @@ def get_explore_profiles(limit: int = 20) -> list[dict]:
     conn = get_db()
     rows = conn.execute(
         """SELECT * FROM profiles
+           WHERE (deactivated IS NULL OR deactivated=0)
            ORDER BY profile_views DESC, last_active DESC
            LIMIT ?""",
         (limit,)
     ).fetchall()
-    conn.close()
+
     return [_row_to_dict(r) for r in rows]
 
 
 def get_recent_profiles(limit: int = 10) -> list[dict]:
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM profiles ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM profiles WHERE (deactivated IS NULL OR deactivated=0) ORDER BY created_at DESC LIMIT ?",
         (limit,)
     ).fetchall()
-    conn.close()
+
     return [_row_to_dict(r) for r in rows]
 
 
@@ -1977,26 +2003,26 @@ def get_recent_profiles(limit: int = 10) -> list[dict]:
 def create_group(name: str, description: str, creator_id: str,
                  privacy: str = "public") -> str:
     conn = get_db()
-    gid = str(uuid.uuid4())[:8]
+    gid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO groups (id, name, description, creator_id, privacy) VALUES (?,?,?,?,?)",
         (gid, name, description, creator_id, privacy)
     )
     # Creator auto-joins as admin
-    mid = str(uuid.uuid4())[:8]
+    mid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO group_members (id, group_id, profile_id, role) VALUES (?,?,?,?)",
         (mid, gid, creator_id, "admin")
     )
     conn.commit()
-    conn.close()
+
     return gid
 
 
 def get_group(group_id: str) -> dict | None:
     conn = get_db()
     row = conn.execute("SELECT * FROM groups WHERE id=?", (group_id,)).fetchone()
-    conn.close()
+
     return dict(row) if row else None
 
 
@@ -2008,7 +2034,7 @@ def get_all_groups(limit: int = 50) -> list[dict]:
            GROUP BY g.id ORDER BY member_count DESC, g.created_at DESC LIMIT ?""",
         (limit,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -2023,19 +2049,19 @@ def get_my_groups(profile_id: str) -> list[dict]:
            GROUP BY g.id ORDER BY g.created_at DESC""",
         (profile_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
 def join_group(group_id: str, profile_id: str) -> str:
     conn = get_db()
-    mid = str(uuid.uuid4())[:8]
+    mid = uuid.uuid4().hex
     conn.execute(
         "INSERT OR IGNORE INTO group_members (id, group_id, profile_id) VALUES (?,?,?)",
         (mid, group_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return mid
 
 
@@ -2046,7 +2072,7 @@ def leave_group(group_id: str, profile_id: str) -> bool:
         (group_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -2056,7 +2082,7 @@ def is_group_member(group_id: str, profile_id: str) -> bool:
         "SELECT 1 FROM group_members WHERE group_id=? AND profile_id=?",
         (group_id, profile_id)
     ).fetchone()
-    conn.close()
+
     return row is not None
 
 
@@ -2068,19 +2094,19 @@ def get_group_members(group_id: str) -> list[dict]:
            WHERE gm.group_id=? ORDER BY gm.joined_at""",
         (group_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
 def create_group_post(group_id: str, profile_id: str, content: str) -> str:
     conn = get_db()
-    pid = str(uuid.uuid4())[:8]
+    pid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO group_posts (id, group_id, profile_id, content) VALUES (?,?,?,?)",
         (pid, group_id, profile_id, content)
     )
     conn.commit()
-    conn.close()
+
     return pid
 
 
@@ -2092,7 +2118,7 @@ def get_group_posts(group_id: str, limit: int = 50) -> list[dict]:
            WHERE gp.group_id=? ORDER BY gp.created_at DESC LIMIT ?""",
         (group_id, limit)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -2103,17 +2129,21 @@ def delete_group_post(post_id: str, profile_id: str) -> bool:
         (post_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
 def delete_group(group_id: str) -> bool:
     conn = get_db()
-    conn.execute("DELETE FROM group_posts WHERE group_id=?", (group_id,))
-    conn.execute("DELETE FROM group_members WHERE group_id=?", (group_id,))
-    cursor = conn.execute("DELETE FROM groups WHERE id=?", (group_id,))
-    conn.commit()
-    conn.close()
+    conn.execute("BEGIN")
+    try:
+        conn.execute("DELETE FROM group_posts WHERE group_id=?", (group_id,))
+        conn.execute("DELETE FROM group_members WHERE group_id=?", (group_id,))
+        cursor = conn.execute("DELETE FROM groups WHERE id=?", (group_id,))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
     return cursor.rowcount > 0
 
 
@@ -2126,7 +2156,7 @@ def create_event(title: str, description: str, creator_id: str,
                  event_time: str = "", group_id: str = "",
                  max_attendees: int = 0) -> str:
     conn = get_db()
-    eid = str(uuid.uuid4())[:8]
+    eid = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO events (id, title, description, creator_id, location,
            event_date, event_time, group_id, max_attendees) VALUES (?,?,?,?,?,?,?,?,?)""",
@@ -2134,20 +2164,20 @@ def create_event(title: str, description: str, creator_id: str,
          event_date or None, event_time or None, group_id or None, max_attendees)
     )
     # Creator auto-RSVPs
-    rid = str(uuid.uuid4())[:8]
+    rid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO event_rsvps (id, event_id, profile_id, status) VALUES (?,?,?,?)",
         (rid, eid, creator_id, "going")
     )
     conn.commit()
-    conn.close()
+
     return eid
 
 
 def get_event(event_id: str) -> dict | None:
     conn = get_db()
     row = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
-    conn.close()
+
     return dict(row) if row else None
 
 
@@ -2162,7 +2192,7 @@ def get_all_events(limit: int = 50) -> list[dict]:
            ORDER BY e.event_date ASC, e.created_at DESC LIMIT ?""",
         (limit,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -2180,13 +2210,13 @@ def rsvp_event(event_id: str, profile_id: str, status: str = "going") -> str:
         )
         rid = existing["id"]
     else:
-        rid = str(uuid.uuid4())[:8]
+        rid = uuid.uuid4().hex
         conn.execute(
             "INSERT INTO event_rsvps (id, event_id, profile_id, status) VALUES (?,?,?,?)",
             (rid, event_id, profile_id, status)
         )
     conn.commit()
-    conn.close()
+
     return rid
 
 
@@ -2198,7 +2228,7 @@ def get_event_rsvps(event_id: str) -> list[dict]:
            WHERE r.event_id=? ORDER BY r.created_at""",
         (event_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -2213,16 +2243,20 @@ def get_my_events(profile_id: str) -> list[dict]:
            GROUP BY e.id ORDER BY e.event_date ASC""",
         (profile_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
 def delete_event(event_id: str) -> bool:
     conn = get_db()
-    conn.execute("DELETE FROM event_rsvps WHERE event_id=?", (event_id,))
-    cursor = conn.execute("DELETE FROM events WHERE id=?", (event_id,))
-    conn.commit()
-    conn.close()
+    conn.execute("BEGIN")
+    try:
+        conn.execute("DELETE FROM event_rsvps WHERE event_id=?", (event_id,))
+        cursor = conn.execute("DELETE FROM events WHERE id=?", (event_id,))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
     return cursor.rowcount > 0
 
 
@@ -2268,7 +2302,7 @@ def get_or_create_game(profile_a: str, profile_b: str) -> dict:
     ).fetchone()
 
     if pending:
-        conn.close()
+    
         return dict(pending)
 
     # Check how many questions already exist for this pair
@@ -2281,19 +2315,19 @@ def get_or_create_game(profile_a: str, profile_b: str) -> dict:
     available = [q for q in COMPAT_QUESTIONS if q not in used]
 
     if not available:
-        conn.close()
+    
         return None  # All questions exhausted
 
     import random
     question = random.choice(available)
-    gid = str(uuid.uuid4())[:8]
+    gid = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO compat_games (id, profile_a, profile_b, question) VALUES (?,?,?,?)",
         (gid, profile_a, profile_b, question)
     )
     conn.commit()
     game = dict(conn.execute("SELECT * FROM compat_games WHERE id=?", (gid,)).fetchone())
-    conn.close()
+
     return game
 
 
@@ -2301,7 +2335,7 @@ def answer_game(game_id: str, profile_id: str, answer: str) -> dict:
     conn = get_db()
     game = conn.execute("SELECT * FROM compat_games WHERE id=?", (game_id,)).fetchone()
     if not game:
-        conn.close()
+    
         return None
     g = dict(game)
     if profile_id == g["profile_a"]:
@@ -2309,7 +2343,7 @@ def answer_game(game_id: str, profile_id: str, answer: str) -> dict:
     elif profile_id == g["profile_b"]:
         conn.execute("UPDATE compat_games SET answer_b=? WHERE id=?", (answer, game_id))
     else:
-        conn.close()
+    
         return None
 
     # Check if both answered, mark match
@@ -2319,7 +2353,7 @@ def answer_game(game_id: str, profile_id: str, answer: str) -> dict:
         conn.execute("UPDATE compat_games SET matched=? WHERE id=?", (matched, game_id))
         updated["matched"] = matched
     conn.commit()
-    conn.close()
+
     return updated
 
 
@@ -2332,7 +2366,7 @@ def get_game_history(profile_a: str, profile_b: str) -> list[dict]:
            ORDER BY created_at DESC""",
         (profile_a, profile_b, profile_b, profile_a)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -2349,7 +2383,7 @@ def get_game_score(profile_a: str, profile_b: str) -> dict:
 
 def submit_selfie_verification(profile_id: str, selfie_photo: str) -> str:
     conn = get_db()
-    vid = str(uuid.uuid4())[:8]
+    vid = uuid.uuid4().hex
     # Upsert - replace any existing pending verification
     conn.execute("DELETE FROM selfie_verifications WHERE profile_id=?", (profile_id,))
     conn.execute(
@@ -2357,7 +2391,7 @@ def submit_selfie_verification(profile_id: str, selfie_photo: str) -> str:
         (vid, profile_id, selfie_photo)
     )
     conn.commit()
-    conn.close()
+
     return vid
 
 
@@ -2368,7 +2402,7 @@ def get_pending_verifications() -> list[dict]:
            JOIN profiles p ON p.id = v.profile_id
            WHERE v.status='pending' ORDER BY v.created_at"""
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -2376,7 +2410,7 @@ def review_verification(verification_id: str, approved: bool) -> bool:
     conn = get_db()
     v = conn.execute("SELECT * FROM selfie_verifications WHERE id=?", (verification_id,)).fetchone()
     if not v:
-        conn.close()
+    
         return False
     status = "approved" if approved else "rejected"
     conn.execute(
@@ -2386,7 +2420,7 @@ def review_verification(verification_id: str, approved: bool) -> bool:
     if approved:
         conn.execute("UPDATE profiles SET verified=1 WHERE id=?", (v["profile_id"],))
     conn.commit()
-    conn.close()
+
     return True
 
 
@@ -2396,7 +2430,7 @@ def get_verification_status(profile_id: str) -> dict | None:
         "SELECT * FROM selfie_verifications WHERE profile_id=? ORDER BY created_at DESC LIMIT 1",
         (profile_id,)
     ).fetchone()
-    conn.close()
+
     return dict(row) if row else None
 
 
@@ -2406,7 +2440,7 @@ def get_verification_status(profile_id: str) -> dict | None:
 
 def save_video_intro(profile_id: str, filename: str, duration: int = 0) -> str:
     conn = get_db()
-    vid = str(uuid.uuid4())[:8]
+    vid = uuid.uuid4().hex
     # Replace existing
     conn.execute("DELETE FROM video_intros WHERE profile_id=?", (profile_id,))
     conn.execute(
@@ -2414,7 +2448,7 @@ def save_video_intro(profile_id: str, filename: str, duration: int = 0) -> str:
         (vid, profile_id, filename, duration)
     )
     conn.commit()
-    conn.close()
+
     return vid
 
 
@@ -2423,7 +2457,7 @@ def get_video_intro(profile_id: str) -> dict | None:
     row = conn.execute(
         "SELECT * FROM video_intros WHERE profile_id=? LIMIT 1", (profile_id,)
     ).fetchone()
-    conn.close()
+
     return dict(row) if row else None
 
 
@@ -2431,7 +2465,7 @@ def delete_video_intro(profile_id: str) -> bool:
     conn = get_db()
     cursor = conn.execute("DELETE FROM video_intros WHERE profile_id=?", (profile_id,))
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -2442,7 +2476,7 @@ def delete_video_intro(profile_id: str) -> bool:
 def add_music_pref(profile_id: str, song_title: str, artist: str,
                    genre: str = "", spotify_url: str = "") -> str:
     conn = get_db()
-    mid = str(uuid.uuid4())[:8]
+    mid = uuid.uuid4().hex
     count = conn.execute(
         "SELECT COUNT(*) as c FROM music_preferences WHERE profile_id=?", (profile_id,)
     ).fetchone()["c"]
@@ -2452,7 +2486,7 @@ def add_music_pref(profile_id: str, song_title: str, artist: str,
         (mid, profile_id, song_title, artist, genre or None, spotify_url or None, count)
     )
     conn.commit()
-    conn.close()
+
     return mid
 
 
@@ -2462,7 +2496,7 @@ def get_music_prefs(profile_id: str) -> list[dict]:
         "SELECT * FROM music_preferences WHERE profile_id=? ORDER BY sort_order",
         (profile_id,)
     ).fetchall()
-    conn.close()
+
     return [dict(r) for r in rows]
 
 
@@ -2473,7 +2507,7 @@ def delete_music_pref(pref_id: str, profile_id: str) -> bool:
         (pref_id, profile_id)
     )
     conn.commit()
-    conn.close()
+
     return cursor.rowcount > 0
 
 
@@ -2513,20 +2547,20 @@ def compute_music_compatibility(profile_a: str, profile_b: str) -> dict:
 
 def block_profile(blocker_id: str, blocked_id: str) -> str:
     conn = get_db()
-    bid = str(uuid.uuid4())[:8]
+    bid = uuid.uuid4().hex
     try:
+        conn.execute("BEGIN")
         conn.execute(
             "INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (?,?,?)",
             (bid, blocker_id, blocked_id)
         )
-        # Also remove friendship if exists
         conn.execute(
-            "DELETE FROM profile_friends WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?)",
+            "DELETE FROM profile_friends WHERE (profile_id=? AND friend_id=?) OR (profile_id=? AND friend_id=?)",
             (blocker_id, blocked_id, blocked_id, blocker_id)
         )
-        conn.commit()
+        conn.execute("COMMIT")
     except sqlite3.IntegrityError:
-        pass  # Already blocked
+        conn.execute("ROLLBACK")
     return bid
 
 
@@ -2579,7 +2613,7 @@ def create_password_reset(user_id: str) -> str:
     from datetime import datetime, timedelta, timezone
     conn = get_db()
     token = secrets.token_urlsafe(32)
-    rid = str(uuid.uuid4())[:8]
+    rid = uuid.uuid4().hex
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     conn.execute(
         "INSERT INTO password_resets (id, user_id, token, expires_at) VALUES (?,?,?,?)",
@@ -2593,12 +2627,10 @@ def use_password_reset(token: str, new_password_hash: str) -> bool:
     from datetime import datetime, timezone
     conn = get_db()
     row = conn.execute(
-        "SELECT * FROM password_resets WHERE token=? AND used=0", (token,)
+        "SELECT * FROM password_resets WHERE token=? AND used=0 AND expires_at > datetime('now')",
+        (token,)
     ).fetchone()
     if not row:
-        return False
-    now = datetime.now(timezone.utc).isoformat()
-    if now > row["expires_at"]:
         return False
     conn.execute("UPDATE password_resets SET used=1 WHERE id=?", (row["id"],))
     conn.execute("UPDATE users SET password_hash=? WHERE id=?", (new_password_hash, row["user_id"]))
@@ -2691,16 +2723,16 @@ def mark_messages_read_with_timestamp(to_id: str, from_id: str) -> int:
 
 def deactivate_profile(profile_id: str) -> bool:
     conn = get_db()
-    conn.execute("UPDATE profiles SET deactivated=1 WHERE id=?", (profile_id,))
+    cursor = conn.execute("UPDATE profiles SET deactivated=1 WHERE id=?", (profile_id,))
     conn.commit()
-    return True
+    return cursor.rowcount > 0
 
 
 def reactivate_profile(profile_id: str) -> bool:
     conn = get_db()
-    conn.execute("UPDATE profiles SET deactivated=0 WHERE id=?", (profile_id,))
+    cursor = conn.execute("UPDATE profiles SET deactivated=0 WHERE id=?", (profile_id,))
     conn.commit()
-    return True
+    return cursor.rowcount > 0
 
 
 # ---------------------------------------------------------------------------
@@ -2749,7 +2781,7 @@ def is_group_moderator(group_id: str, profile_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def create_refresh_token(user_id: str, token_hash: str, expires_at: str) -> str:
-    token_id = str(uuid.uuid4())
+    token_id = uuid.uuid4().hex
     conn = get_db()
     conn.execute(
         "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
@@ -2785,7 +2817,7 @@ def revoke_all_user_tokens(user_id: str):
 # ---------------------------------------------------------------------------
 
 def create_email_verification(user_id: str, token: str, expires_at: str) -> str:
-    vid = str(uuid.uuid4())
+    vid = uuid.uuid4().hex
     conn = get_db()
     conn.execute(
         "INSERT INTO email_verifications (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)",
@@ -2814,7 +2846,7 @@ def verify_email_token(token: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def submit_photo_for_moderation(profile_id: str, filename: str) -> str:
-    mod_id = str(uuid.uuid4())
+    mod_id = uuid.uuid4().hex
     conn = get_db()
     conn.execute(
         "INSERT INTO photo_moderation (id, profile_id, photo_filename) VALUES (?, ?, ?)",
@@ -2881,7 +2913,7 @@ def delete_questionnaire_progress(user_id: str):
 
 def add_message_reaction(message_id: str, profile_id: str, reaction: str) -> str:
     conn = get_db()
-    reaction_id = str(uuid.uuid4())[:8]
+    reaction_id = uuid.uuid4().hex
     conn.execute(
         "INSERT OR IGNORE INTO message_reactions (id, message_id, profile_id, reaction) VALUES (?, ?, ?, ?)",
         (reaction_id, message_id, profile_id, reaction),
@@ -2921,9 +2953,9 @@ def save_daily_suggestions(profile_id: str, suggestions: list[dict]):
     from datetime import date
     conn = get_db()
     today = date.today().isoformat()
-    conn.execute("DELETE FROM daily_suggestions WHERE profile_id = ?", (profile_id,))
+    conn.execute("DELETE FROM daily_suggestions WHERE profile_id=? AND date=?", (profile_id, today))
     for s in suggestions:
-        sid = str(uuid.uuid4())[:8]
+        sid = uuid.uuid4().hex
         conn.execute(
             "INSERT INTO daily_suggestions (id, profile_id, suggested_id, score, date) VALUES (?, ?, ?, ?, ?)",
             (sid, profile_id, s["suggested_id"], s["score"], today),
@@ -2996,7 +3028,7 @@ def get_who_liked_me(profile_id: str, limit: int = 50) -> list[dict]:
 
 def save_totp_secret(user_id: str, secret: str) -> str:
     conn = get_db()
-    totp_id = str(uuid.uuid4())[:8]
+    totp_id = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO totp_secrets (id, user_id, secret)
            VALUES (?, ?, ?)
@@ -3037,7 +3069,7 @@ def delete_totp_secret(user_id: str):
 
 def save_push_subscription(user_id: str, endpoint: str, p256dh: str, auth: str) -> str:
     conn = get_db()
-    sub_id = str(uuid.uuid4())[:8]
+    sub_id = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
            VALUES (?, ?, ?, ?, ?)
@@ -3070,7 +3102,7 @@ def delete_push_subscription(endpoint: str):
 
 def send_group_message(group_id: str, from_id: str, content: str) -> str:
     conn = get_db()
-    msg_id = str(uuid.uuid4())[:8]
+    msg_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO group_messages (id, group_id, from_id, content) VALUES (?, ?, ?, ?)",
         (msg_id, group_id, from_id, content),
@@ -3099,7 +3131,7 @@ def get_group_messages(group_id: str, limit: int = 100, before: str = None) -> l
                ORDER BY gm.created_at DESC LIMIT ?""",
             (group_id, limit),
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [dict(r) for r in reversed(rows)]
 
 
 # ---------------------------------------------------------------------------
@@ -3110,7 +3142,7 @@ def log_content_filter(content_type: str, content_id: str, profile_id: str,
                        flagged_text: str, reason: str, filter_type: str,
                        action: str = "censored") -> str:
     conn = get_db()
-    log_id = str(uuid.uuid4())[:8]
+    log_id = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO content_filter_log
            (id, content_type, content_id, profile_id, flagged_text, reason, filter_type, action)
@@ -3173,7 +3205,7 @@ def is_premium(user_id: str) -> bool:
             if expires < datetime.now(timezone.utc):
                 return False
         except (ValueError, TypeError):
-            pass
+            return False
     return True
 
 
@@ -3183,7 +3215,7 @@ def is_premium(user_id: str) -> bool:
 
 def log_analytics_event(event_type: str, profile_id: str = None, metadata: str = None):
     conn = get_db()
-    event_id = str(uuid.uuid4())[:8]
+    event_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO analytics_events (id, event_type, profile_id, metadata) VALUES (?, ?, ?, ?)",
         (event_id, event_type, profile_id, metadata),
@@ -3280,7 +3312,7 @@ def has_completed_onboarding(user_id: str) -> bool:
 
 def save_voice_message(from_id: str, to_id: str, filename: str, duration_ms: int = 0) -> str:
     conn = get_db()
-    msg_id = str(uuid.uuid4())[:8]
+    msg_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO voice_messages (id, from_id, to_id, filename, duration_ms) VALUES (?,?,?,?,?)",
         (msg_id, from_id, to_id, filename, duration_ms),
@@ -3306,7 +3338,7 @@ def get_voice_messages(id_a: str, id_b: str, limit: int = 50) -> list[dict]:
 
 def save_profile_prompt(profile_id: str, prompt: str, answer: str, sort_order: int = 0) -> str:
     conn = get_db()
-    prompt_id = str(uuid.uuid4())[:8]
+    prompt_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO profile_prompts (id, profile_id, prompt, answer, sort_order) VALUES (?,?,?,?,?)",
         (prompt_id, profile_id, prompt, answer, sort_order),
@@ -3350,7 +3382,7 @@ def update_profile_prompt(prompt_id: str, profile_id: str, answer: str) -> bool:
 
 def create_super_like(from_id: str, to_id: str) -> str:
     conn = get_db()
-    sl_id = str(uuid.uuid4())[:8]
+    sl_id = uuid.uuid4().hex
     conn.execute(
         "INSERT OR IGNORE INTO super_likes (id, from_id, to_id) VALUES (?,?,?)",
         (sl_id, from_id, to_id),
@@ -3397,7 +3429,7 @@ def create_story(profile_id: str, content_type: str, content: str,
                  background: str = "#6c7086", photo: str = None,
                  expiry_hours: int = 24) -> str:
     conn = get_db()
-    story_id = str(uuid.uuid4())[:8]
+    story_id = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO stories (id, profile_id, content_type, content, background, photo, expires_at)
            VALUES (?, ?, ?, ?, ?, ?, datetime('now', ? || ' hours'))""",
@@ -3440,14 +3472,15 @@ def get_story(story_id: str) -> dict | None:
 
 def view_story(story_id: str, viewer_id: str):
     conn = get_db()
-    view_id = str(uuid.uuid4())[:8]
-    conn.execute(
+    view_id = uuid.uuid4().hex
+    cursor = conn.execute(
         "INSERT OR IGNORE INTO story_views (id, story_id, viewer_id) VALUES (?,?,?)",
         (view_id, story_id, viewer_id),
     )
-    conn.execute(
-        "UPDATE stories SET views = views + 1 WHERE id = ?", (story_id,)
-    )
+    if cursor.rowcount > 0:
+        conn.execute(
+            "UPDATE stories SET views = views + 1 WHERE id = ?", (story_id,)
+        )
     conn.commit()
 
 
@@ -3486,7 +3519,7 @@ def get_all_active_stories(limit: int = 100) -> list[dict]:
 
 def create_group_poll(group_id: str, profile_id: str, question: str, options: list[str]) -> str:
     conn = get_db()
-    poll_id = str(uuid.uuid4())[:8]
+    poll_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO group_polls (id, group_id, profile_id, question, options) VALUES (?,?,?,?,?)",
         (poll_id, group_id, profile_id, question, json.dumps(options)),
@@ -3522,7 +3555,7 @@ def get_group_polls(group_id: str, limit: int = 20) -> list[dict]:
 
 def vote_poll(poll_id: str, profile_id: str, option_index: int) -> bool:
     conn = get_db()
-    vote_id = str(uuid.uuid4())[:8]
+    vote_id = uuid.uuid4().hex
     try:
         conn.execute(
             "INSERT INTO poll_votes (id, poll_id, profile_id, option_index) VALUES (?,?,?,?)",
@@ -3549,7 +3582,7 @@ def get_poll_user_vote(poll_id: str, profile_id: str) -> int | None:
 
 def create_session(user_id: str, token_hash: str, device: str = "", ip_address: str = "") -> str:
     conn = get_db()
-    session_id = str(uuid.uuid4())[:8]
+    session_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO user_sessions (id, user_id, token_hash, device, ip_address) VALUES (?,?,?,?,?)",
         (session_id, user_id, token_hash, device, ip_address),
@@ -3653,7 +3686,7 @@ def get_nearby_profiles(latitude: float, longitude: float, radius_km: int,
     conn = get_db()
     # Rough degree-to-km approximation for bounding box
     lat_delta = radius_km / 111.0
-    lon_delta = radius_km / (111.0 * max(0.1, abs(__import__('math').cos(__import__('math').radians(latitude)))))
+    lon_delta = radius_km / (111.0 * max(0.1, abs(math.cos(math.radians(latitude)))))
     rows = conn.execute(
         """SELECT p.*, ul.latitude as user_lat, ul.longitude as user_lon, ul.city as user_city
            FROM profiles p
@@ -3686,7 +3719,7 @@ def save_recovery_codes(user_id: str, code_hashes: list[str]):
     # Clear old codes
     conn.execute("DELETE FROM recovery_codes WHERE user_id=?", (user_id,))
     for ch in code_hashes:
-        code_id = str(uuid.uuid4())[:8]
+        code_id = uuid.uuid4().hex
         conn.execute(
             "INSERT INTO recovery_codes (id, user_id, code_hash) VALUES (?,?,?)",
             (code_id, user_id, ch),
@@ -3792,61 +3825,63 @@ def search_messages(profile_id: str, query: str, limit: int = 50) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def delete_account(user_id: str) -> bool:
-    """Delete all user data for GDPR compliance."""
     conn = get_db()
     user = conn.execute("SELECT profile_id FROM users WHERE id=?", (user_id,)).fetchone()
     if not user:
         return False
-    profile_id = user["profile_id"]
-    if profile_id:
-        # Delete all profile-related data
-        tables_with_profile = [
-            ("messages", "from_id"), ("messages", "to_id"),
-            ("profile_blog_posts", "profile_id"),
-            ("profile_comments", "profile_id"), ("profile_comments", "from_id"),
-            ("profile_friends", "profile_id"), ("profile_friends", "friend_id"),
-            ("activity_feed", "profile_id"), ("status_updates", "profile_id"),
-            ("likes", "from_id"), ("photos", "profile_id"),
-            ("group_members", "profile_id"), ("group_posts", "profile_id"),
-            ("behavioral_events", "profile_id"), ("safety_reports", "reporter_id"),
-            ("voice_messages", "from_id"), ("voice_messages", "to_id"),
-            ("profile_prompts", "profile_id"), ("super_likes", "from_id"),
-            ("super_likes", "to_id"), ("stories", "profile_id"),
-            ("story_views", "viewer_id"), ("group_messages", "from_id"),
-            ("message_reactions", "profile_id"), ("daily_suggestions", "profile_id"),
-            ("compat_games", "profile_a"), ("compat_games", "profile_b"),
-            ("music_preferences", "profile_id"), ("blocks", "blocker_id"),
-            ("blocks", "blocked_id"),
-            ("icebreaker_games", "profile_a"), ("icebreaker_games", "profile_b"),
-            ("game_turns", "profile_id"), ("shared_playlists", "profile_a"),
-            ("shared_playlists", "profile_b"), ("playlist_songs", "added_by"),
-            ("event_photos", "profile_id"), ("profile_badges", "profile_id"),
-            ("story_reactions", "profile_id"), ("pinned_messages", "pinned_by"),
-            ("passed_profiles", "profile_id"), ("passed_profiles", "passed_id"),
-            ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),
-            ("date_schedules", "profile_a"), ("date_schedules", "profile_b"),
+    conn.execute("BEGIN")
+    try:
+        profile_id = user["profile_id"]
+        if profile_id:
+            tables_with_profile = [
+                ("messages", "from_id"), ("messages", "to_id"),
+                ("profile_blog_posts", "profile_id"),
+                ("profile_comments", "profile_id"), ("profile_comments", "from_id"),
+                ("profile_friends", "profile_id"), ("profile_friends", "friend_id"),
+                ("activity_feed", "profile_id"), ("status_updates", "profile_id"),
+                ("likes", "from_id"), ("photos", "profile_id"),
+                ("group_members", "profile_id"), ("group_posts", "profile_id"),
+                ("behavioral_events", "profile_id"), ("safety_reports", "reporter_id"),
+                ("voice_messages", "from_id"), ("voice_messages", "to_id"),
+                ("profile_prompts", "profile_id"), ("super_likes", "from_id"),
+                ("super_likes", "to_id"), ("stories", "profile_id"),
+                ("story_views", "viewer_id"), ("group_messages", "from_id"),
+                ("message_reactions", "profile_id"), ("daily_suggestions", "profile_id"),
+                ("compat_games", "profile_a"), ("compat_games", "profile_b"),
+                ("music_preferences", "profile_id"), ("blocks", "blocker_id"),
+                ("blocks", "blocked_id"),
+                ("icebreaker_games", "profile_a"), ("icebreaker_games", "profile_b"),
+                ("game_turns", "profile_id"), ("shared_playlists", "profile_a"),
+                ("shared_playlists", "profile_b"), ("playlist_songs", "added_by"),
+                ("event_photos", "profile_id"), ("profile_badges", "profile_id"),
+                ("story_reactions", "profile_id"), ("pinned_messages", "pinned_by"),
+                ("passed_profiles", "profile_id"), ("passed_profiles", "passed_id"),
+                ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),
+                ("date_schedules", "profile_a"), ("date_schedules", "profile_b"),
+            ]
+            for table, col in tables_with_profile:
+                try:
+                    conn.execute(f"DELETE FROM {table} WHERE {col}=?", (profile_id,))
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+        user_tables = [
+            "notifications", "notification_preferences", "refresh_tokens",
+            "email_verifications", "totp_secrets", "push_subscriptions",
+            "user_sessions", "user_locations", "recovery_codes",
+            "premium_subscriptions", "questionnaire_progress",
+            "safety_checkins",
         ]
-        for table, col in tables_with_profile:
+        for table in user_tables:
             try:
-                conn.execute(f"DELETE FROM {table} WHERE {col}=?", (profile_id,))
+                conn.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
             except sqlite3.OperationalError:
                 pass
-        conn.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
-    # Delete user-related data
-    user_tables = [
-        "notifications", "notification_preferences", "refresh_tokens",
-        "email_verifications", "totp_secrets", "push_subscriptions",
-        "user_sessions", "user_locations", "recovery_codes",
-        "premium_subscriptions", "questionnaire_progress",
-        "safety_checkins",
-    ]
-    for table in user_tables:
-        try:
-            conn.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
-        except sqlite3.OperationalError:
-            pass
-    conn.execute("DELETE FROM users WHERE id=?", (user_id,))
-    conn.commit()
+        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
     return True
 
 
@@ -3905,17 +3940,19 @@ def get_expiring_matches(profile_id: str, expiry_days: int = 7) -> list[dict]:
     """Get matches that haven't been messaged within expiry_days."""
     conn = get_db()
     rows = conn.execute(
-        """SELECT l.target_id as match_id, l.created_at as matched_at,
-                  p.name, p.photo,
-                  (SELECT COUNT(*) FROM messages
-                   WHERE (from_id=l.from_id AND to_id=l.target_id)
-                      OR (from_id=l.target_id AND to_id=l.from_id)) as message_count,
-                  ROUND(julianday('now') - julianday(l.created_at)) as days_since_match
-           FROM likes l
-           JOIN profiles p ON p.id = l.target_id
-           WHERE l.from_id = ? AND l.target_type = 'profile'
-             AND l.created_at >= datetime('now', ? || ' days')
-           ORDER BY l.created_at ASC""",
+        """SELECT * FROM (
+               SELECT l.target_id as match_id, l.created_at as matched_at,
+                      p.name, p.photo,
+                      (SELECT COUNT(*) FROM messages
+                       WHERE (from_id=l.from_id AND to_id=l.target_id)
+                          OR (from_id=l.target_id AND to_id=l.from_id)) as message_count,
+                      ROUND(julianday('now') - julianday(l.created_at)) as days_since_match
+               FROM likes l
+               JOIN profiles p ON p.id = l.target_id
+               WHERE l.from_id = ? AND l.target_type = 'profile'
+                 AND l.created_at >= datetime('now', ? || ' days')
+           ) WHERE message_count = 0
+           ORDER BY matched_at ASC""",
         (profile_id, f"-{expiry_days}"),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -3927,7 +3964,7 @@ def get_expiring_matches(profile_id: str, expiry_days: int = 7) -> list[dict]:
 
 def create_icebreaker_game(profile_a: str, profile_b: str, game_type: str) -> dict:
     conn = get_db()
-    game_id = uuid.uuid4().hex[:12]
+    game_id = uuid.uuid4().hex
     conn.execute("""
         INSERT INTO icebreaker_games (id, profile_a, profile_b, game_type, current_turn)
         VALUES (?, ?, ?, ?, ?)
@@ -3954,7 +3991,7 @@ def submit_game_turn(game_id: str, profile_id: str, content: str) -> dict | None
     game = conn.execute("SELECT * FROM icebreaker_games WHERE id=?", (game_id,)).fetchone()
     if not game or game["status"] != "active" or game["current_turn"] != profile_id:
         return None
-    turn_id = uuid.uuid4().hex[:12]
+    turn_id = uuid.uuid4().hex
     turn_num = game["turn_count"] + 1
     next_turn = game["profile_b"] if profile_id == game["profile_a"] else game["profile_a"]
     conn.execute(
@@ -3993,7 +4030,7 @@ def create_date_schedule(profile_a: str, profile_b: str, scheduled_by: str,
                          date_date: str, date_time: str = None,
                          venue: str = None, notes: str = None) -> dict:
     conn = get_db()
-    ds_id = uuid.uuid4().hex[:12]
+    ds_id = uuid.uuid4().hex
     conn.execute("""
         INSERT INTO date_schedules (id, profile_a, profile_b, scheduled_by, date_date, date_time, venue, notes)
         VALUES (?,?,?,?,?,?,?,?)
@@ -4020,9 +4057,9 @@ def get_date_schedule(ds_id: str) -> dict | None:
 
 def update_date_schedule_status(ds_id: str, status: str) -> bool:
     conn = get_db()
-    conn.execute("UPDATE date_schedules SET status=? WHERE id=?", (status, ds_id))
+    cursor = conn.execute("UPDATE date_schedules SET status=? WHERE id=?", (status, ds_id))
     conn.commit()
-    return True
+    return cursor.rowcount > 0
 
 
 # ---------------------------------------------------------------------------
@@ -4031,7 +4068,7 @@ def update_date_schedule_status(ds_id: str, status: str) -> bool:
 
 def create_blind_date(initiator_id: str, target_id: str, reveal_hours: int = 48) -> dict:
     conn = get_db()
-    bd_id = uuid.uuid4().hex[:12]
+    bd_id = uuid.uuid4().hex
     conn.execute("""
         INSERT OR IGNORE INTO blind_dates (id, initiator_id, target_id, reveal_at)
         VALUES (?, ?, ?, datetime('now', '+' || ? || ' hours'))
@@ -4071,7 +4108,7 @@ def get_blind_date_count() -> int:
 
 def pass_profile(profile_id: str, passed_id: str):
     conn = get_db()
-    pp_id = uuid.uuid4().hex[:12]
+    pp_id = uuid.uuid4().hex
     conn.execute(
         "INSERT OR IGNORE INTO passed_profiles (id, profile_id, passed_id) VALUES (?,?,?)",
         (pp_id, profile_id, passed_id),
@@ -4137,7 +4174,7 @@ def get_reply_context(message_id: str) -> dict | None:
 
 def create_shared_playlist(profile_a: str, profile_b: str, name: str = "Our Playlist") -> dict:
     conn = get_db()
-    pl_id = uuid.uuid4().hex[:12]
+    pl_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO shared_playlists (id, profile_a, profile_b, name) VALUES (?,?,?,?)",
         (pl_id, profile_a, profile_b, name),
@@ -4158,7 +4195,7 @@ def get_shared_playlists(profile_a: str, profile_b: str) -> list[dict]:
 
 def add_playlist_song(playlist_id: str, added_by: str, title: str, artist: str) -> dict:
     conn = get_db()
-    song_id = uuid.uuid4().hex[:12]
+    song_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO playlist_songs (id, playlist_id, added_by, title, artist) VALUES (?,?,?,?,?)",
         (song_id, playlist_id, added_by, title, artist),
@@ -4197,7 +4234,7 @@ def get_total_playlists_count() -> int:
 
 def add_event_photo(event_id: str, profile_id: str, filename: str, caption: str = None) -> dict:
     conn = get_db()
-    photo_id = uuid.uuid4().hex[:12]
+    photo_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO event_photos (id, event_id, profile_id, filename, caption) VALUES (?,?,?,?,?)",
         (photo_id, event_id, profile_id, filename, caption),
@@ -4242,7 +4279,7 @@ def award_badge(profile_id: str, badge_type: str) -> bool:
     if badge_type not in BADGE_TYPES:
         return False
     conn = get_db()
-    badge_id = uuid.uuid4().hex[:12]
+    badge_id = uuid.uuid4().hex
     try:
         conn.execute(
             "INSERT INTO profile_badges (id, profile_id, badge_type) VALUES (?,?,?)",
@@ -4289,7 +4326,7 @@ def check_and_award_badges(profile_id: str):
 
 def react_to_story(story_id: str, profile_id: str, reaction: str) -> bool:
     conn = get_db()
-    sr_id = uuid.uuid4().hex[:12]
+    sr_id = uuid.uuid4().hex
     try:
         conn.execute(
             "INSERT OR REPLACE INTO story_reactions (id, story_id, profile_id, reaction) VALUES (?,?,?,?)",
@@ -4326,7 +4363,7 @@ def get_story_reaction_counts(story_id: str) -> dict:
 
 def pin_message(message_id: str, pinned_by: str, conversation_key: str) -> bool:
     conn = get_db()
-    pin_id = uuid.uuid4().hex[:12]
+    pin_id = uuid.uuid4().hex
     try:
         conn.execute(
             "INSERT INTO pinned_messages (id, message_id, pinned_by, conversation_key) VALUES (?,?,?,?)",
@@ -4373,7 +4410,7 @@ def check_message_cooldown(from_id: str, to_id: str, max_count: int = 10,
     if not row:
         conn.execute(
             "INSERT INTO message_cooldowns (id, from_id, to_id) VALUES (?,?,?)",
-            (uuid.uuid4().hex[:12], from_id, to_id),
+            (uuid.uuid4().hex, from_id, to_id),
         )
         conn.commit()
         return True
@@ -4407,7 +4444,7 @@ def check_message_cooldown(from_id: str, to_id: str, max_count: int = 10,
 
 def create_undo_block(blocker_id: str, blocked_id: str, grace_minutes: int = 5) -> str:
     conn = get_db()
-    ub_id = uuid.uuid4().hex[:12]
+    ub_id = uuid.uuid4().hex
     conn.execute("""
         INSERT INTO undo_blocks (id, blocker_id, blocked_id, expires_at)
         VALUES (?, ?, ?, datetime('now', '+' || ? || ' minutes'))
@@ -4445,7 +4482,7 @@ def create_safety_checkin(user_id: str, partner_name: str, emergency_contact: st
                           emergency_email: str, check_in_minutes: int = 60,
                           date_schedule_id: str = None) -> dict:
     conn = get_db()
-    sc_id = uuid.uuid4().hex[:12]
+    sc_id = uuid.uuid4().hex
     conn.execute("""
         INSERT INTO safety_checkins (id, user_id, date_schedule_id, partner_name,
                                      emergency_contact, emergency_email, check_in_at)
@@ -4493,8 +4530,8 @@ def get_total_checkins_count() -> int:
 # Dealbreaker Warnings
 # ---------------------------------------------------------------------------
 
-def check_dealbreaker_conflicts(profile_id: str, target_id: str) -> list[dict]:
-    """Check for dealbreaker conflicts between two profiles."""
+def get_shared_dealbreakers(profile_id: str, target_id: str) -> list[dict]:
+    """Get shared dealbreaker values between two profiles."""
     conn = get_db()
     p1 = conn.execute("SELECT dealbreakers FROM profiles WHERE id=?", (profile_id,)).fetchone()
     p2 = conn.execute("SELECT dealbreakers FROM profiles WHERE id=?", (target_id,)).fetchone()
@@ -4573,7 +4610,7 @@ def log_rate_limit_hit(endpoint: str, ip_address: str = None,
     conn = get_db()
     conn.execute(
         "INSERT INTO rate_limit_log (id, endpoint, ip_address, user_id, blocked) VALUES (?,?,?,?,?)",
-        (uuid.uuid4().hex[:12], endpoint, ip_address, user_id, 1 if blocked else 0),
+        (uuid.uuid4().hex, endpoint, ip_address, user_id, 1 if blocked else 0),
     )
     conn.commit()
 

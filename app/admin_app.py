@@ -127,7 +127,7 @@ def admin_login(body: AdminLogin):
 
 # ─── Dashboard Stats ───
 @admin_app.get("/api/admin/stats")
-def admin_stats():
+def admin_stats(admin: dict = Depends(require_admin)):
     stats = get_stats()
     stats["ai_narratives"] = "Puter.js (client-side)"
     return stats
@@ -135,7 +135,7 @@ def admin_stats():
 
 # ─── Profiles (read + delete) ───
 @admin_app.get("/api/profiles")
-def list_profiles():
+def list_profiles(admin: dict = Depends(require_admin)):
     profiles = get_all_profiles()
     return [
         {
@@ -155,7 +155,7 @@ def list_profiles():
 
 
 @admin_app.get("/api/profile/{profile_id}")
-def read_profile(profile_id: str):
+def read_profile(profile_id: str, admin: dict = Depends(require_admin)):
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -163,7 +163,7 @@ def read_profile(profile_id: str):
 
 
 @admin_app.delete("/api/profile/{profile_id}")
-def remove_profile(profile_id: str):
+def remove_profile(profile_id: str, admin: dict = Depends(require_admin)):
     if not delete_profile(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"message": "Profile deleted"}
@@ -171,12 +171,12 @@ def remove_profile(profile_id: str):
 
 # ─── Profile Details (for admin inspection) ───
 @admin_app.get("/api/profile/{profile_id}/blog")
-def list_blog(profile_id: str):
+def list_blog(profile_id: str, admin: dict = Depends(require_admin)):
     return {"posts": get_blog_posts(profile_id)}
 
 
 @admin_app.get("/api/profile/{profile_id}/comments")
-def list_comments(profile_id: str):
+def list_comments(profile_id: str, admin: dict = Depends(require_admin)):
     comments = get_profile_comments(profile_id)
     for c in comments:
         author = get_profile(c["from_id"])
@@ -186,19 +186,19 @@ def list_comments(profile_id: str):
 
 
 @admin_app.get("/api/profile/{profile_id}/friends")
-def list_friends(profile_id: str):
+def list_friends(profile_id: str, admin: dict = Depends(require_admin)):
     return {"friends": get_friends(profile_id)}
 
 
 # ─── Behavioral ───
 @admin_app.get("/api/behavioral/{profile_id}")
-def get_behavior(profile_id: str):
+def get_behavior(profile_id: str, admin: dict = Depends(require_admin)):
     return get_behavioral_profile(profile_id)
 
 
 # ─── Date Plans ───
 @admin_app.get("/api/date-plans/{profile_id}")
-def get_plans(profile_id: str):
+def get_plans(profile_id: str, admin: dict = Depends(require_admin)):
     plans = get_date_plans(profile_id)
     for p in plans:
         pa = get_profile(p["profile_a"])
@@ -210,7 +210,7 @@ def get_plans(profile_id: str):
 
 # ─── Safety Reports ───
 @admin_app.get("/api/admin/safety-reports")
-def list_safety_reports():
+def list_safety_reports(admin: dict = Depends(require_admin)):
     reports = get_all_safety_reports()
     for r in reports:
         reporter = get_profile(r["reporter_id"])
@@ -222,19 +222,19 @@ def list_safety_reports():
 
 # ─── Invites ───
 @admin_app.post("/api/invites")
-def gen_invite(created_by: str = "admin"):
+def gen_invite(admin: dict = Depends(require_admin), created_by: str = "admin"):
     code = create_invite(created_by)
     return {"code": code}
 
 
 @admin_app.get("/api/invites")
-def list_invites():
+def list_invites(admin: dict = Depends(require_admin)):
     return {"invites": get_all_invites()}
 
 
 # ─── Feedback ───
 @admin_app.post("/api/feedback")
-def submit_feedback(fb: FeedbackSubmit):
+def submit_feedback(fb: FeedbackSubmit, admin: dict = Depends(require_admin)):
     fb_id = save_feedback(
         fb.profile_a, fb.profile_b, fb.went_on_date,
         fb.rating, fb.notes, fb.safety_rating, fb.would_meet_again
@@ -244,7 +244,7 @@ def submit_feedback(fb: FeedbackSubmit):
 
 # ─── Groups (admin) ───
 @admin_app.get("/api/admin/groups")
-def admin_list_groups():
+def admin_list_groups(admin: dict = Depends(require_admin)):
     groups = get_all_groups(limit=200)
     for g in groups:
         g["members"] = get_group_members(g["id"])
@@ -252,7 +252,7 @@ def admin_list_groups():
 
 
 @admin_app.get("/api/admin/groups/{group_id}")
-def admin_view_group(group_id: str):
+def admin_view_group(group_id: str, admin: dict = Depends(require_admin)):
     g = get_group(group_id)
     if not g:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -263,7 +263,7 @@ def admin_view_group(group_id: str):
 
 
 @admin_app.delete("/api/admin/groups/{group_id}")
-def admin_delete_group(group_id: str):
+def admin_delete_group(group_id: str, admin: dict = Depends(require_admin)):
     if not delete_group(group_id):
         raise HTTPException(status_code=404, detail="Group not found")
     return {"message": "Group deleted"}
@@ -271,7 +271,7 @@ def admin_delete_group(group_id: str):
 
 # ─── Events (admin) ───
 @admin_app.get("/api/admin/events")
-def admin_list_events():
+def admin_list_events(admin: dict = Depends(require_admin)):
     events = get_all_events(limit=200)
     for ev in events:
         ev["rsvps"] = get_event_rsvps(ev["id"])
@@ -279,7 +279,7 @@ def admin_list_events():
 
 
 @admin_app.get("/api/admin/events/{event_id}")
-def admin_view_event(event_id: str):
+def admin_view_event(event_id: str, admin: dict = Depends(require_admin)):
     ev = get_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -290,7 +290,7 @@ def admin_view_event(event_id: str):
 
 
 @admin_app.delete("/api/admin/events/{event_id}")
-def admin_delete_event(event_id: str):
+def admin_delete_event(event_id: str, admin: dict = Depends(require_admin)):
     if not delete_event(event_id):
         raise HTTPException(status_code=404, detail="Event not found")
     return {"message": "Event deleted"}
@@ -298,19 +298,19 @@ def admin_delete_event(event_id: str):
 
 # ─── Selfie Verification (admin review) ───
 @admin_app.get("/api/admin/verifications")
-def list_verifications():
+def list_verifications(admin: dict = Depends(require_admin)):
     return {"verifications": get_pending_verifications()}
 
 
 @admin_app.post("/api/admin/verifications/{verification_id}/approve")
-def approve_verification(verification_id: str):
+def approve_verification(verification_id: str, admin: dict = Depends(require_admin)):
     if not review_verification(verification_id, approved=True):
         raise HTTPException(status_code=404, detail="Verification not found")
     return {"message": "Verification approved, profile now verified"}
 
 
 @admin_app.post("/api/admin/verifications/{verification_id}/reject")
-def reject_verification(verification_id: str):
+def reject_verification(verification_id: str, admin: dict = Depends(require_admin)):
     if not review_verification(verification_id, approved=False):
         raise HTTPException(status_code=404, detail="Verification not found")
     return {"message": "Verification rejected"}
@@ -384,9 +384,13 @@ def create_backup(admin: dict = Depends(require_admin)):
     return {"filename": name, "message": "Backup created"}
 
 
+class RestoreRequest(BaseModel):
+    filename: str
+
 @admin_app.post("/api/admin/backups/restore")
-def restore_backup(filename: str, admin: dict = Depends(require_admin)):
+def restore_backup(req: RestoreRequest, admin: dict = Depends(require_admin)):
     from app.backup import restore_backup as _restore_backup
+    filename = req.filename
     if not _restore_backup(filename):
         raise HTTPException(status_code=404, detail="Backup not found")
     return {"message": f"Restored from {filename}"}
@@ -405,9 +409,21 @@ def admin_revoke_session(session_id: str, admin: dict = Depends(require_admin)):
     return {"message": "Session revoked"}
 
 
-@admin_app.post("/api/admin/sessions/revoke-user/{user_id}")
-def admin_revoke_user_sessions(user_id: str, admin: dict = Depends(require_admin)):
-    revoke_all_sessions(user_id)
+class RevokeRequest(BaseModel):
+    email: str = None
+    user_id: str = None
+
+@admin_app.post("/api/admin/sessions/revoke-user")
+def admin_revoke_user_sessions(req: RevokeRequest, admin: dict = Depends(require_admin)):
+    uid = req.user_id
+    if req.email and not uid:
+        user = get_user_by_email(req.email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        uid = user["id"]
+    if not uid:
+        raise HTTPException(status_code=400, detail="email or user_id required")
+    revoke_all_sessions(uid)
     return {"message": "All sessions revoked for user"}
 
 
@@ -419,11 +435,7 @@ def admin_list_stories(admin: dict = Depends(require_admin)):
 
 @admin_app.delete("/api/admin/stories/{story_id}")
 def admin_delete_story(story_id: str, admin: dict = Depends(require_admin)):
-    from app.database import get_db
-    conn = get_db()
-    cursor = conn.execute("DELETE FROM stories WHERE id=?", (story_id,))
-    conn.commit()
-    if cursor.rowcount == 0:
+    if not delete_story(story_id):
         raise HTTPException(status_code=404, detail="Story not found")
     return {"message": "Story removed"}
 
@@ -479,27 +491,35 @@ def admin_list_webhooks(admin: dict = Depends(require_admin)):
     return {"webhooks": get_webhooks()}
 
 
+class WebhookCreate(BaseModel):
+    name: str
+    url: str
+    events: str = "*"
+    secret: str = ""
+
+class WebhookUpdate(BaseModel):
+    enabled: bool = None
+    name: str = None
+
 @admin_app.post("/api/admin/webhooks")
-def admin_create_webhook(name: str, url: str, events: str = "*",
-                          secret: str = "", admin: dict = Depends(require_admin)):
+def admin_create_webhook(req: WebhookCreate, admin: dict = Depends(require_admin)):
     from app.webhooks import create_webhook
     from app.audit import log_audit
-    event_list = [e.strip() for e in events.split(",")]
-    wh = create_webhook(name, url, event_list, secret)
-    log_audit(admin["id"], "webhook_create", "webhook", wh["id"], f"URL: {url}")
+    event_list = [e.strip() for e in req.events.split(",")]
+    wh = create_webhook(req.name, req.url, event_list, req.secret)
+    log_audit(admin["id"], "webhook_create", "webhook", wh["id"], f"URL: {req.url}")
     return wh
 
 
 @admin_app.put("/api/admin/webhooks/{wh_id}")
-def admin_update_webhook(wh_id: str, enabled: int = None, name: str = None,
-                          admin: dict = Depends(require_admin)):
+def admin_update_webhook(wh_id: str, req: WebhookUpdate, admin: dict = Depends(require_admin)):
     from app.webhooks import update_webhook
     from app.audit import log_audit
     kwargs = {}
-    if enabled is not None:
-        kwargs["enabled"] = enabled
-    if name is not None:
-        kwargs["name"] = name
+    if req.enabled is not None:
+        kwargs["enabled"] = req.enabled
+    if req.name is not None:
+        kwargs["name"] = req.name
     update_webhook(wh_id, **kwargs)
     log_audit(admin["id"], "webhook_update", "webhook", wh_id)
     return {"message": "Webhook updated"}

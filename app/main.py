@@ -116,7 +116,7 @@ from app.database import (
     pin_message, unpin_message, get_pinned_messages,
     check_message_cooldown, create_undo_block, undo_block, cleanup_expired_undo_blocks,
     create_safety_checkin, respond_safety_checkin, get_user_checkins,
-    check_dealbreaker_conflicts, get_profile_completeness,
+    get_shared_dealbreakers, get_profile_completeness,
     log_rate_limit_hit,
     UPLOAD_DIR,
 )
@@ -165,9 +165,9 @@ MAGIC_BYTES = {
     ".png": [b"\x89PNG"],
     ".webp": [b"RIFF"],
     ".gif": [b"GIF87a", b"GIF89a"],
-    ".mp4": [b"\x00\x00\x00\x18ftyp", b"\x00\x00\x00\x1cftyp", b"\x00\x00\x00\x20ftyp", b"\x00\x00\x00"],
+    ".mp4": [b"\x00\x00\x00\x18ftyp", b"\x00\x00\x00\x1cftyp", b"\x00\x00\x00\x20ftyp"],
     ".webm": [b"\x1a\x45\xdf\xa3"],
-    ".mov": [b"\x00\x00\x00\x14ftyp", b"\x00\x00\x00\x08wide", b"\x00\x00\x00"],
+    ".mov": [b"\x00\x00\x00\x14ftyp", b"\x00\x00\x00\x08wide"],
 }
 
 
@@ -199,7 +199,7 @@ class ConnectionManager:
             try:
                 await ws.send_text(_json.dumps(data))
             except Exception:
-                pass
+                self.disconnect(profile_id, ws)
 
     def is_online(self, profile_id: str) -> bool:
         return bool(self.active.get(profile_id))
@@ -208,6 +208,23 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 security = HTTPBearer(auto_error=False)
+
+
+def _verify_totp(user_id: str, code: str) -> bool:
+    import hmac, struct, time, base64, hashlib as _hashlib
+    totp = get_totp_secret(user_id)
+    if not totp or not totp.get("verified"):
+        return False
+    secret_bytes = base64.b32decode(totp["secret"] + "=" * (-len(totp["secret"]) % 8))
+    counter = int(time.time()) // 30
+    for offset in (-1, 0, 1):
+        c = struct.pack(">Q", counter + offset)
+        h = hmac.new(secret_bytes, c, _hashlib.sha1).digest()
+        o = h[-1] & 0x0F
+        otp = str((struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF) % 1000000).zfill(6)
+        if hmac.compare_digest(otp, code):
+            return True
+    return False
 
 
 def create_token(user_id: str, is_admin: bool = False) -> str:
@@ -260,6 +277,7 @@ class AuthRegister(BaseModel):
 class AuthLogin(BaseModel):
     email: str
     password: str
+    totp_code: str = ""
 
 class ProfileSubmission(BaseModel):
     name: str
@@ -437,6 +455,9 @@ class SafetyCheckinCreate(BaseModel):
     check_in_minutes: int = 60
     date_schedule_id: str | None = None
 
+class RecoveryCodeUse(BaseModel):
+    code: str
+
 class ThemeUpdate(BaseModel):
     theme: str  # "mocha" or "latte"
 
@@ -493,6 +514,12 @@ def login(request: Request, body: AuthLogin):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if user.get("deactivated"):
         raise HTTPException(status_code=403, detail="Account deactivated")
+    totp = get_totp_secret(user["id"])
+    if totp and totp.get("verified"):
+        if not body.totp_code:
+            return JSONResponse({"requires_2fa": True, "user_id": user["id"]})
+        if not _verify_totp(user["id"], body.totp_code):
+            raise HTTPException(status_code=401, detail="Invalid 2FA code")
     token = create_token(user["id"], bool(user["is_admin"]))
     refresh = _create_refresh_token_for_user(user["id"])
     log.info("User logged in: %s", body.email)
@@ -523,9 +550,8 @@ def get_me(user: dict = Depends(require_user)):
 def request_password_reset(request: Request, body: PasswordResetRequest):
     user = get_user_by_email(body.email)
     if user:
-        token = create_password_reset(user["id"])
-        # In production, send email. For dev, return token directly.
-        return {"message": "If that email exists, a reset link has been sent", "dev_token": token}
+        create_password_reset(user["id"])
+        return {"message": "If that email exists, a reset link has been sent"}
     return {"message": "If that email exists, a reset link has been sent"}
 
 
@@ -551,6 +577,7 @@ def change_password(body: PasswordChange, user: dict = Depends(require_user)):
     conn.execute("UPDATE users SET password_hash=? WHERE id=?",
                  (bcrypt.using(rounds=BCRYPT_ROUNDS).hash(body.new_password), user["id"]))
     conn.commit()
+    revoke_all_user_tokens(user["id"])
     return {"message": "Password changed successfully"}
 
 
@@ -670,6 +697,10 @@ def read_all_notifications(user: dict = Depends(require_user)):
 
 @app.post("/api/notifications/{notification_id}/read")
 def read_notification(notification_id: str, user: dict = Depends(require_user)):
+    from app.database import get_db
+    notif = get_db().execute("SELECT * FROM notifications WHERE id=?", (notification_id,)).fetchone()
+    if notif and notif["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
     mark_notification_read(notification_id)
     return {"message": "Notification marked read"}
 
@@ -784,7 +815,7 @@ def read_profile(profile_id: str):
 
 
 @app.get("/api/profiles")
-def list_profiles():
+def list_profiles(user: dict = Depends(require_user)):
     profiles = get_all_profiles()
     return [
         {
@@ -937,6 +968,8 @@ def update_privacy(profile_id: str, body: PrivacyUpdate, user: dict = Depends(re
 
 @app.post("/api/messages")
 async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
+    if user.get("profile_id") != msg.from_id:
+        raise HTTPException(status_code=403, detail="Cannot send as another user")
     if not msg.content.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     if is_blocked_either(msg.from_id, msg.to_id):
@@ -986,6 +1019,8 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
 
 @app.get("/api/messages/{profile_id}")
 def get_inbox(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     convos = get_conversations_for(profile_id)
     for c in convos:
         partner = get_profile(c["partner_id"])
@@ -997,6 +1032,8 @@ def get_inbox(profile_id: str, user: dict = Depends(require_user)):
 @app.get("/api/messages/{id_a}/{id_b}")
 def get_msgs(id_a: str, id_b: str, limit: int = 50, before: str = "",
              user: dict = Depends(require_user)):
+    if user.get("profile_id") not in (id_a, id_b):
+        raise HTTPException(status_code=403, detail="Forbidden")
     if before:
         messages = get_conversation_paginated(id_a, id_b, limit, before)
     else:
@@ -1018,6 +1055,8 @@ def get_msgs(id_a: str, id_b: str, limit: int = 50, before: str = "",
 async def send_photo_message(from_id: str, to_id: str,
                               file: UploadFile = File(...),
                               user: dict = Depends(require_user)):
+    if user.get("profile_id") != from_id:
+        raise HTTPException(status_code=403, detail="Cannot send as another user")
     if not from_id or not to_id:
         raise HTTPException(status_code=400, detail="from_id and to_id required")
     if is_blocked_either(from_id, to_id):
@@ -1054,7 +1093,9 @@ async def send_photo_message(from_id: str, to_id: str,
 # ---------------------------------------------------------------------------
 
 @app.post("/api/date-plans")
-def create_plan(plan: DatePlanCreate):
+def create_plan(plan: DatePlanCreate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != plan.proposed_by:
+        raise HTTPException(status_code=403, detail="Forbidden")
     plan_id = create_date_plan(
         plan.profile_a, plan.profile_b, plan.proposed_by,
         plan.suggestion, plan.proposed_time
@@ -1063,7 +1104,7 @@ def create_plan(plan: DatePlanCreate):
 
 
 @app.put("/api/date-plans/{plan_id}")
-def update_plan(plan_id: str, body: DatePlanUpdate):
+def update_plan(plan_id: str, body: DatePlanUpdate, user: dict = Depends(require_user)):
     if body.status not in ("accepted", "declined", "completed"):
         raise HTTPException(status_code=400, detail="Invalid status")
     if not update_date_plan(plan_id, body.status):
@@ -1072,7 +1113,9 @@ def update_plan(plan_id: str, body: DatePlanUpdate):
 
 
 @app.get("/api/date-plans/{profile_id}")
-def get_plans(profile_id: str):
+def get_plans(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     plans = get_date_plans(profile_id)
     # Enrich with names
     for p in plans:
@@ -1087,7 +1130,9 @@ def get_plans(profile_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/behavioral")
-def log_event(event: BehavioralEvent):
+def log_event(event: BehavioralEvent, user: dict = Depends(require_user)):
+    if user.get("profile_id") != event.profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     log_behavioral_event(
         event.profile_id, event.event_type,
         event.target_id, event.duration_ms
@@ -1104,7 +1149,9 @@ def get_behavior(profile_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/safety/report")
-def report_safety(report: SafetyReport):
+def report_safety(report: SafetyReport, user: dict = Depends(require_user)):
+    if user.get("profile_id") != report.reporter_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     report_id = create_safety_report(
         report.reporter_id, report.reported_id,
         report.report_type, report.notes
@@ -1190,7 +1237,9 @@ def get_profile_page(profile_id: str, viewer: str = ""):
 
 
 @app.put("/api/profile/{profile_id}/page")
-def update_profile_page(profile_id: str, body: ProfilePageUpdate):
+def update_profile_page(profile_id: str, body: ProfilePageUpdate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -1209,7 +1258,9 @@ def update_profile_page(profile_id: str, body: ProfilePageUpdate):
 
 # Blog
 @app.post("/api/profile/{profile_id}/blog")
-def create_blog(profile_id: str, post: BlogPostCreate):
+def create_blog(profile_id: str, post: BlogPostCreate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -1235,7 +1286,9 @@ def del_blog(post_id: str, profile_id: str = ""):
 
 # Comments
 @app.post("/api/profile/{profile_id}/comments")
-def add_comment(profile_id: str, comment: ProfileCommentCreate):
+def add_comment(profile_id: str, comment: ProfileCommentCreate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != comment.from_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -1256,7 +1309,9 @@ def list_comments(profile_id: str):
 
 
 @app.delete("/api/comment/{comment_id}")
-def del_comment(comment_id: str, profile_id: str = ""):
+def del_comment(comment_id: str, profile_id: str = "", user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not profile_id:
         raise HTTPException(status_code=400, detail="profile_id required")
     if not delete_profile_comment(comment_id, profile_id):
@@ -1266,7 +1321,9 @@ def del_comment(comment_id: str, profile_id: str = ""):
 
 # Friends
 @app.post("/api/profile/{profile_id}/friend/{friend_id}")
-def add_friend(profile_id: str, friend_id: str):
+def add_friend(profile_id: str, friend_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if profile_id == friend_id:
         raise HTTPException(status_code=400, detail="Cannot friend yourself")
     if are_friends(profile_id, friend_id):
@@ -1288,13 +1345,17 @@ def add_friend(profile_id: str, friend_id: str):
 
 
 @app.put("/api/profile/{profile_id}/friend/{friend_id}")
-def handle_friend_request(profile_id: str, friend_id: str, body: FriendAction):
+def handle_friend_request(profile_id: str, friend_id: str, body: FriendAction, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     respond_friend_request(profile_id, friend_id, body.accept)
     return {"message": "Accepted" if body.accept else "Declined"}
 
 
 @app.delete("/api/profile/{profile_id}/friend/{friend_id}")
-def unfriend(profile_id: str, friend_id: str):
+def unfriend(profile_id: str, friend_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     remove_friend(profile_id, friend_id)
     return {"message": "Friend removed"}
 
@@ -1314,7 +1375,9 @@ def list_friend_requests(profile_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/likes")
-def like_toggle(body: LikeToggle):
+def like_toggle(body: LikeToggle, user: dict = Depends(require_user)):
+    if user.get("profile_id") != body.from_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if body.target_type not in ("profile", "blog_post", "comment", "status"):
         raise HTTPException(status_code=400, detail="Invalid target type")
     liked = toggle_like(body.from_id, body.target_type, body.target_id, body.reaction)
@@ -1342,7 +1405,9 @@ def get_target_likes(target_type: str, target_id: str, viewer: str = ""):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/status")
-def post_status(body: StatusCreate):
+def post_status(body: StatusCreate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != body.profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="Status cannot be empty")
     sid = create_status_update(body.profile_id, body.content.strip(), body.mood)
@@ -1355,7 +1420,9 @@ def list_statuses(profile_id: str):
 
 
 @app.delete("/api/status/{status_id}")
-def remove_status(status_id: str, profile_id: str = ""):
+def remove_status(status_id: str, profile_id: str = "", user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not profile_id:
         raise HTTPException(status_code=400, detail="profile_id required")
     if not delete_status_update(status_id, profile_id):
@@ -1372,7 +1439,9 @@ def status_feed(profile_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/heartbeat/{profile_id}")
-def heartbeat(profile_id: str):
+def heartbeat(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     update_last_seen(profile_id)
     return {"status": "ok"}
 
@@ -1398,6 +1467,8 @@ async def upload_gallery_photo(profile_id: str, file: UploadFile = File(...),
     if ext not in (".jpg", ".jpeg", ".png", ".webp"):
         raise HTTPException(status_code=400, detail="Only JPG, PNG, WEBP allowed")
     content = await file.read()
+    if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_MB}MB)")
     if not validate_file_magic(content, ext):
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     import uuid as _uuid
@@ -1419,7 +1490,9 @@ def list_photos(profile_id: str):
 
 
 @app.delete("/api/photo/{photo_id}")
-def remove_photo(photo_id: str, profile_id: str = ""):
+def remove_photo(photo_id: str, profile_id: str = "", user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not profile_id:
         raise HTTPException(status_code=400, detail="profile_id required")
     if not delete_photo(photo_id, profile_id):
@@ -1428,7 +1501,9 @@ def remove_photo(photo_id: str, profile_id: str = ""):
 
 
 @app.put("/api/photo/{photo_id}/primary")
-def make_primary(photo_id: str, profile_id: str = ""):
+def make_primary(photo_id: str, profile_id: str = "", user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not profile_id:
         raise HTTPException(status_code=400, detail="profile_id required")
     if not set_primary_photo(photo_id, profile_id):
@@ -1442,7 +1517,8 @@ def make_primary(photo_id: str, profile_id: str = ""):
 
 @app.get("/api/search")
 def search(query: str = "", gender: str = "", seeking: str = "",
-           age_min: int = 0, age_max: int = 999, location: str = ""):
+           age_min: int = 0, age_max: int = 999, location: str = "",
+           user: dict = Depends(require_user)):
     results = search_profiles(query, gender, seeking, age_min, age_max, location)
     return {"results": [
         {
@@ -1467,7 +1543,7 @@ def activity_feed(profile_id: str):
 
 
 @app.get("/api/explore")
-def explore():
+def explore(user: dict = Depends(require_user)):
     return {
         "featured": [
             {"id": p["id"], "name": p["name"], "age": p["age"],
@@ -1646,7 +1722,7 @@ class GameAnswer(BaseModel):
 
 
 @app.get("/api/games/{profile_a}/{profile_b}")
-def get_game(profile_a: str, profile_b: str):
+def get_compat_game(profile_a: str, profile_b: str):
     game = get_or_create_game(profile_a, profile_b)
     if not game:
         score = get_game_score(profile_a, profile_b)
@@ -1663,7 +1739,9 @@ def get_game(profile_a: str, profile_b: str):
 
 
 @app.post("/api/games/{game_id}/answer/{profile_id}")
-def submit_game_answer(game_id: str, profile_id: str, body: GameAnswer):
+def submit_game_answer(game_id: str, profile_id: str, body: GameAnswer, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     result = answer_game(game_id, profile_id, body.answer)
     if not result:
         raise HTTPException(status_code=404, detail="Game not found or not a participant")
@@ -1748,7 +1826,9 @@ def get_intro(profile_id: str):
 
 
 @app.delete("/api/video-intro/{profile_id}")
-def remove_intro(profile_id: str):
+def remove_intro(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not delete_video_intro(profile_id):
         raise HTTPException(status_code=404, detail="No video intro found")
     return {"message": "Video intro deleted"}
@@ -1766,7 +1846,9 @@ class MusicPrefCreate(BaseModel):
 
 
 @app.post("/api/music/{profile_id}")
-def add_music(profile_id: str, body: MusicPrefCreate):
+def add_music(profile_id: str, body: MusicPrefCreate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     mid = add_music_pref(profile_id, body.song_title, body.artist, body.genre, body.spotify_url)
     return {"id": mid, "message": "Music added"}
 
@@ -1777,7 +1859,9 @@ def list_music(profile_id: str):
 
 
 @app.delete("/api/music/{pref_id}/{profile_id}")
-def remove_music(pref_id: str, profile_id: str):
+def remove_music(pref_id: str, profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not delete_music_pref(pref_id, profile_id):
         raise HTTPException(status_code=404, detail="Music preference not found")
     return {"message": "Removed"}
@@ -2012,7 +2096,10 @@ def get_2fa_status(user: dict = Depends(require_user)):
 
 
 @app.delete("/api/auth/2fa")
-def disable_2fa(user: dict = Depends(require_user)):
+def disable_2fa(body: dict, user: dict = Depends(require_user)):
+    password = body.get("password", "")
+    if not password or not bcrypt.verify(password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Password verification required")
     delete_totp_secret(user["id"])
     return {"message": "2FA disabled"}
 
@@ -2118,7 +2205,19 @@ def onboarding_status(user: dict = Depends(require_user)):
 # ---------------------------------------------------------------------------
 
 @app.websocket("/ws/{profile_id}")
-async def websocket_endpoint(websocket: WebSocket, profile_id: str):
+async def websocket_endpoint(websocket: WebSocket, profile_id: str, token: str = None):
+    if not token:
+        await websocket.close(code=4001, reason="Token required")
+        return
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user = get_user_by_id(payload.get("user_id") or payload.get("sub"))
+        if not user or user.get("profile_id") != profile_id:
+            await websocket.close(code=4003, reason="Forbidden")
+            return
+    except jwt.PyJWTError:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
     await ws_manager.connect(profile_id, websocket)
     update_last_seen(profile_id)
     try:
@@ -2203,8 +2302,14 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str):
 
 
 @app.get("/api/ws-online")
-def ws_online_users():
-    return {"online": list(ws_manager.active.keys())}
+def ws_online_users(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        return {"online": []}
+    friends = get_friends(profile_id)
+    friend_ids = {f["id"] for f in friends}
+    online = [pid for pid in ws_manager.active if pid in friend_ids]
+    return {"online": online}
 
 
 # ---------------------------------------------------------------------------
@@ -2242,6 +2347,8 @@ async def upload_voice_message(to_id: str, file: UploadFile = File(...),
     content = await file.read()
     if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large")
+    if not validate_file_magic(content, ".webm"):
+        raise HTTPException(status_code=400, detail="Invalid voice file format")
     fname = f"voice_{uuid.uuid4().hex[:12]}.webm"
     (UPLOAD_DIR / fname).write_bytes(content)
     msg_id = save_voice_message(profile_id, to_id, fname, duration_ms=0)
@@ -2366,10 +2473,15 @@ async def post_story(user: dict = Depends(require_user),
         raise HTTPException(status_code=400, detail="No profile linked")
     photo = None
     if file:
+        ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+            raise HTTPException(status_code=400, detail="Only image files allowed")
         file_content = await file.read()
         if len(file_content) > MAX_UPLOAD_MB * 1024 * 1024:
             raise HTTPException(status_code=413, detail="File too large")
-        fname = f"story_{uuid.uuid4().hex[:12]}{Path(file.filename).suffix}"
+        if not validate_file_magic(file_content, ext):
+            raise HTTPException(status_code=400, detail="File content doesn't match extension")
+        fname = f"story_{uuid.uuid4().hex[:12]}{ext}"
         (UPLOAD_DIR / fname).write_bytes(file_content)
         photo = fname
         content_type = "photo"
@@ -2535,8 +2647,8 @@ def recovery_code_count(user: dict = Depends(require_user)):
 
 
 @app.post("/api/2fa/recover")
-def use_2fa_recovery(code: str, user: dict = Depends(require_user)):
-    code_hash = hashlib.sha256(code.strip().upper().encode()).hexdigest()
+def use_2fa_recovery(body: RecoveryCodeUse, user: dict = Depends(require_user)):
+    code_hash = hashlib.sha256(body.code.strip().upper().encode()).hexdigest()
     if not use_recovery_code(user["id"], code_hash):
         raise HTTPException(status_code=400, detail="Invalid or used recovery code")
     return {"message": "Recovery code accepted", "remaining": get_recovery_code_count(user["id"])}
@@ -2633,7 +2745,7 @@ def start_game(body: GameStart, user: dict = Depends(require_user)):
 
 
 @app.get("/api/games/{game_id}")
-def get_game(game_id: str, user: dict = Depends(require_user)):
+def get_icebreaker_game_endpoint(game_id: str, user: dict = Depends(require_user)):
     game = get_icebreaker_game(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -2688,14 +2800,16 @@ def export_date_ics(schedule_id: str, user: dict = Depends(require_user)):
     ds = get_date_schedule(schedule_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Schedule not found")
+    def _ics_escape(val):
+        return (val or "").replace("\\", "\\\\").replace("\n", "\\n").replace(",", "\\,").replace(";", "\\;")
     ics = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Kindred//Date//EN
 BEGIN:VEVENT
 DTSTART:{ds['date_date'].replace('-', '')}T{(ds.get('date_time') or '19:00').replace(':', '')}00
 SUMMARY:Kindred Date
-LOCATION:{ds.get('venue', '')}
-DESCRIPTION:{ds.get('notes', '')}
+LOCATION:{_ics_escape(ds.get('venue', ''))}
+DESCRIPTION:{_ics_escape(ds.get('notes', ''))}
 END:VEVENT
 END:VCALENDAR"""
     from starlette.responses import Response
@@ -2729,7 +2843,7 @@ def active_blind_dates(user: dict = Depends(require_user)):
 @app.get("/api/dealbreaker-check/{target_id}")
 def dealbreaker_check(target_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id", "")
-    warnings = check_dealbreaker_conflicts(profile_id, target_id)
+    warnings = get_shared_dealbreakers(profile_id, target_id)
     return {"warnings": warnings}
 
 
@@ -2962,8 +3076,9 @@ def update_theme(body: ThemeUpdate, user: dict = Depends(require_user)):
     if body.theme not in ("mocha", "latte"):
         raise HTTPException(status_code=400, detail="Invalid theme")
     from app.database import get_db
-    get_db().execute("UPDATE users SET theme=? WHERE id=?", (body.theme, user["id"]))
-    get_db().commit()
+    conn = get_db()
+    conn.execute("UPDATE users SET theme=? WHERE id=?", (body.theme, user["id"]))
+    conn.commit()
     return {"message": "Theme updated", "theme": body.theme}
 
 
@@ -2977,9 +3092,10 @@ def get_theme(user: dict = Depends(require_user)):
 @app.post("/api/settings/typing-preview")
 def update_typing_preview(body: TypingPreviewUpdate, user: dict = Depends(require_user)):
     from app.database import get_db
-    get_db().execute("UPDATE users SET typing_preview=? WHERE id=?",
-                     (1 if body.enabled else 0, user["id"]))
-    get_db().commit()
+    conn = get_db()
+    conn.execute("UPDATE users SET typing_preview=? WHERE id=?",
+                 (1 if body.enabled else 0, user["id"]))
+    conn.commit()
     return {"message": "Typing preview updated"}
 
 

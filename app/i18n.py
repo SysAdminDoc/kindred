@@ -3,6 +3,7 @@ Kindred v1.7.0 - Internationalization (i18n) Framework
 Simple JSON-based translation system.
 """
 
+import contextvars
 import json
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from app.config import DEFAULT_LOCALE
 
 _LOCALE_DIR = Path(__file__).parent.parent / "locales"
 _translations: dict[str, dict] = {}
-_current_locale = DEFAULT_LOCALE
+_current_locale_var = contextvars.ContextVar('locale', default=DEFAULT_LOCALE)
 
 
 def _load_locale(locale: str) -> dict:
@@ -85,7 +86,7 @@ def init_i18n():
 
 def t(key: str, locale: str = None, **kwargs) -> str:
     """Translate a key. Falls back to English, then the raw key."""
-    loc = locale or _current_locale
+    loc = locale or _current_locale_var.get()
     if loc not in _translations:
         _translations[loc] = _load_locale(loc)
     text = _translations.get(loc, {}).get(key)
@@ -113,8 +114,6 @@ def get_translations(locale: str) -> dict:
 
 
 def set_locale(locale: str):
-    """Set the active locale."""
-    global _current_locale
-    _current_locale = locale
+    _current_locale_var.set(locale)
     if locale not in _translations:
         _translations[locale] = _load_locale(locale)

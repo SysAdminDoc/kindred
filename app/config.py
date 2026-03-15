@@ -15,7 +15,14 @@ except ImportError:
     pass
 
 # --- JWT ---
-JWT_SECRET = os.getenv("KINDRED_JWT_SECRET", secrets.token_urlsafe(48))
+_jwt_file = Path(__file__).parent.parent / ".jwt_secret"
+if os.getenv("KINDRED_JWT_SECRET"):
+    JWT_SECRET = os.getenv("KINDRED_JWT_SECRET")
+elif _jwt_file.exists():
+    JWT_SECRET = _jwt_file.read_text().strip()
+else:
+    JWT_SECRET = secrets.token_urlsafe(48)
+    _jwt_file.write_text(JWT_SECRET)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = int(os.getenv("KINDRED_JWT_EXPIRE_HOURS", "72"))
 
@@ -27,7 +34,7 @@ ADMIN_PASSWORD = os.getenv("KINDRED_ADMIN_PASSWORD", "admin")
 HOST = os.getenv("KINDRED_HOST", "127.0.0.1")
 USER_PORT = int(os.getenv("KINDRED_USER_PORT", "8000"))
 ADMIN_PORT = int(os.getenv("KINDRED_ADMIN_PORT", "8001"))
-CORS_ORIGINS = os.getenv("KINDRED_CORS_ORIGINS", "*").split(",")
+CORS_ORIGINS = os.getenv("KINDRED_CORS_ORIGINS", "http://localhost:8000,http://localhost:8001").split(",")
 
 # --- Database ---
 DB_PATH = Path(os.getenv("KINDRED_DB_PATH", str(Path(__file__).parent.parent / "kindred.db")))

@@ -32,6 +32,8 @@ def check_content(text: str) -> dict:
     if not CONTENT_FILTER_ENABLED or not text:
         return {"clean": True}
 
+    text = text[:10000]
+
     for pattern in _blocked_re:
         match = pattern.search(text)
         if match:
@@ -63,6 +65,7 @@ def filter_message(text: str) -> tuple[str, bool]:
     if not CONTENT_FILTER_ENABLED or not text:
         return text, False
 
+    text = text[:10000]
     filtered = text
     was_filtered = False
 

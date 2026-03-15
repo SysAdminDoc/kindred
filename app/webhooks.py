@@ -61,9 +61,9 @@ def update_webhook(wh_id: str, **kwargs) -> bool:
 
 def delete_webhook(wh_id: str) -> bool:
     conn = get_db()
-    conn.execute("DELETE FROM webhooks WHERE id=?", (wh_id,))
+    cursor = conn.execute("DELETE FROM webhooks WHERE id=?", (wh_id,))
     conn.commit()
-    return True
+    return cursor.rowcount > 0
 
 
 def fire_webhook(event_type: str, payload: dict):

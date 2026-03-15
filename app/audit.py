@@ -25,10 +25,11 @@ def get_audit_logs(limit: int = 100, offset: int = 0, action_filter: str = None)
     """Retrieve audit logs with optional filtering."""
     conn = get_db()
     if action_filter:
+        action_filter = action_filter.replace('%', '\\%').replace('_', '\\_')
         rows = conn.execute(
             """SELECT a.*, u.email as admin_email FROM audit_log a
                LEFT JOIN users u ON u.id = a.admin_user_id
-               WHERE a.action LIKE ?
+               WHERE a.action LIKE ? ESCAPE '\\'
                ORDER BY a.created_at DESC LIMIT ? OFFSET ?""",
             (f"%{action_filter}%", limit, offset)
         ).fetchall()

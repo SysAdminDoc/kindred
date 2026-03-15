@@ -3,6 +3,8 @@ Kindred v1.7.0 - HTML Email Templates
 Templates for verification, password reset, match notifications.
 """
 
+import html
+
 
 def _base_template(content: str, title: str = "Kindred") -> str:
     return f"""<!DOCTYPE html>
@@ -29,6 +31,8 @@ If you didn't request this, you can safely ignore it.
 
 
 def email_verification_template(display_name: str, verify_url: str) -> str:
+    display_name = html.escape(display_name)
+    verify_url = html.escape(verify_url)
     content = f"""
 <h2 style="color:#cba6f7;margin:0 0 20px;">Verify Your Email</h2>
 <p style="margin:0 0 15px;line-height:1.6;">Hi {display_name},</p>
@@ -41,6 +45,8 @@ def email_verification_template(display_name: str, verify_url: str) -> str:
 
 
 def password_reset_template(display_name: str, reset_url: str) -> str:
+    display_name = html.escape(display_name)
+    reset_url = html.escape(reset_url)
     content = f"""
 <h2 style="color:#cba6f7;margin:0 0 20px;">Reset Your Password</h2>
 <p style="margin:0 0 15px;line-height:1.6;">Hi {display_name},</p>
@@ -53,6 +59,9 @@ def password_reset_template(display_name: str, reset_url: str) -> str:
 
 
 def new_match_template(display_name: str, match_name: str, match_score: float, app_url: str) -> str:
+    display_name = html.escape(display_name)
+    match_name = html.escape(match_name)
+    app_url = html.escape(app_url)
     score_pct = round(match_score)
     content = f"""
 <h2 style="color:#cba6f7;margin:0 0 20px;">New Match!</h2>
@@ -69,6 +78,9 @@ def new_match_template(display_name: str, match_name: str, match_score: float, a
 
 
 def match_expiring_template(display_name: str, match_name: str, days_left: int, app_url: str) -> str:
+    display_name = html.escape(display_name)
+    match_name = html.escape(match_name)
+    app_url = html.escape(app_url)
     content = f"""
 <h2 style="color:#fab387;margin:0 0 20px;">Match Expiring Soon</h2>
 <p style="margin:0 0 15px;line-height:1.6;">Hi {display_name},</p>
@@ -80,6 +92,8 @@ def match_expiring_template(display_name: str, match_name: str, days_left: int, 
 
 
 def safety_alert_template(display_name: str, emergency_contact: str) -> str:
+    display_name = html.escape(display_name)
+    emergency_contact = html.escape(emergency_contact)
     content = f"""
 <h2 style="color:#f38ba8;margin:0 0 20px;">Safety Alert</h2>
 <p style="margin:0 0 15px;line-height:1.6;">Hi,</p>

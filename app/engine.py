@@ -1,5 +1,5 @@
 """
-Kindred v0.4.0 - Compatibility Matching Engine
+Kindred v1.7.0 - Compatibility Matching Engine
 8-dimension scoring: personality, values, communication, financial,
 attachment, tradeoffs, semantic, dealbreaker.
 Match narratives powered by Puter.js on the frontend.
@@ -151,7 +151,7 @@ def values_compatibility(a: dict, b: dict) -> float:
                 try:
                     ia = opts.index(av)
                     ib = opts.index(bv)
-                    max_dist = len(opts) - 1
+                    max_dist = max(len(opts) - 1, 1)
                     scores.append(1.0 - (abs(ia - ib) / max_dist) ** 1.3)
                 except ValueError:
                     scores.append(1.0 if av == bv else 0.2)

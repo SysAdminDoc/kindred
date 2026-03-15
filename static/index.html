@@ -951,6 +951,7 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 </style>
 </head>
 <body>
+<script>try{if(localStorage.getItem('kindred_theme')==='latte')document.body.classList.add('theme-latte')}catch(e){}</script>
 <div class="header" role="banner">
     <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.7.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
@@ -972,6 +973,10 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 const API='';
 let Q=null, activeProfile=null, authToken=null, currentUser=null;
 
+// ─── Safe localStorage helpers ───
+function safeGet(k,d){try{return localStorage.getItem(k)||d}catch(e){return d}}
+function safeSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+
 // ─── Auth helpers ───
 function authHeaders(extra={}){
     const h={'Content-Type':'application/json',...extra};
@@ -989,7 +994,7 @@ let ws=null, wsReconnectTimer=null;
 function connectWS(){
     if(!activeProfile||ws)return;
     const proto=location.protocol==='https:'?'wss:':'ws:';
-    ws=new WebSocket(proto+'//'+location.host+'/ws/'+activeProfile);
+    ws=new WebSocket(proto+'//'+location.host+'/ws/'+activeProfile+'?token='+(safeGet('kindred_token','')));
     ws.onmessage=(e)=>{
         try{
             const msg=JSON.parse(e.data);
@@ -1016,7 +1021,7 @@ function connectWS(){
             }
         }catch(err){}
     };
-    ws.onclose=()=>{ws=null;wsReconnectTimer=setTimeout(connectWS,5000);};
+    ws.onclose=()=>{ws=null;wsReconnectTimer=setTimeout(connectWS,5000);window._wsReconnectTimeout=wsReconnectTimer;};
     ws.onerror=()=>{ws?.close();};
     // Heartbeat every 30s
     const wsHB=setInterval(()=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'heartbeat'}));else clearInterval(wsHB);},30000);
@@ -1177,7 +1182,7 @@ async function init(){
     catch(e){ document.getElementById('app').innerHTML='<div class="empty"><h3>Cannot connect to server</h3><p>Make sure the backend is running on port 8000</p></div>'; return; }
     questions=buildQuestions(Q);
     // Restore auth session
-    const savedToken=localStorage.getItem('kindred_token');
+    const savedToken=safeGet('kindred_token','');
     if(savedToken){
         authToken=savedToken;
         try{
@@ -1185,8 +1190,8 @@ async function init(){
             if(r.ok){
                 currentUser=await r.json();
                 activeProfile=currentUser.profile_id;
-            } else { authToken=null; localStorage.removeItem('kindred_token'); }
-        }catch(e){ authToken=null; localStorage.removeItem('kindred_token'); }
+            } else { authToken=null; try{localStorage.removeItem('kindred_token')}catch(e){} }
+        }catch(e){ authToken=null; try{localStorage.removeItem('kindred_token')}catch(ex){} }
     }
     renderNav();
     if(activeProfile) showView('myprofile');
@@ -1281,8 +1286,10 @@ function logout(){
     activeProfile=null;
     authToken=null;
     currentUser=null;
-    localStorage.removeItem('kindred_token');
+    try{localStorage.removeItem('kindred_token')}catch(e){}
     if(notifInterval){clearInterval(notifInterval);notifInterval=null;}
+    if(window._heartbeatInterval){clearInterval(window._heartbeatInterval);window._heartbeatInterval=null;}
+    if(window._wsReconnectTimeout){clearTimeout(window._wsReconnectTimeout);window._wsReconnectTimeout=null;}
     document.getElementById('notif-panel').style.display='none';
     disconnectWS();
     renderNav();
@@ -1313,7 +1320,7 @@ function showAuthForm(mode){
         loginTab.className='btn btn-primary';regTab.className='btn btn-secondary';
         form.innerHTML=`<div style="max-width:360px;margin:0 auto;text-align:left">
             <div class="form-group"><label>Email</label><input type="text" id="auth-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
-            <div class="form-group"><label>Password</label><input type="text" id="auth-pass" placeholder="Your password" style="-webkit-text-security:disc" onkeydown="if(event.key==='Enter')doLogin()"></div>
+            <div class="form-group"><label>Password</label><input type="password" id="auth-pass" placeholder="Your password" onkeydown="if(event.key==='Enter')doLogin()"></div>
             <button class="btn btn-primary" onclick="doLogin()" style="width:100%;margin-top:8px">Sign In</button>
             <div id="auth-error" style="color:var(--red);font-size:13px;margin-top:10px;text-align:center"></div>
         </div>`;
@@ -1322,7 +1329,7 @@ function showAuthForm(mode){
         form.innerHTML=`<div style="max-width:360px;margin:0 auto;text-align:left">
             <div class="form-group"><label>Display Name</label><input type="text" id="auth-name" placeholder="Your name" onkeydown="if(event.key==='Enter')doRegister()"></div>
             <div class="form-group"><label>Email</label><input type="text" id="auth-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doRegister()"></div>
-            <div class="form-group"><label>Password</label><input type="text" id="auth-pass" placeholder="Min 6 characters" style="-webkit-text-security:disc" onkeydown="if(event.key==='Enter')doRegister()"></div>
+            <div class="form-group"><label>Password</label><input type="password" id="auth-pass" placeholder="Min 6 characters" onkeydown="if(event.key==='Enter')doRegister()"></div>
             <button class="btn btn-primary" onclick="doRegister()" style="width:100%;margin-top:8px">Create Account</button>
             <div id="auth-error" style="color:var(--red);font-size:13px;margin-top:10px;text-align:center"></div>
         </div>`;
@@ -1341,7 +1348,7 @@ async function doLogin(){
         if(!r.ok){errEl.textContent=d.detail||'Login failed';return;}
         authToken=d.token;
         currentUser={user_id:d.user_id,profile_id:d.profile_id,display_name:d.display_name};
-        localStorage.setItem('kindred_token',authToken);
+        safeSet('kindred_token',authToken);
         toast('Welcome back, '+d.display_name+'!','success');
         if(d.profile_id){loginAs(d.profile_id);}
         else{renderNav();showView('questionnaire');}
@@ -1361,7 +1368,7 @@ async function doRegister(){
         if(!r.ok){errEl.textContent=d.detail||'Registration failed';return;}
         authToken=d.token;
         currentUser={user_id:d.user_id,profile_id:null,display_name:d.display_name};
-        localStorage.setItem('kindred_token',authToken);
+        safeSet('kindred_token',authToken);
         toast('Account created! Now build your profile.','success');
         renderNav();
         showView('questionnaire');
@@ -1518,7 +1525,7 @@ function toggleMulti(val){
     renderQuestion();
 }
 
-function esc(s){ return s.replace(/'/g,"\\'"); }
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ─── Submit ───
 async function submitProfile(){
@@ -1560,17 +1567,17 @@ async function viewProfilePage(pid,viewer){
 
         // ─── Left Column ───
         let left=`<div class="ms-photo-card">${p.photo?`<img src="/uploads/${p.photo}">`:'<div class="ms-photo-placeholder">?</div>'}
-            <div class="ms-name">${p.name}${p.verified?'<span class="ms-verified">Verified</span>':''}</div>`;
-        if(p.headline) left+=`<div class="ms-headline">"${p.headline}"</div>`;
-        if(p.mood) left+=`<div class="ms-mood">Mood: ${p.mood}</div>`;
+            <div class="ms-name">${escHtml(p.name)}${p.verified?'<span class="ms-verified">Verified</span>':''}</div>`;
+        if(p.headline) left+=`<div class="ms-headline">"${escHtml(p.headline)}"</div>`;
+        if(p.mood) left+=`<div class="ms-mood">Mood: ${escHtml(p.mood)}</div>`;
         left+=`<div class="ms-meta">`;
         if(p.age) left+=`<strong>Age:</strong> ${p.age}<br>`;
-        if(p.gender) left+=`<strong>Gender:</strong> ${p.gender}<br>`;
-        if(p.location) left+=`<strong>Location:</strong> ${p.location}<br>`;
-        if(p.love_language) left+=`<strong>Love Language:</strong> ${p.love_language}<br>`;
-        if(p.attachment) left+=`<strong>Attachment:</strong> ${typeof p.attachment==='string'?p.attachment:JSON.stringify(p.attachment)}<br>`;
-        if(p.dating_energy) left+=`<strong>Energy:</strong> ${p.dating_energy}<br>`;
-        if(p.relationship_intent) left+=`<strong>Intent:</strong> ${p.relationship_intent}<br>`;
+        if(p.gender) left+=`<strong>Gender:</strong> ${escHtml(p.gender)}<br>`;
+        if(p.location) left+=`<strong>Location:</strong> ${escHtml(p.location)}<br>`;
+        if(p.love_language) left+=`<strong>Love Language:</strong> ${escHtml(p.love_language)}<br>`;
+        if(p.attachment) left+=`<strong>Attachment:</strong> ${escHtml(typeof p.attachment==='string'?p.attachment:JSON.stringify(p.attachment))}<br>`;
+        if(p.dating_energy) left+=`<strong>Energy:</strong> ${escHtml(p.dating_energy)}<br>`;
+        if(p.relationship_intent) left+=`<strong>Intent:</strong> ${escHtml(p.relationship_intent)}<br>`;
         left+=`<strong>Member since:</strong> ${new Date(p.created_at).toLocaleDateString()}<br>`;
         left+=`</div>`;
         left+=`<div class="ms-stats"><div class="ms-stat"><div class="num">${p.profile_views||0}</div><div class="lbl">Views</div></div><div class="ms-stat"><div class="num">${p.friend_count||0}</div><div class="lbl">Friends</div></div><div class="ms-stat"><div class="num">${p.blog_posts?.length||0}</div><div class="lbl">Posts</div></div></div>`;
@@ -1624,7 +1631,7 @@ async function viewProfilePage(pid,viewer){
 
         // About Me
         if(p.about_me||isOwner){
-            right+=`<div class="ms-section"><h2>About Me</h2><div class="content">${p.about_me||'<span style="color:var(--overlay0)">This user hasn\'t written about themselves yet.</span>'}</div></div>`;
+            right+=`<div class="ms-section"><h2>About Me</h2><div class="content">${p.about_me?escHtml(p.about_me):'<span style="color:var(--overlay0)">This user hasn\'t written about themselves yet.</span>'}</div></div>`;
         }
 
         // Profile Prompts
@@ -1632,17 +1639,17 @@ async function viewProfilePage(pid,viewer){
 
         // Who I'd Like to Meet
         if(p.who_id_like_to_meet){
-            right+=`<div class="ms-section"><h2>Who I'd Like to Meet</h2><div class="content">${p.who_id_like_to_meet}</div></div>`;
+            right+=`<div class="ms-section"><h2>Who I'd Like to Meet</h2><div class="content">${escHtml(p.who_id_like_to_meet)}</div></div>`;
         }
 
         // Interests
         if(p.interests){
-            right+=`<div class="ms-section"><h2>Interests</h2><div class="content">${p.interests}</div></div>`;
+            right+=`<div class="ms-section"><h2>Interests</h2><div class="content">${escHtml(p.interests)}</div></div>`;
         }
 
         // Heroes
         if(p.heroes){
-            right+=`<div class="ms-section"><h2>Heroes</h2><div class="content">${p.heroes}</div></div>`;
+            right+=`<div class="ms-section"><h2>Heroes</h2><div class="content">${escHtml(p.heroes)}</div></div>`;
         }
 
         // Music embeds
@@ -1663,7 +1670,7 @@ async function viewProfilePage(pid,viewer){
         // Top Friends
         right+=`<div class="ms-section"><h2>Friends (${p.friend_count||0})</h2>`;
         if(p.friends&&p.friends.length){
-            right+=`<div class="ms-friends-grid">${p.friends.slice(0,8).map(f=>`<div class="ms-friend" onclick="viewProfilePage('${f.friend_id}')">${f.photo?`<img src="/uploads/${f.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${f.name}</div></div>`).join('')}</div>`;
+            right+=`<div class="ms-friends-grid">${p.friends.slice(0,8).map(f=>`<div class="ms-friend" onclick="viewProfilePage('${f.friend_id}')">${f.photo?`<img src="/uploads/${f.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${escHtml(f.name)}</div></div>`).join('')}</div>`;
             if(p.friends.length>8) right+=`<div style="text-align:center;margin-top:8px;font-size:12px;color:var(--mauve);cursor:pointer" onclick="viewAllFriends('${pid}')">View all ${p.friend_count} friends</div>`;
         } else {
             right+=`<div style="color:var(--overlay0);font-size:13px">No friends yet.</div>`;
@@ -1678,7 +1685,7 @@ async function viewProfilePage(pid,viewer){
                 right+=`<div class="ms-section"><h2>Friend Requests (${reqD.requests.length})</h2>`;
                 for(const rq of reqD.requests){
                     right+=`<div class="ms-request">${rq.photo?`<img src="/uploads/${rq.photo}" class="photo-thumb" style="width:32px;height:32px">`:''}
-                        <span class="name">${rq.name}</span>
+                        <span class="name">${escHtml(rq.name)}</span>
                         <div class="req-actions">
                             <button class="btn-sm btn-match" onclick="acceptFriend('${pid}','${rq.from_id}')">Accept</button>
                             <button class="btn-sm btn-delete" onclick="declineFriend('${pid}','${rq.from_id}')">Decline</button>
@@ -1760,7 +1767,7 @@ async function viewProfilePage(pid,viewer){
         }
 
         const themeClass=p.profile_theme?'theme-'+p.profile_theme:'';
-        app.innerHTML=`<div class="ms-profile ${themeClass}" style="${themeClass?'padding:20px;border-radius:var(--radius)':''}""><div class="ms-left">${left}</div><div class="ms-right">${right}</div></div>`;
+        app.innerHTML=`<div class="ms-profile ${themeClass}" style="${themeClass?'padding:20px;border-radius:var(--radius)':''}"><div class="ms-left">${left}</div><div class="ms-right">${right}</div></div>`;
 
         // Draw radar
         if(p.big_five&&Object.keys(p.big_five).length){
@@ -1876,14 +1883,14 @@ function editProfilePage(pid){
     app.innerHTML='<div class="loading"><div class="spinner"></div>Loading...</div>';
     fetch(API+'/api/profile/'+pid+'/page?viewer='+pid).then(r=>r.json()).then(p=>{
         app.innerHTML=`<div class="card"><h2>Edit Your Profile Page</h2><p class="subtitle">Customize your MySpace-style profile</p>
-        <div class="ms-edit-group"><label>Location</label><input type="text" id="ep-location" value="${p.location||''}" placeholder="City, State"></div>
-        <div class="ms-edit-group"><label>Headline</label><input type="text" id="ep-headline" value="${p.headline||''}" placeholder="Your witty one-liner..."></div>
-        <div class="ms-edit-group"><label>Mood</label><input type="text" id="ep-mood" value="${p.mood||''}" placeholder="Happy, Contemplative, Excited..."></div>
-        <div class="ms-edit-group"><label>About Me</label><textarea id="ep-about" style="min-height:100px" placeholder="Tell the world about yourself...">${p.about_me||''}</textarea></div>
-        <div class="ms-edit-group"><label>Who I'd Like to Meet</label><textarea id="ep-meet" style="min-height:80px" placeholder="Describe your ideal connection...">${p.who_id_like_to_meet||''}</textarea></div>
-        <div class="ms-edit-group"><label>Interests</label><textarea id="ep-interests" style="min-height:80px" placeholder="Music, movies, hobbies...">${p.interests||''}</textarea></div>
-        <div class="ms-edit-group"><label>Heroes</label><textarea id="ep-heroes" style="min-height:60px" placeholder="People who inspire you...">${p.heroes||''}</textarea></div>
-        <div class="ms-edit-group"><label>Profile Song (YouTube, Spotify, or SoundCloud URL)</label><input type="text" id="ep-song" value="${p.profile_song||''}" placeholder="https://youtube.com/watch?v=..."></div>
+        <div class="ms-edit-group"><label>Location</label><input type="text" id="ep-location" value="${escHtml(p.location||'')}" placeholder="City, State"></div>
+        <div class="ms-edit-group"><label>Headline</label><input type="text" id="ep-headline" value="${escHtml(p.headline||'')}" placeholder="Your witty one-liner..."></div>
+        <div class="ms-edit-group"><label>Mood</label><input type="text" id="ep-mood" value="${escHtml(p.mood||'')}" placeholder="Happy, Contemplative, Excited..."></div>
+        <div class="ms-edit-group"><label>About Me</label><textarea id="ep-about" style="min-height:100px" placeholder="Tell the world about yourself...">${escHtml(p.about_me||'')}</textarea></div>
+        <div class="ms-edit-group"><label>Who I'd Like to Meet</label><textarea id="ep-meet" style="min-height:80px" placeholder="Describe your ideal connection...">${escHtml(p.who_id_like_to_meet||'')}</textarea></div>
+        <div class="ms-edit-group"><label>Interests</label><textarea id="ep-interests" style="min-height:80px" placeholder="Music, movies, hobbies...">${escHtml(p.interests||'')}</textarea></div>
+        <div class="ms-edit-group"><label>Heroes</label><textarea id="ep-heroes" style="min-height:60px" placeholder="People who inspire you...">${escHtml(p.heroes||'')}</textarea></div>
+        <div class="ms-edit-group"><label>Profile Song (YouTube, Spotify, or SoundCloud URL)</label><input type="text" id="ep-song" value="${escHtml(p.profile_song||'')}" placeholder="https://youtube.com/watch?v=..."></div>
         <div class="ms-edit-group"><label>Music Embeds (one URL per line)</label><textarea id="ep-music" style="min-height:60px" placeholder="YouTube, Spotify, or SoundCloud URLs...">${(p.music_embeds||[]).join('\\n')}</textarea></div>
         <div class="ms-edit-group"><label>Video Embeds (one URL per line)</label><textarea id="ep-videos" style="min-height:60px" placeholder="YouTube URLs...">${(p.video_embeds||[]).join('\\n')}</textarea></div>
         <div class="ms-edit-group"><label>Profile Theme</label><div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1920,9 +1927,9 @@ async function viewAllFriends(pid){
     app.innerHTML='<div class="loading"><div class="spinner"></div></div>';
     const r=await fetch(API+'/api/profile/'+pid+'/friends');const d=await r.json();
     const pr=await(await fetch(API+'/api/profile/'+pid)).json();
-    let html=`<div class="card"><h2>${pr.name}'s Friends (${d.friends.length})</h2><button class="btn btn-secondary" onclick="viewProfilePage('${pid}')" style="margin-bottom:12px;font-size:12px;padding:6px 12px">Back to Profile</button><div class="ms-friends-grid">`;
+    let html=`<div class="card"><h2>${escHtml(pr.name)}'s Friends (${d.friends.length})</h2><button class="btn btn-secondary" onclick="viewProfilePage('${pid}')" style="margin-bottom:12px;font-size:12px;padding:6px 12px">Back to Profile</button><div class="ms-friends-grid">`;
     for(const f of d.friends){
-        html+=`<div class="ms-friend" onclick="viewProfilePage('${f.friend_id}')">${f.photo?`<img src="/uploads/${f.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${f.name}</div></div>`;
+        html+=`<div class="ms-friend" onclick="viewProfilePage('${f.friend_id}')">${f.photo?`<img src="/uploads/${f.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${escHtml(f.name)}</div></div>`;
     }
     html+=`</div></div>`;
     app.innerHTML=html;
@@ -1965,14 +1972,14 @@ async function showMatchesFor(pid){
             const photo=m.photo&&!m.photo_locked?`<img src="/uploads/${m.photo}" class="photo-thumb">`:'<div class="photo-locked">'+(m.photo_locked?'&#128274;':'?')+'</div>';
             const badges=[];
             if(m.verified) badges.push('<span class="badge-verified">V</span>');
-            if(m.dating_energy) badges.push(`<span class="badge-energy">${m.dating_energy}</span>`);
-            if(m.relationship_intent) badges.push(`<span class="badge-intent">${m.relationship_intent}</span>`);
+            if(m.dating_energy) badges.push(`<span class="badge-energy">${escHtml(m.dating_energy)}</span>`);
+            if(m.relationship_intent) badges.push(`<span class="badge-intent">${escHtml(m.relationship_intent)}</span>`);
             if(m.super_liked_you) badges.push('<span class="super-liked-badge">&#11088;</span>');
             const expiryHtml=getExpiryBadgeHtml(m);
             const isExpired=expiryHtml.includes('Expired')&&!expiryHtml.includes('Expires in');
             return `<div class="match-card${isExpired?' expired':''} match-reveal" style="animation-delay:${i*.06}s" onclick="showDetail('${pid}','${m.profile_id}')">
                 ${photo}<div class="match-score ${sc}">${m.compatibility.dealbreaker_conflict?'X':s+'%'}</div>
-                <div class="match-info"><h3>${m.name}${badges.join('')}</h3><div class="meta">${m.age?m.age+' yrs':''}${expiryHtml?' &bull; ':''}<span style="font-size:11px">${expiryHtml}</span></div></div>
+                <div class="match-info"><h3>${escHtml(m.name)}${badges.join('')}</h3><div class="meta">${m.age?m.age+' yrs':''}${expiryHtml?' &bull; ':''}<span style="font-size:11px">${expiryHtml}</span></div></div>
                 <div class="match-tags">${Object.entries(m.compatibility.breakdown).map(([k,v])=>`<span class="match-tag">${k.slice(0,4)}: ${v}%</span>`).join('')}</div></div>`;
         }).join('');
         staggerListItems(c);
@@ -1991,9 +1998,9 @@ async function showDetail(a,b){
 
         let html=`<div class="card">`;
         if(comp.dealbreaker_conflict){
-            html+=`<div class="conflict-banner"><h3>Dealbreaker Conflict</h3><ul>${comp.conflicts.map(c=>`<li>${c}</li>`).join('')}</ul></div>`;
+            html+=`<div class="conflict-banner"><h3>Dealbreaker Conflict</h3><ul>${comp.conflicts.map(c=>`<li>${escHtml(c)}</li>`).join('')}</ul></div>`;
         }
-        html+=`<div style="text-align:center;margin-bottom:20px"><div style="font-size:13px;color:var(--overlay0)">Compatibility</div><div style="font-size:48px;font-weight:800" class="${sc}">${comp.dealbreaker_conflict?'Incompatible':s+'%'}</div><div style="font-size:15px;color:var(--subtext1)">${pa.name} & ${pb.name}</div><div id="mutual-detail-${b}" style="margin-top:6px;display:flex;justify-content:center"></div></div>`;
+        html+=`<div style="text-align:center;margin-bottom:20px"><div style="font-size:13px;color:var(--overlay0)">Compatibility</div><div style="font-size:48px;font-weight:800" class="${sc}">${comp.dealbreaker_conflict?'Incompatible':s+'%'}</div><div style="font-size:15px;color:var(--subtext1)">${escHtml(pa.name)} & ${escHtml(pb.name)}</div><div id="mutual-detail-${b}" style="margin-top:6px;display:flex;justify-content:center"></div></div>`;
 
         // Photos
         if(comp.photo_a||comp.photo_b){
@@ -2013,15 +2020,15 @@ async function showDetail(a,b){
 
         // Coaching tips
         if(comp.coaching_tips&&comp.coaching_tips.length){
-            html+=`<div class="card" style="animation-delay:.08s"><h2>Relationship Coaching</h2><p class="subtitle">Tips based on your compatibility profile</p>${comp.coaching_tips.map(t=>`<div class="coaching-tip">${t}</div>`).join('')}</div>`;
+            html+=`<div class="card" style="animation-delay:.08s"><h2>Relationship Coaching</h2><p class="subtitle">Tips based on your compatibility profile</p>${comp.coaching_tips.map(t=>`<div class="coaching-tip">${escHtml(t)}</div>`).join('')}</div>`;
         }
 
         // Narrative
-        html+=`<div class="card" style="animation-delay:.12s"><h2>Compatibility Insight</h2><div class="narrative" id="narrative-text">${comp.narrative||'Generating insight...'}</div></div>`;
+        html+=`<div class="card" style="animation-delay:.12s"><h2>Compatibility Insight</h2><div class="narrative" id="narrative-text">${escHtml(comp.narrative||'Generating insight...')}</div></div>`;
 
         // Icebreakers
         if(comp.icebreakers&&comp.icebreakers.length){
-            html+=`<div class="card" style="animation-delay:.16s"><h2>Conversation Starters</h2><p class="subtitle">Click to copy</p>${comp.icebreakers.map(ib=>`<div class="icebreaker" onclick="navigator.clipboard.writeText(this.textContent);toast('Copied!','success')">${ib}</div>`).join('')}</div>`;
+            html+=`<div class="card" style="animation-delay:.16s"><h2>Conversation Starters</h2><p class="subtitle">Click to copy</p>${comp.icebreakers.map(ib=>`<div class="icebreaker" onclick="navigator.clipboard.writeText(this.textContent);toast('Copied!','success')">${escHtml(ib)}</div>`).join('')}</div>`;
         }
 
         // Communication & Financial comparison
@@ -2034,7 +2041,7 @@ async function showDetail(a,b){
                     const av=pa.communication_style[k]||'--';
                     const bv=pb.communication_style[k]||'--';
                     const match=av===bv?'var(--green)':'var(--overlay0)';
-                    html+=`<div class="comp-row"><span class="cl">${av}</span><span class="cm" style="color:${match}">${k.replace(/_/g,' ')}</span><span class="cr">${bv}</span></div>`;
+                    html+=`<div class="comp-row"><span class="cl">${escHtml(av)}</span><span class="cm" style="color:${match}">${k.replace(/_/g,' ')}</span><span class="cr">${escHtml(bv)}</span></div>`;
                 }
                 html+=`</div>`;
             }
@@ -2045,7 +2052,7 @@ async function showDetail(a,b){
                     const av=pa.financial_values[k]||'--';
                     const bv=pb.financial_values[k]||'--';
                     const match=av===bv?'var(--green)':'var(--overlay0)';
-                    html+=`<div class="comp-row"><span class="cl">${av}</span><span class="cm" style="color:${match}">${k.replace(/_/g,' ')}</span><span class="cr">${bv}</span></div>`;
+                    html+=`<div class="comp-row"><span class="cl">${escHtml(av)}</span><span class="cm" style="color:${match}">${k.replace(/_/g,' ')}</span><span class="cr">${escHtml(bv)}</span></div>`;
                 }
                 html+=`</div>`;
             }
@@ -2053,7 +2060,7 @@ async function showDetail(a,b){
         }
 
         // Profile comparison with radar charts
-        html+=`<div class="card" style="animation-delay:.24s"><h2>Profile Comparison</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:12px"><div><h3 style="color:var(--mauve);margin-bottom:8px">${pa.name}</h3><div class="radar-container"><canvas id="radar-a" width="200" height="200"></canvas></div>${profileSummary(pa)}</div><div><h3 style="color:var(--pink);margin-bottom:8px">${pb.name}</h3><div class="radar-container"><canvas id="radar-b" width="200" height="200"></canvas></div>${profileSummary(pb)}</div></div></div>`;
+        html+=`<div class="card" style="animation-delay:.24s"><h2>Profile Comparison</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:12px"><div><h3 style="color:var(--mauve);margin-bottom:8px">${escHtml(pa.name)}</h3><div class="radar-container"><canvas id="radar-a" width="200" height="200"></canvas></div>${profileSummary(pa)}</div><div><h3 style="color:var(--pink);margin-bottom:8px">${escHtml(pb.name)}</h3><div class="radar-container"><canvas id="radar-b" width="200" height="200"></canvas></div>${profileSummary(pb)}</div></div></div>`;
 
         // Date suggestion / plans
         if(comp.suggest_date||comp.date_plans?.length){
@@ -2063,8 +2070,8 @@ async function showDetail(a,b){
             }
             if(comp.date_plans&&comp.date_plans.length){
                 for(const dp of comp.date_plans){
-                    html+=`<div class="date-plan"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>${dp.suggestion}</strong><span class="dp-status dp-${dp.status}">${dp.status}</span></div>`;
-                    if(dp.proposed_time) html+=`<div style="font-size:12px;color:var(--overlay0)">Time: ${dp.proposed_time}</div>`;
+                    html+=`<div class="date-plan"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>${escHtml(dp.suggestion)}</strong><span class="dp-status dp-${dp.status}">${dp.status}</span></div>`;
+                    if(dp.proposed_time) html+=`<div style="font-size:12px;color:var(--overlay0)">Time: ${escHtml(dp.proposed_time)}</div>`;
                     if(dp.status==='proposed'){
                         html+=`<div style="margin-top:8px;display:flex;gap:6px"><button class="btn-sm btn-match" onclick="updatePlan('${dp.id}','accepted')">Accept</button><button class="btn-sm btn-delete" onclick="updatePlan('${dp.id}','declined')">Decline</button></div>`;
                     }
@@ -2112,9 +2119,9 @@ async function showDetail(a,b){
 function profileSummary(p){
     let h='';
     if(p.big_five){h+=Object.entries(p.big_five).map(([t,v])=>`<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--subtext0)"><span>${t}</span><span>${Math.round(v*100)}%</span></div><div class="bd-bar"><div class="bd-fill" style="width:${v*100}%;background:var(--lavender)"></div></div></div>`).join('');}
-    if(p.love_language)h+=`<div style="margin-top:10px;font-size:12px;color:var(--overlay0)">Love language: <strong style="color:var(--text)">${p.love_language}</strong></div>`;
-    if(p.attachment)h+=`<div style="margin-top:4px;font-size:12px;color:var(--overlay0)">Attachment: <strong style="color:var(--text)">${p.attachment}</strong></div>`;
-    if(p.dealbreakers&&p.dealbreakers.length)h+=`<div style="margin-top:4px;font-size:12px;color:var(--overlay0)">Deal-breakers: <span style="color:var(--red)">${p.dealbreakers.join(', ')}</span></div>`;
+    if(p.love_language)h+=`<div style="margin-top:10px;font-size:12px;color:var(--overlay0)">Love language: <strong style="color:var(--text)">${escHtml(p.love_language)}</strong></div>`;
+    if(p.attachment)h+=`<div style="margin-top:4px;font-size:12px;color:var(--overlay0)">Attachment: <strong style="color:var(--text)">${escHtml(typeof p.attachment==='string'?p.attachment:JSON.stringify(p.attachment))}</strong></div>`;
+    if(p.dealbreakers&&p.dealbreakers.length)h+=`<div style="margin-top:4px;font-size:12px;color:var(--overlay0)">Deal-breakers: <span style="color:var(--red)">${p.dealbreakers.map(d=>escHtml(d)).join(', ')}</span></div>`;
     return h;
 }
 
@@ -2162,10 +2169,10 @@ async function loadCompatGame(a,b){
             // Check if user already answered
             const myAnswer=(a===g.profile_a)?g.answer_a:g.answer_b;
             if(myAnswer){
-                html+=`<div class="game-question">${g.question}</div>`;
-                html+=`<div style="text-align:center;color:var(--overlay0);padding:12px">You chose <strong style="color:var(--mauve)">${myAnswer}</strong>. Waiting for their answer...</div>`;
+                html+=`<div class="game-question">${escHtml(g.question)}</div>`;
+                html+=`<div style="text-align:center;color:var(--overlay0);padding:12px">You chose <strong style="color:var(--mauve)">${escHtml(myAnswer)}</strong>. Waiting for their answer...</div>`;
             } else {
-                html+=`<div class="game-question">${g.question}</div>`;
+                html+=`<div class="game-question">${escHtml(g.question)}</div>`;
                 html+=`<div class="game-choices"><div class="game-choice" onclick="submitGameAnswer('${g.id}','${a}','${choiceA}',this)">${choiceA}</div><div class="game-choice" onclick="submitGameAnswer('${g.id}','${a}','${choiceB}',this)">${choiceB}</div></div>`;
             }
         }
@@ -2206,7 +2213,7 @@ async function showGameHistory(a,b){
     el.innerHTML=`<div style="margin-top:12px">${d.history.map(g=>{
         const icon=g.matched?'&#10003;':'&#10007;';
         const color=g.matched?'var(--green)':'var(--peach)';
-        return `<div class="game-history-item"><span style="color:${color};font-size:16px">${icon}</span><span style="flex:1">${g.question}</span><span style="color:var(--mauve);font-size:12px">${g.answer_a}</span><span style="color:var(--overlay0);font-size:12px">vs</span><span style="color:var(--pink);font-size:12px">${g.answer_b}</span></div>`;
+        return `<div class="game-history-item"><span style="color:${color};font-size:16px">${icon}</span><span style="flex:1">${escHtml(g.question)}</span><span style="color:var(--mauve);font-size:12px">${escHtml(g.answer_a)}</span><span style="color:var(--overlay0);font-size:12px">vs</span><span style="color:var(--pink);font-size:12px">${escHtml(g.answer_b)}</span></div>`;
     }).join('')}</div>`;
 }
 
@@ -2294,8 +2301,8 @@ async function loadMusicCompat(a,b){
         if(!d.a_count||!d.b_count){el.innerHTML='<div style="color:var(--overlay0);text-align:center;padding:12px">One of you hasn\'t added music yet. Both need songs to calculate compatibility.</div>';return;}
         const scoreColor=d.score>=60?'var(--green)':d.score>=30?'var(--yellow)':'var(--peach)';
         let html=`<div class="music-compat"><div class="music-compat-score" style="color:${scoreColor}">${d.score}%</div><div><div style="font-size:14px;font-weight:500">Music Match</div><div style="font-size:12px;color:var(--overlay0)">${d.a_count} vs ${d.b_count} songs</div></div></div>`;
-        if(d.shared_artists.length) html+=`<div style="margin-top:8px"><span style="font-size:12px;color:var(--overlay0)">Shared artists:</span> ${d.shared_artists.map(a=>`<span class="music-genre-tag" style="margin:2px">${a}</span>`).join('')}</div>`;
-        if(d.shared_genres.length) html+=`<div style="margin-top:4px"><span style="font-size:12px;color:var(--overlay0)">Shared genres:</span> ${d.shared_genres.map(g=>`<span class="music-genre-tag" style="margin:2px">${g}</span>`).join('')}</div>`;
+        if(d.shared_artists.length) html+=`<div style="margin-top:8px"><span style="font-size:12px;color:var(--overlay0)">Shared artists:</span> ${d.shared_artists.map(a=>`<span class="music-genre-tag" style="margin:2px">${escHtml(a)}</span>`).join('')}</div>`;
+        if(d.shared_genres.length) html+=`<div style="margin-top:4px"><span style="font-size:12px;color:var(--overlay0)">Shared genres:</span> ${d.shared_genres.map(g=>`<span class="music-genre-tag" style="margin:2px">${escHtml(g)}</span>`).join('')}</div>`;
         el.innerHTML=html;
     }catch(e){el.innerHTML='';}
 }
@@ -2384,8 +2391,10 @@ async function renderInbox(){
     if(!activeProfile){showView('welcome');return;}
     const app=document.getElementById('app');
     app.innerHTML=`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><h2>Messages</h2><button class="btn btn-secondary" style="padding:6px 12px;font-size:13px" title="Search all messages" onclick="toggleInboxSearch()">&#128269;</button></div><p class="subtitle">Your conversations</p><div class="msg-search-bar" id="inbox-search-bar"><input type="text" id="inbox-search-input" placeholder="Search messages..." oninput="doInboxSearch()"><button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="toggleInboxSearch()">Close</button></div><div id="inbox-search-results"></div><div id="inbox"><div class="loading"><div class="spinner"></div>Loading...</div></div></div>`;
-    const [cr,olr]=await Promise.all([authFetch(API+'/api/messages/'+activeProfile),authFetch(API+'/api/ws-online')]);
-    const cd=await cr.json();const onlineData=await olr.json();const onlineSet=new Set(onlineData.online||[]);
+    let cd,onlineData;
+    try{const [cr,olr]=await Promise.all([authFetch(API+'/api/messages/'+activeProfile),authFetch(API+'/api/ws-online')]);
+    cd=await cr.json();onlineData=await olr.json();}catch(e){toast('Failed to load messages','error');return;}
+    const onlineSet=new Set(onlineData.online||[]);
     const inbox=document.getElementById('inbox');
     if(!cd.conversations.length){showEmpty(inbox,'&#128172;','No messages yet','Match with someone and start a conversation!','Find Matches',"showView('matches')");return;}
     inbox.innerHTML=cd.conversations.map(c=>{
@@ -2393,8 +2402,8 @@ async function renderInbox(){
         const dot=onlineSet.has(c.partner_id)?'<span class="online-dot"></span>':'<span class="offline-dot"></span>';
         const isBlind=typeof _activeBlindDates!=='undefined'&&_activeBlindDates&&_activeBlindDates.some&&_activeBlindDates.some(b=>b.partner_id===c.partner_id||b.target_id===c.partner_id);
         const blindBadge=isBlind?'<span class="convo-blind-badge">&#129638; Blind</span>':'';
-        const displayName=isBlind?`Mystery Match`:`${c.partner_name}`;
-        const previewText=isBlind?'[Blind Date - identity hidden]':c.last_message;
+        const displayName=isBlind?`Mystery Match`:escHtml(c.partner_name);
+        const previewText=isBlind?'[Blind Date - identity hidden]':escHtml(c.last_message);
         return `<div class="convo-item" onclick="openChat('${activeProfile}','${c.partner_id}')">${dot}<strong>${displayName}</strong>${blindBadge}${turnBadge}<span style="color:var(--overlay0);font-size:12px;margin-left:8px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${previewText}</span>${c.unread>0?`<span class="convo-unread">${c.unread}</span>`:''}</div>`;
     }).join('');
     staggerListItems(inbox);
@@ -2406,9 +2415,10 @@ async function startChatWith(fromId,toId){await openChat(fromId,toId);}
 async function openChat(meId,themId){
     window._chatPartner=themId;
     const app=document.getElementById('app');
-    const [pr,md,olr]=await Promise.all([authFetch(API+'/api/profile/'+themId).then(r=>r.json()),authFetch(API+'/api/messages/'+meId+'/'+themId).then(r=>r.json()),authFetch(API+'/api/ws-online').then(r=>r.json())]);
+    let pr,md,olr;
+    try{[pr,md,olr]=await Promise.all([authFetch(API+'/api/profile/'+themId).then(r=>r.json()),authFetch(API+'/api/messages/'+meId+'/'+themId).then(r=>r.json()),authFetch(API+'/api/ws-online').then(r=>r.json())]);}catch(e){toast('Failed to load chat','error');return;}
     const isOnline=(olr.online||[]).includes(themId);
-    let html=`<div class="card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><button class="btn btn-secondary" onclick="renderInbox()" style="padding:6px 12px">Back</button>${isOnline?'<span class="online-dot"></span>':'<span class="offline-dot"></span>'}<h2 style="margin:0">${pr.name}</h2>`;
+    let html=`<div class="card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><button class="btn btn-secondary" onclick="renderInbox()" style="padding:6px 12px">Back</button>${isOnline?'<span class="online-dot"></span>':'<span class="offline-dot"></span>'}<h2 style="margin:0">${escHtml(pr.name)}</h2>`;
     if(md.your_turn) html+='<span class="badge-turn">Your Turn</span>';
     html+=`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:13px" title="Search messages" onclick="toggleMsgSearch()">&#128269;</button>`;
     html+=`<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;color:var(--red)" onclick="blockUser('${meId}','${themId}')">Block</button>`;
@@ -2457,9 +2467,9 @@ async function sendMsg(from,to){
         bubble.innerHTML=escHtml(txt)+`<div class="msg-time">Sending...</div>`;
         ml.appendChild(bubble);ml.scrollTop=ml.scrollHeight;
     }
-    const r=await authFetch(API+'/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:from,to_id:to,content:txt})});
+    try{const r=await authFetch(API+'/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_id:from,to_id:to,content:txt})});
     if(!r.ok){const d=await r.json();toast(d.detail||'Failed to send','error');return;}
-    openChat(from,to);
+    openChat(from,to);}catch(e){toast('Network error','error');}
 }
 
 async function sendPhotoMsg(from,to,file){
@@ -2617,8 +2627,8 @@ async function doSearch(){
             <h3>${escHtml(p.name)}</h3>
             <div class="sc-meta">${p.age?p.age+' yrs':''} ${p.location?'&bull; '+escHtml(p.location):''}</div>
             ${p.headline?`<div class="sc-headline">"${escHtml(p.headline)}"</div>`:''}
-            ${p.dating_energy?`<span class="badge-energy">${p.dating_energy}</span>`:''}
-            ${p.relationship_intent?`<span class="badge-intent">${p.relationship_intent}</span>`:''}
+            ${p.dating_energy?`<span class="badge-energy">${escHtml(p.dating_energy)}</span>`:''}
+            ${p.relationship_intent?`<span class="badge-intent">${escHtml(p.relationship_intent)}</span>`:''}
         </div>`).join('')+'</div>';
         // Load mutual friends for each result (non-blocking)
         d.results.filter(p=>p.id!==activeProfile).forEach(p=>loadMutualFriends(p.id,'mutual-sc-'+p.id));
@@ -2800,7 +2810,7 @@ async function viewGroup(gid){
         // Members
         html+=`<h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 8px">Members (${g.member_count})</h3><div class="ms-friends-grid">`;
         for(const m of g.members.slice(0,12)){
-            html+=`<div class="ms-friend" onclick="viewProfilePage('${m.profile_id}')">${m.photo?`<img src="/uploads/${m.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${m.name}${m.role==='admin'?' (Admin)':''}</div></div>`;
+            html+=`<div class="ms-friend" onclick="viewProfilePage('${m.profile_id}')">${m.photo?`<img src="/uploads/${m.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${escHtml(m.name)}${m.role==='admin'?' (Admin)':''}</div></div>`;
         }
         html+=`</div></div>`;
         app.innerHTML=html;
@@ -2895,7 +2905,7 @@ async function viewEvent(eid){
         if(going.length){
             html+=`<h3 style="font-size:14px;color:var(--subtext1);margin-bottom:8px">Attending (${going.length})</h3><div class="ms-friends-grid">`;
             for(const a of going){
-                html+=`<div class="ms-friend" onclick="viewProfilePage('${a.profile_id}')">${a.photo?`<img src="/uploads/${a.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${a.name}</div></div>`;
+                html+=`<div class="ms-friend" onclick="viewProfilePage('${a.profile_id}')">${a.photo?`<img src="/uploads/${a.photo}">`:'<div class="ms-friend-placeholder">?</div>'}<div class="name">${escHtml(a.name)}</div></div>`;
             }
             html+=`</div>`;
         }
@@ -2910,10 +2920,10 @@ async function rsvpAction(eid,status){
 }
 
 // ─── Heartbeat ───
-setInterval(()=>{if(activeProfile)fetch(API+'/api/heartbeat/'+activeProfile,{method:'POST'}).catch(()=>{});},60000);
+window._heartbeatInterval=setInterval(()=>{if(activeProfile)fetch(API+'/api/heartbeat/'+activeProfile,{method:'POST'}).catch(()=>{});},60000);
 
 // ─── Toast ───
-function toast(m,t=''){const c=document.getElementById('toastContainer');const e=document.createElement('div');e.className='toast '+t;e.textContent=m;c.appendChild(e);requestAnimationFrame(()=>e.classList.add('show'));setTimeout(()=>{e.classList.remove('show');setTimeout(()=>e.remove(),300);},3500);}
+function toast(m,t=''){const c=document.getElementById('toastContainer');while(c.children.length>=5)c.removeChild(c.firstChild);const e=document.createElement('div');e.className='toast '+t;e.textContent=m;c.appendChild(e);requestAnimationFrame(()=>e.classList.add('show'));setTimeout(()=>{e.classList.remove('show');setTimeout(()=>e.remove(),300);},3500);}
 function showSkeleton(el,count=3){el.innerHTML=Array(count).fill('<div class="skeleton skeleton-card"></div>').join('');}
 function showEmpty(el,icon,title,desc,btnText,btnAction){el.innerHTML=`<div class="empty-state"><div class="empty-icon">${icon}</div><div class="empty-title">${title}</div><div class="empty-desc">${desc}</div>${btnText?`<button class="btn btn-primary" onclick="${btnAction}">${btnText}</button>`:''}</div>`;}
 
@@ -3205,7 +3215,7 @@ const onboardingSteps=[
 let onboardingStep=0;
 
 function startOnboarding(){
-    if(localStorage.getItem('kindred_onboarded'))return;
+    if(safeGet('kindred_onboarded',''))return;
     onboardingStep=0;
     showOnboardingStep();
 }
@@ -3258,7 +3268,7 @@ function nextOnboardingStep(){
 function finishOnboarding(){
     document.querySelectorAll('.onboarding-overlay,.onboarding-tooltip').forEach(e=>e.remove());
     document.querySelectorAll('.onboarding-highlight').forEach(e=>e.classList.remove('onboarding-highlight'));
-    localStorage.setItem('kindred_onboarded','1');
+    safeSet('kindred_onboarded','1');
     authFetch(API+'/api/onboarding/complete',{method:'POST',headers:authHeaders()}).catch(()=>{});
     toast('You\'re all set! Enjoy Kindred.','success');
 }
@@ -3364,7 +3374,7 @@ function t(key){return _translations[key]||key;}
 async function loadTranslations(locale){
     try{
         const r=await authFetch(API+'/api/i18n/translations/'+locale);
-        if(r.ok){_translations=await r.json();_locale=locale;localStorage.setItem('kindred_locale',locale);}
+        if(r.ok){_translations=await r.json();_locale=locale;safeSet('kindred_locale',locale);}
     }catch(e){}
 }
 async function loadAvailableLocales(selectId){
@@ -3381,7 +3391,7 @@ async function loadAvailableLocales(selectId){
 // ══════════════════════════════════════════════
 // ─── FEATURE: Notification Sounds (Feature 14) ───
 // ══════════════════════════════════════════════
-let _notifSoundsEnabled=localStorage.getItem('kindred_notif_sounds')==='1';
+let _notifSoundsEnabled=safeGet('kindred_notif_sounds','')==='1';
 function playNotifSound(){
     if(!_notifSoundsEnabled)return;
     try{
@@ -3399,7 +3409,7 @@ function playNotifSound(){
 }
 function setNotifSounds(enabled){
     _notifSoundsEnabled=enabled;
-    localStorage.setItem('kindred_notif_sounds',enabled?'1':'0');
+    safeSet('kindred_notif_sounds',enabled?'1':'0');
 }
 
 // ══════════════════════════════════════════════
@@ -3642,7 +3652,7 @@ function setupCropDrag(){
     if(!wrap||!img)return;
     const onDown=e=>{e.preventDefault();_cropState.dragging=true;const p=e.touches?e.touches[0]:e;_cropState.startX=p.clientX;_cropState.startY=p.clientY;_cropState.imgX=_cropState.x;_cropState.imgY=_cropState.y;};
     const onMove=e=>{if(!_cropState.dragging)return;e.preventDefault();const p=e.touches?e.touches[0]:e;_cropState.x=_cropState.imgX+(p.clientX-_cropState.startX);_cropState.y=_cropState.imgY+(p.clientY-_cropState.startY);applyTransform();};
-    const onUp=()=>{_cropState.dragging=false;};
+    const onUp=()=>{_cropState.dragging=false;document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);document.removeEventListener('touchmove',onMove);document.removeEventListener('touchend',onUp);};
     img.addEventListener('mousedown',onDown);document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);
     img.addEventListener('touchstart',onDown,{passive:false});document.addEventListener('touchmove',onMove,{passive:false});document.addEventListener('touchend',onUp);
 }
@@ -4112,14 +4122,14 @@ async function saveLocationSettings(){
 // ─── FEATURE 1: Dark/Light Theme Toggle ───
 // ══════════════════════════════════════════════════════
 (function initTheme(){
-    const saved=localStorage.getItem('kindred_theme')||'mocha';
+    const saved=safeGet('kindred_theme','mocha');
     applyTheme(saved,false);
 })();
 function applyTheme(theme,save=true){
     document.body.classList.toggle('theme-latte',theme==='latte');
     const btn=document.getElementById('theme-toggle-btn');
     if(btn)btn.innerHTML=theme==='latte'?'&#9728;':'&#9790;';
-    if(save)localStorage.setItem('kindred_theme',theme);
+    if(save)safeSet('kindred_theme',theme);
 }
 function toggleTheme(){
     const current=document.body.classList.contains('theme-latte')?'latte':'mocha';
@@ -4146,7 +4156,7 @@ function connectWSEnhanced(){
     _wsReconnecting=true;
     setWsStatus('reconnecting');
     const proto=location.protocol==='https:'?'wss:':'ws:';
-    ws=new WebSocket(proto+'//'+location.host+'/ws/'+activeProfile);
+    ws=new WebSocket(proto+'//'+location.host+'/ws/'+activeProfile+'?token='+(safeGet('kindred_token','')));
     ws.onopen=()=>{
         _wsBackoff=1000;_wsReconnecting=false;
         setWsStatus('connected');
@@ -4190,6 +4200,7 @@ function connectWSEnhanced(){
             _wsBackoff=Math.min(_wsBackoff*2,_wsMaxBackoff);
             connectWSEnhanced();
         },_wsBackoff);
+        window._wsReconnectTimeout=wsReconnectTimer;
     };
     ws.onerror=()=>{ws?.close();};
     const wsHB=setInterval(()=>{
@@ -4248,9 +4259,9 @@ async function sendMsg(from,to){
     clearReplyTo();
     const body={from_id:from,to_id:to,content:txt};
     if(replyId)body.reply_to=replyId;
-    const r=await authFetch(API+'/api/messages',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
+    try{const r=await authFetch(API+'/api/messages',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
     if(!r.ok){const d=await r.json();toast(d.detail||'Failed to send','error');return;}
-    openChat(from,to);
+    openChat(from,to);}catch(e){toast('Network error','error');}
 }
 
 // ══════════════════════════════════════════════════════
@@ -4610,11 +4621,11 @@ async function submitDateSchedule(partnerId,containerId){
 // ══════════════════════════════════════════════════════
 // ─── FEATURE 10: Blind Date Mode ───
 // ══════════════════════════════════════════════════════
-let _blindDateMode=localStorage.getItem('kindred_blind_mode')==='1';
+let _blindDateMode=safeGet('kindred_blind_mode','')==='1';
 
 function setBlindMode(on){
     _blindDateMode=on;
-    localStorage.setItem('kindred_blind_mode',on?'1':'0');
+    safeSet('kindred_blind_mode',on?'1':'0');
 }
 async function startBlindDate(targetId){
     try{
@@ -4718,11 +4729,11 @@ const KB_TAB_MAP={'1':'myprofile','2':'matches','3':'messages','4':'discover','5
 
 document.addEventListener('keydown',e=>{
     // Skip if typing in an input
-    const tag=document.activeElement?.tagName?.toLowerCase();
-    if(tag==='input'||tag==='textarea'||tag==='select'){
+    if(document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){
         if(e.key==='Escape'){document.activeElement.blur();closeOpenModals();}
         return;
     }
+    if(document.activeElement&&document.activeElement.isContentEditable) return;
     if(e.shiftKey&&e.key==='?'){showShortcutsPanel();return;}
     if(e.key==='Escape'){closeOpenModals();return;}
     if(e.key==='/'){ e.preventDefault();
@@ -4830,12 +4841,12 @@ function staggerListItems(parentEl){
 // ══════════════════════════════════════════════════════
 // ─── FEATURE 16: Typing Previews ───
 // ══════════════════════════════════════════════════════
-let _typingPreviewEnabled=localStorage.getItem('kindred_typing_preview')==='1';
+let _typingPreviewEnabled=safeGet('kindred_typing_preview','')==='1';
 let _previewSendTimer=null;
 
 function setTypingPreviewEnabled(on){
     _typingPreviewEnabled=on;
-    localStorage.setItem('kindred_typing_preview',on?'1':'0');
+    safeSet('kindred_typing_preview',on?'1':'0');
 }
 function onMsgInputForPreview(e,toId){
     if(!_typingPreviewEnabled)return;
@@ -4895,11 +4906,12 @@ const _origOpenChat=openChat;
 async function openChat(meId,themId){
     window._chatPartner=themId;
     const app=document.getElementById('app');
-    const [pr,md,olr]=await Promise.all([
+    let pr,md,olr;
+    try{[pr,md,olr]=await Promise.all([
         authFetch(API+'/api/profile/'+themId).then(r=>r.json()),
         authFetch(API+'/api/messages/'+meId+'/'+themId).then(r=>r.json()),
         authFetch(API+'/api/ws-online').then(r=>r.json())
-    ]);
+    ]);}catch(e){toast('Failed to load chat','error');return;}
     const isOnline=(olr.online||[]).includes(themId);
     let html=`<div class="card">`;
 
@@ -4909,7 +4921,7 @@ async function openChat(meId,themId){
     html+=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
         <button class="btn btn-secondary" onclick="renderInbox()" style="padding:6px 12px">Back</button>
         ${isOnline?'<span class="online-dot"></span>':'<span class="offline-dot"></span>'}
-        <h2 style="margin:0">${pr.name}</h2>
+        <h2 style="margin:0">${escHtml(pr.name)}</h2>
         <div id="chat-badges-${themId}" style="display:inline-flex"></div>`;
     if(md.your_turn)html+='<span class="badge-turn">Your Turn</span>';
     html+=`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:13px" title="Search messages" onclick="toggleMsgSearch()">&#128269;</button>`;
@@ -5129,11 +5141,11 @@ async function init(){
 
 init();
 // Trigger onboarding after init for new users
-if(localStorage.getItem('kindred_token')&&!localStorage.getItem('kindred_onboarded')){
+if(safeGet('kindred_token','')&&!safeGet('kindred_onboarded','')){
     setTimeout(startOnboarding,1500);
 }
 // Load locale from storage
-const _savedLocale=localStorage.getItem('kindred_locale');
+const _savedLocale=safeGet('kindred_locale','');
 if(_savedLocale&&_savedLocale!=='en')loadTranslations(_savedLocale);
 </script>
 </body>
