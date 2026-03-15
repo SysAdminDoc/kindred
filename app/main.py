@@ -1,5 +1,5 @@
 """
-Kindred v2.1.0 - FastAPI Backend (User Server)
+Kindred v2.2.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -134,6 +134,12 @@ from app.database import (
     get_reveal_stage, advance_reveal_stage, get_revealed_profile,
     get_shared_interests,
     get_notification_digest,
+    create_safety_report_v2, get_report_counts_for_user,
+    get_response_stats, update_response_stats, update_last_message_time,
+    save_search, get_saved_searches, delete_saved_search,
+    get_recently_active_profiles, get_new_profiles, get_ghost_matches,
+    save_photo_hash, find_similar_photos,
+    submit_appeal, get_user_suspensions,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -153,7 +159,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="2.1.0")
+app = FastAPI(title="Kindred", version="2.2.0")
 
 # CORS middleware
 app.add_middleware(
@@ -227,6 +233,14 @@ class ConnectionManager:
 
     def is_online(self, profile_id: str) -> bool:
         return bool(self.active.get(profile_id))
+
+    async def send_notification_to_profile(self, profile_id: str, notification: dict):
+        """Send a real-time notification to a profile's WebSocket connections."""
+        for ws in self.active.get(profile_id, [])[:]:
+            try:
+                await ws.send_json({"type": "notification", "data": notification})
+            except Exception:
+                pass
 
 
 ws_manager = ConnectionManager()
@@ -1055,6 +1069,13 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
             content_text[:100],
             f"/messages/{msg.from_id}"
         )
+        await ws_manager.send_notification_to_profile(msg.to_id, {
+            "type": "message", "from": msg.from_id, "from_name": sender_name,
+        })
+    update_last_message_time(msg.from_id)
+    import random as _random
+    if _random.random() < 0.1:
+        update_response_stats(msg.to_id)
     # Real-time push via WebSocket
     await ws_manager.send_to(msg.to_id, {
         "type": "message",
@@ -1371,7 +1392,7 @@ def del_comment(comment_id: str, profile_id: str = "", user: dict = Depends(requ
 
 # Friends
 @app.post("/api/profile/{profile_id}/friend/{friend_id}")
-def add_friend(profile_id: str, friend_id: str, user: dict = Depends(require_user)):
+async def add_friend(profile_id: str, friend_id: str, user: dict = Depends(require_user)):
     if user.get("profile_id") != profile_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if profile_id == friend_id:
@@ -1391,6 +1412,9 @@ def add_friend(profile_id: str, friend_id: str, user: dict = Depends(require_use
             f"{sender['name']} sent you a friend request",
             "", f"/profile/{profile_id}"
         )
+        await ws_manager.send_notification_to_profile(friend_id, {
+            "type": "friend_request", "from": profile_id, "from_name": sender["name"],
+        })
     return {"id": req_id, "message": "Friend request sent"}
 
 
@@ -1425,7 +1449,7 @@ def list_friend_requests(profile_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/likes")
-def like_toggle(body: LikeToggle, user: dict = Depends(require_user)):
+async def like_toggle(body: LikeToggle, user: dict = Depends(require_user)):
     if user.get("profile_id") != body.from_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if body.target_type not in ("profile", "blog_post", "comment", "status"):
@@ -1441,6 +1465,9 @@ def like_toggle(body: LikeToggle, user: dict = Depends(require_user)):
         conn.close()
         if row and sender:
             create_notification(row["id"], "like", f"{sender['name']} liked your profile", "", f"/profile/{body.from_id}")
+            await ws_manager.send_notification_to_profile(body.target_id, {
+                "type": "like", "from": body.from_id, "from_name": sender["name"],
+            })
     return {"liked": liked, "count": count}
 
 
@@ -2378,7 +2405,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -2465,7 +2492,7 @@ def edit_prompt(prompt_id: str, body: ProfilePromptCreate, user: dict = Depends(
 # ---------------------------------------------------------------------------
 
 @app.post("/api/super-like/{target_id}")
-def super_like(target_id: str, user: dict = Depends(require_user)):
+async def super_like(target_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
     if not profile_id:
         raise HTTPException(status_code=400, detail="No profile linked")
@@ -2484,6 +2511,10 @@ def super_like(target_id: str, user: dict = Depends(require_user)):
             create_notification(row["id"], "super_like",
                 f"{sender['name'] if sender else 'Someone'} super liked you!",
                 link=f"/profile/{profile_id}")
+            await ws_manager.send_notification_to_profile(target_id, {
+                "type": "super_like", "from": profile_id,
+                "from_name": sender["name"] if sender else "Someone",
+            })
     log_analytics_event("super_like", profile_id)
     return {"id": sl_id, "message": "Super liked!"}
 
@@ -3452,6 +3483,112 @@ def notification_digest(since_hours: int = 24,
     if not user_id:
         raise HTTPException(400, "No user")
     return get_notification_digest(user_id, since_hours=since_hours)
+
+
+# ---------------------------------------------------------------------------
+# Report with categories (v2.2.0)
+# ---------------------------------------------------------------------------
+
+class ReportRequest(BaseModel):
+    reported_id: str
+    report_type: str
+    reason_category: str  # harassment, fake_profile, underage, spam, inappropriate_content, scam, other
+    notes: str = None
+
+@app.post("/api/report")
+async def report_user(req: ReportRequest, user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    if req.reason_category not in ("harassment", "fake_profile", "underage", "spam", "inappropriate_content", "scam", "other"):
+        raise HTTPException(400, "Invalid reason category")
+    report_id = create_safety_report_v2(
+        profile_id, req.reported_id, req.report_type, req.reason_category, req.notes
+    )
+    return {"id": report_id}
+
+
+# ---------------------------------------------------------------------------
+# Appeal suspension (v2.2.0)
+# ---------------------------------------------------------------------------
+
+class AppealRequest(BaseModel):
+    suspension_id: str
+    appeal_text: str
+
+@app.post("/api/appeal")
+async def submit_user_appeal(req: AppealRequest, user=Depends(require_user)):
+    ok = submit_appeal(req.suspension_id, req.appeal_text)
+    if not ok:
+        raise HTTPException(400, "Appeal already submitted or invalid suspension")
+    return {"ok": True}
+
+@app.get("/api/my-suspensions")
+async def get_my_suspensions(user=Depends(require_user)):
+    return get_user_suspensions(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# Response stats (v2.2.0)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/response-stats/{profile_id}")
+async def get_profile_response_stats(profile_id: str, user=Depends(require_user)):
+    return get_response_stats(profile_id)
+
+@app.get("/api/ghost-matches")
+async def get_my_ghost_matches(user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    return get_ghost_matches(profile_id)
+
+
+# ---------------------------------------------------------------------------
+# Saved searches (v2.2.0)
+# ---------------------------------------------------------------------------
+
+class SaveSearchRequest(BaseModel):
+    name: str
+    filters: dict
+
+@app.post("/api/saved-searches")
+async def create_saved_search(req: SaveSearchRequest, user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    search_id = save_search(profile_id, req.name, req.filters)
+    return {"id": search_id}
+
+@app.get("/api/saved-searches")
+async def list_saved_searches(user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    return get_saved_searches(profile_id)
+
+@app.delete("/api/saved-searches/{search_id}")
+async def remove_saved_search(search_id: str, user=Depends(require_user)):
+    profile_id = user["profile_id"]
+    if not profile_id:
+        raise HTTPException(400, "Profile required")
+    ok = delete_saved_search(search_id, profile_id)
+    if not ok:
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Discovery: recently active, new users (v2.2.0)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/discover/recently-active")
+async def discover_recently_active(hours: int = 24, user=Depends(require_user)):
+    return get_recently_active_profiles(min(hours, 168))
+
+@app.get("/api/discover/new-users")
+async def discover_new_users(days: int = 7, user=Depends(require_user)):
+    return get_new_profiles(min(days, 30))
 
 
 # ---------------------------------------------------------------------------

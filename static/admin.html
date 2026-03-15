@@ -289,6 +289,20 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
 .export-card { background: var(--surface0); border-radius: var(--radius); padding: 20px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
 .export-card h3 { margin: 0; font-size: 16px; }
 .export-card p { margin: 4px 0 0; font-size: 13px; color: var(--subtext0); }
+
+/* ─── v2.2.0 Reports Queue ─── */
+.report-card { background:var(--surface0);border-radius:12px;padding:16px;margin-bottom:8px;border-left:4px solid var(--yellow); }
+.report-card.escalated { border-left-color:var(--red); }
+.report-card.resolved { border-left-color:var(--green);opacity:.7; }
+.report-badge { display:inline-block;padding:2px 8px;border-radius:8px;font-size:.75rem;font-weight:600; }
+.report-badge.harassment { background:rgba(243,139,168,.2);color:var(--red); }
+.report-badge.fake_profile { background:rgba(250,179,135,.2);color:var(--peach); }
+.report-badge.spam { background:rgba(249,226,175,.2);color:var(--yellow); }
+.report-badge.escalated { background:rgba(243,139,168,.3);color:var(--red); }
+.report-badge.open { background:rgba(137,180,250,.2);color:var(--blue); }
+.report-badge.resolved { background:rgba(166,227,161,.2);color:var(--green); }
+.tab-filter-btn { padding:5px 14px;border-radius:16px;border:1px solid var(--surface2);background:var(--surface0);color:var(--subtext0);cursor:pointer;font-size:.8rem;transition:all .2s; }
+.tab-filter-btn:hover { border-color:var(--red);color:var(--text); }
 </style>
 </head>
 <body>
@@ -310,6 +324,7 @@ const TABS=[
     {id:'events',label:'Events'},
     {id:'verify',label:'Verifications'},
     {id:'safety',label:'Safety Reports'},
+    {id:'reports',label:'Reports Queue'},
     {id:'stories',label:'Stories'},
     {id:'sessions',label:'Sessions'},
     {id:'backups',label:'Backups'},
@@ -373,6 +388,7 @@ function showView(v){
     else if(v==='announcements') renderAnnouncements();
     else if(v==='flagged') renderFlagged();
     else if(v==='exports') renderExports();
+    else if(v==='reports') renderReportsQueue();
 }
 
 function showLoginScreen(){
@@ -1850,6 +1866,129 @@ async function bulkAction(action){
             toast('Bulk '+action+' failed','error');
         }
     }catch(e){toast('Error performing bulk action','error');}
+}
+
+// ─── Reports Queue ───
+function renderReportsQueue(){
+    const app=document.getElementById('app');
+    app.innerHTML=`<div class="card"><h2>Reports Queue</h2><p class="subtitle">User-submitted reports and suspension appeals</p><div id="reportsContent"><div class="loading"><div class="spinner"></div>Loading reports...</div></div></div>`;
+    loadReportsQueue();
+}
+
+async function loadReportsQueue(status){
+    const params=status?`?status=${status}`:'';
+    try{
+        const resp=await adminFetch(API+`/api/admin/reports-queue${params}`);
+        const reports=await resp.json();
+        let html=`<div style="display:flex;gap:8px;margin-bottom:12px">
+            <button onclick="loadReportsQueue()" class="tab-filter-btn">All</button>
+            <button onclick="loadReportsQueue('open')" class="tab-filter-btn">Open</button>
+            <button onclick="loadReportsQueue('escalated')" class="tab-filter-btn">Escalated</button>
+            <button onclick="loadReportsQueue('resolved')" class="tab-filter-btn">Resolved</button>
+        </div>`;
+        if(!reports.length){
+            html+='<p style="color:var(--subtext0)">No reports found.</p>';
+        }
+        reports.forEach(r=>{
+            html+=`<div class="report-card ${r.status||'open'}">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div>
+                        <span class="report-badge ${r.reason_category||'other'}">${escHtml(r.reason_category||r.report_type||'other')}</span>
+                        <span class="report-badge ${r.status||'open'}">${escHtml(r.status||'open')}</span>
+                    </div>
+                    <span style="color:var(--subtext0);font-size:.8rem">${r.created_at?new Date(r.created_at).toLocaleDateString():''}</span>
+                </div>
+                <p style="margin:4px 0;font-size:.85rem"><strong>Reporter:</strong> ${escHtml(r.reporter_name||r.reporter_id)}</p>
+                <p style="margin:4px 0;font-size:.85rem"><strong>Reported:</strong> ${escHtml(r.reported_name||r.reported_id)}</p>
+                ${r.notes?`<p style="margin:4px 0;font-size:.85rem;color:var(--subtext0)">${escHtml(r.notes)}</p>`:''}
+                ${r.status!=='resolved'?`
+                    <div style="margin-top:8px;display:flex;gap:8px">
+                        <button onclick="reviewReport('${r.id}','resolved','Warning issued')" style="padding:4px 12px;border-radius:8px;border:none;background:var(--green);color:var(--crust);cursor:pointer;font-size:.8rem">Resolve</button>
+                        <button onclick="reviewReport('${r.id}','dismissed','No action needed')" style="padding:4px 12px;border-radius:8px;border:none;background:var(--surface2);color:var(--text);cursor:pointer;font-size:.8rem">Dismiss</button>
+                        <button onclick="suspendFromReport('${r.reported_id}')" style="padding:4px 12px;border-radius:8px;border:none;background:var(--red);color:var(--crust);cursor:pointer;font-size:.8rem">Suspend User</button>
+                    </div>
+                `:`<p style="font-size:.8rem;color:var(--green);margin-top:8px">Resolved: ${escHtml(r.resolution||'')}</p>`}
+            </div>`;
+        });
+        const el=document.getElementById('reportsContent');
+        if(el){
+            el.innerHTML=html;
+            const appealsHtml=await loadAppeals();
+            el.innerHTML+=appealsHtml;
+        }
+    }catch(e){
+        const el=document.getElementById('reportsContent');
+        if(el) el.innerHTML='<p style="color:var(--red)">Failed to load reports.</p>';
+    }
+}
+
+async function reviewReport(reportId,status,resolution){
+    try{
+        await adminFetch(API+`/api/admin/reports/${reportId}/review`,{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({status,resolution})
+        });
+        toast('Report updated','success');
+        loadReportsQueue();
+    }catch{toast('Failed to update report','error');}
+}
+
+async function suspendFromReport(userId){
+    const reason=prompt('Suspension reason:');
+    if(!reason) return;
+    const days=prompt('Duration in days (leave empty for permanent):');
+    try{
+        await adminFetch(API+'/api/admin/suspend',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                user_id:userId,
+                reason,
+                suspension_type:days?'temporary':'permanent',
+                duration_days:days?parseInt(days):null
+            })
+        });
+        toast('User suspended','success');
+        loadReportsQueue();
+    }catch{toast('Failed to suspend user','error');}
+}
+
+// ─── Appeals ───
+async function loadAppeals(){
+    try{
+        const resp=await adminFetch(API+'/api/admin/appeals');
+        const appeals=await resp.json();
+        let html='<h3 style="margin:16px 0 8px">Pending Appeals</h3>';
+        if(!appeals.length){
+            html+='<p style="color:var(--subtext0)">No pending appeals.</p>';
+            return html;
+        }
+        appeals.forEach(a=>{
+            html+=`<div class="report-card">
+                <p style="font-size:.85rem"><strong>${escHtml(a.display_name||a.email)}</strong></p>
+                <p style="font-size:.85rem;color:var(--subtext0)">Reason: ${escHtml(a.reason)}</p>
+                <p style="font-size:.85rem;margin:8px 0;background:var(--surface1);padding:8px;border-radius:8px">"${escHtml(a.appeal_text)}"</p>
+                <div style="display:flex;gap:8px;margin-top:8px">
+                    <button onclick="reviewAppeal('${a.id}','overturned')" style="padding:4px 12px;border-radius:8px;border:none;background:var(--green);color:var(--crust);cursor:pointer;font-size:.8rem">Overturn (Unsuspend)</button>
+                    <button onclick="reviewAppeal('${a.id}','upheld')" style="padding:4px 12px;border-radius:8px;border:none;background:var(--red);color:var(--crust);cursor:pointer;font-size:.8rem">Uphold Suspension</button>
+                </div>
+            </div>`;
+        });
+        return html;
+    }catch{return '<p style="color:var(--subtext0)">Could not load appeals.</p>';}
+}
+
+async function reviewAppeal(suspensionId,result){
+    try{
+        await adminFetch(API+`/api/admin/appeals/${suspensionId}/review`,{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({result})
+        });
+        toast(`Appeal ${result}`,'success');
+        loadReportsQueue();
+    }catch{toast('Failed to review appeal','error');}
 }
 
 // ─── Export Reports ───

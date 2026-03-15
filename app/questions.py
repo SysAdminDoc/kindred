@@ -1,5 +1,5 @@
 """
-Kindred v2.1.0 - Questionnaire Definitions
+Kindred v2.2.0 - Questionnaire Definitions
 Validated psychometric items, scenario-based questions, forced trade-offs,
 behavioral items, self-disclosure, communication style, financial values,
 and dating energy/intent questions for comprehensive compatibility matching.

@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-2.1.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.2.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -125,6 +125,10 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Transaction-wrapped multi-statement operations
 - Input length limits on regex processing (DoS prevention)
 - HTML-escaped email templates
+- Structured report system (7 reason categories with auto-escalation)
+- Temporary/permanent suspensions with appeal workflow
+- Photo perceptual hashing (duplicate/stolen photo detection)
+- Conversation quality signals (response rate, reply time badges)
 
 **Admin Dashboard**
 - Separate admin portal on its own port (all endpoints require admin auth)
@@ -136,7 +140,9 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Session management (view/revoke all user sessions)
 - User management, group/event moderation
 - Verification and photo moderation review queues
-- Safety report triage
+- Safety report triage with escalation queue and status filtering
+- Suspension management (suspend/unsuspend with audit trail)
+- Appeal review queue (uphold/overturn suspension appeals)
 - Platform statistics
 - Audit log with action filtering
 - Webhook management (CRUD + HMAC-signed delivery)

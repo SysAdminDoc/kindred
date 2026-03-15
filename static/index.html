@@ -1095,6 +1095,32 @@ body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var
 .reveal-btn{background:linear-gradient(135deg,var(--mauve),var(--pink));color:var(--base);border:none;border-radius:var(--radius);padding:8px 16px;cursor:pointer;font-weight:600;transition:opacity .2s;}
 .reveal-btn:hover{opacity:0.9;}
 .reveal-stage{font-size:11px;color:var(--overlay0);margin-bottom:8px;}
+
+/* ─── v2.2.0 Phase 5 ─── */
+.report-modal-overlay { position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center; }
+.report-modal { background:var(--surface0);border-radius:16px;padding:24px;width:90%;max-width:420px;color:var(--text); }
+.report-modal h3 { margin:0 0 16px;font-size:1.2rem; }
+.report-modal .reason-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px; }
+.report-modal .reason-btn { padding:10px;border:2px solid var(--surface2);border-radius:10px;background:var(--surface1);color:var(--text);cursor:pointer;font-size:.85rem;transition:all .2s; }
+.report-modal .reason-btn:hover, .report-modal .reason-btn.selected { border-color:var(--red);background:rgba(243,139,168,.15);color:var(--red); }
+.report-modal textarea { width:100%;height:80px;background:var(--surface1);border:1px solid var(--surface2);border-radius:8px;color:var(--text);padding:8px;resize:none;font-family:inherit; }
+.report-modal .report-actions { display:flex;gap:8px;margin-top:12px;justify-content:flex-end; }
+.response-badge { display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:.75rem;background:var(--surface1);color:var(--subtext0); }
+.response-badge.fast { color:var(--green); }
+.response-badge.moderate { color:var(--yellow); }
+.response-badge.slow { color:var(--peach); }
+.ghost-alert { background:rgba(243,139,168,.1);border:1px solid var(--red);border-radius:10px;padding:12px;margin:8px 0;color:var(--red);font-size:.85rem; }
+.new-badge { display:inline-block;padding:2px 6px;border-radius:6px;background:var(--green);color:var(--crust);font-size:.7rem;font-weight:600;margin-left:4px; }
+.saved-search-bar { display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap; }
+.saved-search-chip { display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:16px;background:var(--surface1);color:var(--text);font-size:.8rem;cursor:pointer;border:1px solid var(--surface2);transition:all .2s; }
+.saved-search-chip:hover, .saved-search-chip.active { border-color:var(--mauve);background:rgba(203,166,247,.15); }
+.saved-search-chip .delete-search { color:var(--subtext0);margin-left:4px;cursor:pointer; }
+.saved-search-chip .delete-search:hover { color:var(--red); }
+.save-search-btn { padding:4px 10px;border-radius:16px;background:var(--surface2);border:1px dashed var(--overlay0);color:var(--subtext0);font-size:.8rem;cursor:pointer; }
+.save-search-btn:hover { border-color:var(--mauve);color:var(--mauve); }
+.discover-sort-btn { padding:6px 14px;border-radius:16px;border:1px solid var(--surface2);background:var(--surface0);color:var(--subtext0);cursor:pointer;font-size:.8rem;transition:all .2s; }
+.discover-sort-btn:hover { border-color:var(--mauve); }
+.discover-sort-btn.active { background:var(--mauve);color:var(--crust);border-color:var(--mauve); }
 </style>
 </head>
 <body>
@@ -1165,6 +1191,11 @@ function connectWS(){
                     clearTimeout(window._typingTimeout);
                     window._typingTimeout=setTimeout(()=>{if(ti)ti.textContent='';},3000);
                 }
+            } else if(msg.type==='notification'){
+                const notif=msg.data;
+                toast(notif.title||notif.body||'New notification','info');
+                if(typeof updateNotificationBadge==='function') updateNotificationBadge();
+                if(typeof playNotifSound==='function') playNotifSound();
             }
         }catch(err){}
     };
@@ -1346,6 +1377,7 @@ async function init(){
     else showView('welcome');
     if(authToken) pollNotifications();
     if(activeProfile) connectWS();
+    if(activeProfile) checkSuspension();
 }
 
 // ─── Notification polling ───
@@ -2263,7 +2295,7 @@ async function showDetail(a,b){
         // Compatibility Game
         html+=`<div class="card" style="animation-delay:.36s"><h2>Compatibility Game</h2><p class="subtitle">"This or That" - See how well you match!</p><div id="compat-game" data-a="${a}" data-b="${b}"><div class="loading"><div class="spinner"></div>Loading game...</div></div></div>`;
 
-        html+=`<div class="btn-row"><button class="btn btn-secondary" onclick="showView('matches')">Back</button><button class="btn btn-primary" onclick="startChatWith('${a}','${b}')">Send Message</button><button class="btn btn-report" onclick="showReportModal('${a}','${b}')">Report</button></div>`;
+        html+=`<div class="btn-row"><button class="btn btn-secondary" onclick="showView('matches')">Back</button><button class="btn btn-primary" onclick="startChatWith('${a}','${b}')">Send Message</button><button class="btn btn-report" onclick="showReportModal('${b}','${escHtml(pb.name)}')">Report</button></div>`;
         app.innerHTML=html;
 
         // Load mutual friends
@@ -2487,21 +2519,56 @@ async function removeMusicPref(prefId,pid){
 }
 
 // ─── Safety Reports ───
-function showReportModal(reporterId,reportedId){
-    const overlay=document.createElement('div');
-    overlay.className='modal-overlay';
-    overlay.onclick=(e)=>{if(e.target===overlay)overlay.remove();};
-    overlay.innerHTML=`<div class="modal"><h2>Report User</h2><p class="subtitle" style="margin-bottom:16px">Help keep Kindred safe for everyone.</p><div class="form-group"><label>Type of Report</label><div class="choice-grid"><div class="choice-card" onclick="this.parentElement.querySelectorAll('.choice-card').forEach(c=>c.classList.remove('selected'));this.classList.add('selected');this.parentElement.dataset.val='harassment'">Harassment</div><div class="choice-card" onclick="this.parentElement.querySelectorAll('.choice-card').forEach(c=>c.classList.remove('selected'));this.classList.add('selected');this.parentElement.dataset.val='fake_profile'">Fake Profile</div><div class="choice-card" onclick="this.parentElement.querySelectorAll('.choice-card').forEach(c=>c.classList.remove('selected'));this.classList.add('selected');this.parentElement.dataset.val='inappropriate'">Inappropriate</div><div class="choice-card" onclick="this.parentElement.querySelectorAll('.choice-card').forEach(c=>c.classList.remove('selected'));this.classList.add('selected');this.parentElement.dataset.val='other'">Other</div></div></div><div class="form-group"><label>Details (optional)</label><textarea id="report-notes" style="min-height:60px" placeholder="Tell us what happened..."></textarea></div><div class="btn-row"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button><button class="btn btn-danger" onclick="submitReport('${reporterId}','${reportedId}',this.closest('.modal'))">Submit Report</button></div></div>`;
+function showReportModal(reportedId, reportedName){
+    const reasons = [
+        {id:'harassment', label:'Harassment'},
+        {id:'fake_profile', label:'Fake Profile'},
+        {id:'underage', label:'Underage'},
+        {id:'spam', label:'Spam'},
+        {id:'inappropriate_content', label:'Inappropriate'},
+        {id:'scam', label:'Scam/Fraud'},
+        {id:'other', label:'Other'}
+    ];
+    let selectedReason = null;
+    const overlay = document.createElement('div');
+    overlay.className = 'report-modal-overlay';
+    overlay.innerHTML = `<div class="report-modal">
+        <h3>Report ${escHtml(reportedName)}</h3>
+        <p style="color:var(--subtext0);font-size:.85rem;margin-bottom:12px">Why are you reporting this user?</p>
+        <div class="reason-grid">
+            ${reasons.map(r => `<button class="reason-btn" data-reason="${r.id}">${r.label}</button>`).join('')}
+        </div>
+        <textarea placeholder="Additional details (optional)..." id="reportNotes"></textarea>
+        <div class="report-actions">
+            <button onclick="this.closest('.report-modal-overlay').remove()" style="padding:8px 16px;background:var(--surface2);border:none;border-radius:8px;color:var(--text);cursor:pointer">Cancel</button>
+            <button id="submitReportBtn" disabled style="padding:8px 16px;background:var(--red);border:none;border-radius:8px;color:var(--crust);cursor:pointer;opacity:.5">Submit Report</button>
+        </div>
+    </div>`;
     document.body.appendChild(overlay);
-}
-
-async function submitReport(reporterId,reportedId,modal){
-    const type=modal.querySelector('.choice-grid')?.dataset?.val;
-    if(!type){toast('Select a report type','error');return;}
-    const notes=modal.querySelector('#report-notes')?.value||'';
-    await fetch(API+'/api/safety/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reporter_id:reporterId,reported_id:reportedId,report_type:type,notes})});
-    modal.closest('.modal-overlay').remove();
-    toast('Report submitted. Thank you.','success');
+    overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+    overlay.querySelectorAll('.reason-btn').forEach(btn => {
+        btn.onclick = () => {
+            overlay.querySelectorAll('.reason-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            selectedReason = btn.dataset.reason;
+            const submitBtn = overlay.querySelector('#submitReportBtn');
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+        };
+    });
+    overlay.querySelector('#submitReportBtn').onclick = async () => {
+        if(!selectedReason) return;
+        const notes = overlay.querySelector('#reportNotes').value.trim();
+        try {
+            await authFetch('/api/report', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({reported_id: reportedId, report_type: 'user', reason_category: selectedReason, notes: notes || null})
+            });
+            toast('Report submitted. Thank you for keeping Kindred safe.', 'success');
+            overlay.remove();
+        } catch(e) { toast('Failed to submit report', 'error'); }
+    };
 }
 
 // ─── Behavioral Events ───
@@ -4378,6 +4445,11 @@ function connectWSEnhanced(){
                 }
             } else if(msg.type==='typing_preview'){
                 handleTypingPreview(msg);
+            } else if(msg.type==='notification'){
+                const notif=msg.data;
+                toast(notif.title||notif.body||'New notification','info');
+                if(typeof updateNotificationBadge==='function') updateNotificationBadge();
+                if(typeof playNotifSound==='function') playNotifSound();
             }
         }catch(err){}
     };
@@ -6118,6 +6190,237 @@ async function loadRevealState(targetId,cardEl){
         };
         cardEl.appendChild(revealBtn);
     }catch(e){/* Reveal not available, show normal */}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── v2.2.0 Phase 5: Response Stats ───
+// ══════════════════════════════════════════════════════
+function renderResponseBadge(stats){
+    if(!stats||stats.response_rate==null) return '';
+    const rate=Math.round(stats.response_rate*100);
+    let speed='slow',label='Slow replies';
+    if(stats.avg_reply_minutes!=null){
+        if(stats.avg_reply_minutes<60){speed='fast';label='Replies within an hour';}
+        else if(stats.avg_reply_minutes<360){speed='moderate';label='Replies within a few hours';}
+    }
+    return `<span class="response-badge ${speed}" title="${rate}% response rate">${label}</span>`;
+}
+
+function isNewUser(createdAt){
+    if(!createdAt) return false;
+    const created=new Date(createdAt);
+    const weekAgo=new Date(Date.now()-7*24*60*60*1000);
+    return created>weekAgo;
+}
+
+// ══════════════════════════════════════════════════════
+// ─── v2.2.0 Phase 5: Ghost Matches ───
+// ══════════════════════════════════════════════════════
+async function loadGhostMatches(){
+    try{
+        const resp=await authFetch('/api/ghost-matches');
+        const ghosts=await resp.json();
+        if(ghosts.length===0) return '';
+        return `<div class="ghost-alert">
+            <strong>Quiet match${ghosts.length>1?'es':''}</strong> —
+            You haven't chatted with ${ghosts.map(g=>escHtml(g.name)).slice(0,3).join(', ')}${ghosts.length>3?` and ${ghosts.length-3} more`:''} in a while. Say hi!
+        </div>`;
+    }catch{return '';}
+}
+
+// Inject ghost matches banner into matches view
+const _origRenderMyMatches=renderMyMatches;
+async function renderMyMatches(){
+    await _origRenderMyMatches();
+    const area=document.getElementById('matches-area');
+    if(!area) return;
+    const ghostHtml=await loadGhostMatches();
+    if(ghostHtml) area.insertAdjacentHTML('afterbegin',ghostHtml);
+}
+
+// ══════════════════════════════════════════════════════
+// ─── v2.2.0 Phase 5: Saved Searches ───
+// ══════════════════════════════════════════════════════
+let savedSearches=[];
+
+async function loadSavedSearches(){
+    try{
+        const resp=await authFetch('/api/saved-searches');
+        savedSearches=await resp.json();
+    }catch{savedSearches=[];}
+}
+
+function renderSavedSearchBar(currentFilters){
+    let html='<div class="saved-search-bar">';
+    savedSearches.forEach(s=>{
+        html+=`<span class="saved-search-chip" onclick="applySavedSearch('${s.id}')" title="${Object.entries(s.filters||{}).map(([k,v])=>k+': '+v).join(', ')}">
+            ${escHtml(s.name)}
+            <span class="delete-search" onclick="event.stopPropagation();deleteSavedSearch('${s.id}')">&times;</span>
+        </span>`;
+    });
+    html+=`<button class="save-search-btn" onclick="saveCurrentSearch()">+ Save Search</button>`;
+    html+='</div>';
+    return html;
+}
+
+async function saveCurrentSearch(){
+    const filters=getCurrentDiscoverFilters();
+    const name=prompt('Name this search:');
+    if(!name) return;
+    try{
+        await authFetch('/api/saved-searches',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({name,filters})
+        });
+        toast('Search saved!','success');
+        await loadSavedSearches();
+        const bar=document.querySelector('.saved-search-bar');
+        if(bar) bar.outerHTML=renderSavedSearchBar(filters);
+    }catch{toast('Failed to save search','error');}
+}
+
+function getCurrentDiscoverFilters(){
+    const el=id=>document.getElementById(id);
+    return {
+        gender:el('s-gender')?.value||'',
+        seeking:el('s-seeking')?.value||'',
+        age_min:el('s-age-min')?.value||'',
+        age_max:el('s-age-max')?.value||'',
+    };
+}
+
+async function applySavedSearch(searchId){
+    const search=savedSearches.find(s=>s.id===searchId);
+    if(!search) return;
+    const el=id=>document.getElementById(id);
+    if(search.filters.gender&&el('s-gender')) el('s-gender').value=search.filters.gender;
+    if(search.filters.seeking&&el('s-seeking')) el('s-seeking').value=search.filters.seeking;
+    if(search.filters.age_min&&el('s-age-min')) el('s-age-min').value=search.filters.age_min;
+    if(search.filters.age_max&&el('s-age-max')) el('s-age-max').value=search.filters.age_max;
+    if(typeof doSearch==='function') doSearch();
+}
+
+async function deleteSavedSearch(searchId){
+    try{
+        await authFetch(`/api/saved-searches/${searchId}`,{method:'DELETE'});
+        toast('Search removed','info');
+        await loadSavedSearches();
+        const bar=document.querySelector('.saved-search-bar');
+        if(bar) bar.outerHTML=renderSavedSearchBar({});
+    }catch{toast('Failed to remove','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── v2.2.0 Phase 5: Discover Sort Options ───
+// ══════════════════════════════════════════════════════
+let discoverSort='compatibility';
+
+function renderDiscoverSortOptions(){
+    return `<div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="discover-sort-btn active" data-sort="compatibility" onclick="setDiscoverSort('compatibility')">Best Match</button>
+        <button class="discover-sort-btn" data-sort="recent" onclick="setDiscoverSort('recent')">Recently Active</button>
+        <button class="discover-sort-btn" data-sort="new" onclick="setDiscoverSort('new')">New Users</button>
+    </div>`;
+}
+
+function renderDiscoverResults(profiles){
+    const el=document.getElementById('search-results');
+    if(!el) return;
+    if(!profiles||!profiles.length){el.innerHTML='<div class="empty" style="padding:24px"><h3>No results found</h3><p>Try broadening your search criteria</p></div>';return;}
+    el.innerHTML='<div class="search-results">'+profiles.filter(p=>p.id!==activeProfile).map((p,i)=>`<div class="search-card" style="animation-delay:${i*.04}s" onclick="viewProfilePage('${p.id}')">
+        ${p.photo?`<img src="/uploads/${p.photo}">`:'<div class="sc-placeholder">?</div>'}
+        <h3>${escHtml(p.name)}${isNewUser(p.created_at)?'<span class="new-badge">NEW</span>':''}</h3>
+        <div class="sc-meta">${p.age?p.age+' yrs':''} ${p.location?'&bull; '+escHtml(p.location):''}</div>
+        ${p.headline?`<div class="sc-headline">"${escHtml(p.headline)}"</div>`:''}
+        ${renderResponseBadge(p)}
+    </div>`).join('')+'</div>';
+    staggerListItems(el);
+}
+
+async function setDiscoverSort(sort){
+    discoverSort=sort;
+    document.querySelectorAll('.discover-sort-btn').forEach(b=>{
+        b.classList.toggle('active',b.dataset.sort===sort);
+    });
+    if(sort==='recent'){
+        try{
+            const resp=await authFetch('/api/discover/recently-active');
+            const profiles=await resp.json();
+            renderDiscoverResults(profiles);
+        }catch{toast('Failed to load recently active','error');}
+    } else if(sort==='new'){
+        try{
+            const resp=await authFetch('/api/discover/new-users');
+            const profiles=await resp.json();
+            renderDiscoverResults(profiles);
+        }catch{toast('Failed to load new users','error');}
+    } else {
+        if(typeof doSearch==='function') doSearch();
+    }
+}
+
+// Patch renderDiscover to inject sort bar and saved searches
+const _origRenderDiscover2=renderDiscover;
+async function renderDiscover(){
+    await _origRenderDiscover2();
+    const app=document.getElementById('app');
+    if(!app) return;
+    const firstCard=app.querySelector('.card');
+    if(!firstCard) return;
+    // Inject sort options and saved search bar at top of discover card
+    const searchBar=firstCard.querySelector('.search-bar');
+    if(searchBar){
+        const sortDiv=document.createElement('div');
+        sortDiv.innerHTML=renderDiscoverSortOptions();
+        searchBar.insertAdjacentElement('beforebegin',sortDiv.firstElementChild);
+        const ssDiv=document.createElement('div');
+        ssDiv.innerHTML=renderSavedSearchBar({});
+        searchBar.insertAdjacentElement('beforebegin',ssDiv.firstElementChild);
+    }
+    loadSavedSearches().then(()=>{
+        const bar=document.querySelector('.saved-search-bar');
+        if(bar) bar.outerHTML=renderSavedSearchBar({});
+    });
+}
+
+// ══════════════════════════════════════════════════════
+// ─── v2.2.0 Phase 5: Suspension Appeal UI ───
+// ══════════════════════════════════════════════════════
+async function checkSuspension(){
+    try{
+        const resp=await authFetch('/api/my-suspensions');
+        const suspensions=await resp.json();
+        const active=suspensions.find(s=>!s.appeal_result||s.appeal_result==='upheld');
+        if(active&&!active.appealed) showSuspensionBanner(active);
+    }catch{}
+}
+
+function showSuspensionBanner(suspension){
+    const existing=document.getElementById('suspension-banner');
+    if(existing) existing.remove();
+    const banner=document.createElement('div');
+    banner.id='suspension-banner';
+    banner.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--red);color:var(--crust);padding:16px;text-align:center;font-size:.9rem;';
+    const expiresText=suspension.expires_at?`Expires: ${new Date(suspension.expires_at).toLocaleDateString()}`:'Permanent';
+    banner.innerHTML=`
+        <strong>Account Suspended</strong> — ${escHtml(suspension.reason)} (${expiresText})
+        <button onclick="showAppealForm('${suspension.id}')" style="margin-left:12px;padding:4px 12px;border-radius:8px;border:none;background:var(--crust);color:var(--red);cursor:pointer">Appeal</button>
+    `;
+    document.body.prepend(banner);
+}
+
+async function showAppealForm(suspensionId){
+    const text=prompt('Explain why you think this suspension should be reviewed:');
+    if(!text) return;
+    try{
+        await authFetch('/api/appeal',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({suspension_id:suspensionId,appeal_text:text})
+        });
+        toast('Appeal submitted. We will review it shortly.','success');
+    }catch(e){toast('Failed to submit appeal','error');}
 }
 </script>
 </body>

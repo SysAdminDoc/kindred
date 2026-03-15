@@ -1,4 +1,4 @@
-# Kindred v2.1.0
+# Kindred v2.2.0
 
 Compatibility-first dating + social platform. Open source, privacy-first.
 
@@ -74,7 +74,7 @@ Copy `.env.example` to `.env` and customize. Key vars:
 - `KINDRED_DEFAULT_THEME` - Default theme: mocha or latte
 
 ## Database Tables
-profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log, availability_status, conversation_starters, date_feedback, announcements, compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages, flagged_content
+profiles, messages, invites, feedback, date_plans, behavioral_events, safety_reports, profile_blog_posts, profile_comments, profile_friends, notifications, users, likes, status_updates, activity_feed, groups, group_members, group_posts, events, event_rsvps, compat_games, selfie_verifications, video_intros, music_preferences, blocks, password_resets, notification_preferences, schema_versions, refresh_tokens, email_verifications, photo_moderation, questionnaire_progress, message_reactions, daily_suggestions, totp_secrets, push_subscriptions, group_messages, content_filter_log, premium_subscriptions, analytics_events, voice_messages, profile_prompts, super_likes, stories, story_views, group_polls, poll_votes, user_sessions, user_locations, recovery_codes, icebreaker_games, game_turns, date_schedules, blind_dates, passed_profiles, threaded_replies, shared_playlists, playlist_songs, event_photos, profile_badges, story_reactions, pinned_messages, message_cooldowns, undo_blocks, safety_checkins, audit_log, webhooks, rate_limit_log, vacuum_log, availability_status, conversation_starters, date_feedback, announcements, compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages, flagged_content, report_reasons, suspensions, photo_hashes, saved_searches
 
 ## Key Features
 - **8-dimension matching**: Personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker
@@ -183,6 +183,18 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - **Bulk profile actions**: Deactivate, delete, or verify multiple profiles at once (admin)
 - **CSV export**: Export users, safety reports, and analytics as CSV (admin)
 - **Engagement over time chart**: Canvas line graph of daily signups, messages, matches (admin dashboard)
+- **Structured report system**: Report categories (harassment, fake, underage, spam, scam, other) with auto-escalation at 3+ reports
+- **Suspension system**: Temporary/permanent bans with duration, appeal flow, auto-expiry
+- **Appeal workflow**: Users can appeal suspensions, admins review with uphold/overturn
+- **Photo hash detection**: Perceptual hashing for duplicate/stolen photo detection
+- **Conversation quality signals**: Response rate, avg reply time, "Usually replies within X" badges
+- **Ghost match alerts**: Identify and nudge silent matches (no messages in 7+ days)
+- **Saved searches**: Persist and reuse discover filter presets
+- **Discovery sorting**: Best Match / Recently Active / New Users sort options
+- **New user badge**: 7-day "NEW" badge on recently joined profiles
+- **WebSocket notifications**: Real-time push notifications over existing WS connection
+- **Admin reports queue**: Filterable report queue with escalation priority, resolve/dismiss/suspend actions
+- **Admin appeals review**: Review pending suspension appeals with overturn/uphold
 
 ## Key Architecture
 - Dual-server: user (8000) + admin (8001) sharing same SQLite DB
@@ -213,6 +225,7 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 
 ## Version History
 
+- **v2.2.0** - Phase 5: Safety & discovery. Structured report system (7 reason categories with auto-escalation at 3+ reports), suspension system (temporary/permanent bans with duration and auto-expiry), appeal workflow (submit/review with uphold/overturn), photo perceptual hashing (duplicate detection via hamming distance), conversation quality signals (response rate, avg reply time on profiles), ghost match alerts (silent match detection + nudge), saved searches (persist/reuse filter presets), discovery sorting (best match/recently active/new users), new user badge (7-day), WebSocket real-time notifications (push over existing WS connection). Admin: reports queue with escalation priority and status filtering, suspension/unsuspend controls, appeals review. 4 new tables (report_reasons, suspensions, photo_hashes, saved_searches), 23 new CRUD functions, 19 new API endpoints
 - **v2.1.0** - Phase 4: Admin & infrastructure. Flagged content moderation queue (flag/review/resolve with type filtering and indexed queries), bulk profile actions (deactivate/delete/verify multiple users with audit logging), CSV export (users, safety reports, analytics via csv.DictWriter), engagement over time dashboard (Canvas 3-line chart: daily signups/messages/matches with 30-day range). Admin frontend: dashboard engagement chart, flagged content tab with filter/actions, bulk checkboxes on profiles, export tab with 3 CSV downloads. 1 new table (flagged_content), 14 new CRUD functions, 11 new admin API endpoints
 - **v2.0.0** - Phase 3: Social & communication. Compatibility over time tracking (Canvas line chart on match detail), profile endorsements (trait badges with counts, 8 endorsable traits), shared interests visual tags (green shared, neutral unique), group post emoji reactions (toggle with compact picker), event chat (in-event real-time messaging), read receipts toggle (privacy setting), smart notification digest (aggregated unread summary), slow reveal profiles (4-stage progressive unlock: basic/interests/photos/full). 5 new tables (compatibility_history, endorsements, group_post_reactions, event_messages, profile_reveal_stages), 17 new CRUD functions, 13 new API endpoints
 - **v1.9.0** - Phase 2: Mobile & engagement. UX: swipe gestures on discover cards (touch left=pass, right=like with tilt animation), infinite scroll for activity feed (IntersectionObserver + sentinel), image lightbox (full-screen viewer, pinch-zoom, Escape close), pull-to-refresh (touch gesture on mobile), onboarding progress bar (question count + fill bar), skeleton shimmer loading (shaped placeholders for matches/feed/discover). Features: dealbreaker quiz comparison (shared/conflicts/unique items modal), paginated feeds + conversations endpoints (offset/limit). 3 new database functions, 3 new API endpoints

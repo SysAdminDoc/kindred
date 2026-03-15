@@ -1,5 +1,5 @@
 """
-Kindred v2.1.0 - Admin Server
+Kindred v2.2.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -56,10 +56,13 @@ from app.database import (
     bulk_deactivate_profiles, bulk_delete_profiles, bulk_verify_profiles,
     export_users_csv, export_safety_reports_csv, export_analytics_csv,
     get_engagement_over_time,
+    get_safety_reports_queue, review_safety_report,
+    suspend_user, unsuspend_user, get_pending_appeals, review_appeal,
+    check_suspension_expired,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="2.1.0")
+admin_app = FastAPI(title="Kindred Admin", version="2.2.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -388,7 +391,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
@@ -751,6 +754,76 @@ def admin_extended_stats(admin: dict = Depends(require_admin)):
         "safety_checkins": get_total_checkins_count(),
         "webhook_endpoints": get_webhook_delivery_count(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Safety Reports Queue (v2.2.0)
+# ---------------------------------------------------------------------------
+
+@admin_app.get("/api/admin/reports-queue")
+async def admin_reports_queue(status: str = None, limit: int = 50, offset: int = 0, admin=Depends(require_admin)):
+    return get_safety_reports_queue(status, limit, offset)
+
+class ReviewReportRequest(BaseModel):
+    resolution: str
+    status: str = "resolved"
+
+@admin_app.post("/api/admin/reports/{report_id}/review")
+async def admin_review_report(report_id: str, req: ReviewReportRequest, admin=Depends(require_admin)):
+    ok = review_safety_report(report_id, admin["id"], req.resolution, req.status)
+    if not ok:
+        raise HTTPException(404, "Report not found")
+    from app.audit import log_audit
+    log_audit(admin["id"], "review_report", "report", report_id, req.resolution)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Suspensions (v2.2.0)
+# ---------------------------------------------------------------------------
+
+class SuspendRequest(BaseModel):
+    user_id: str
+    reason: str
+    suspension_type: str = "temporary"
+    duration_days: int = None
+
+@admin_app.post("/api/admin/suspend")
+async def admin_suspend_user(req: SuspendRequest, admin=Depends(require_admin)):
+    sid = suspend_user(req.user_id, req.reason, admin["id"], req.suspension_type, req.duration_days)
+    from app.audit import log_audit
+    log_audit(admin["id"], "suspend_user", "user", req.user_id, f"{req.suspension_type}: {req.reason}")
+    return {"id": sid}
+
+@admin_app.post("/api/admin/unsuspend/{user_id}")
+async def admin_unsuspend_user(user_id: str, admin=Depends(require_admin)):
+    unsuspend_user(user_id)
+    from app.audit import log_audit
+    log_audit(admin["id"], "unsuspend_user", "user", user_id)
+    return {"ok": True}
+
+@admin_app.get("/api/admin/appeals")
+async def admin_pending_appeals(admin=Depends(require_admin)):
+    return get_pending_appeals()
+
+class AppealReviewRequest(BaseModel):
+    result: str  # upheld or overturned
+
+@admin_app.post("/api/admin/appeals/{suspension_id}/review")
+async def admin_review_appeal(suspension_id: str, req: AppealReviewRequest, admin=Depends(require_admin)):
+    if req.result not in ("upheld", "overturned"):
+        raise HTTPException(400, "Result must be 'upheld' or 'overturned'")
+    ok = review_appeal(suspension_id, req.result)
+    if not ok:
+        raise HTTPException(404, "Appeal not found")
+    from app.audit import log_audit
+    log_audit(admin["id"], "review_appeal", "suspension", suspension_id, req.result)
+    return {"ok": True}
+
+@admin_app.post("/api/admin/check-expired-suspensions")
+async def admin_check_expired(admin=Depends(require_admin)):
+    count = check_suspension_expired()
+    return {"expired": count}
 
 
 # ─── Static Files ───

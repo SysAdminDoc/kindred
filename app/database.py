@@ -1,5 +1,5 @@
 """
-Kindred v2.1.0 - Database Layer
+Kindred v2.2.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -950,6 +950,53 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_flagged_status ON flagged_content(status);
+
+        CREATE TABLE IF NOT EXISTS report_reasons (
+            id TEXT PRIMARY KEY,
+            report_id TEXT NOT NULL,
+            reason_category TEXT NOT NULL,
+            reason_detail TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (report_id) REFERENCES safety_reports(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_reasons_report ON report_reasons(report_id);
+
+        CREATE TABLE IF NOT EXISTS suspensions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            suspended_by TEXT NOT NULL,
+            suspension_type TEXT DEFAULT 'temporary',
+            expires_at TIMESTAMP,
+            appealed INTEGER DEFAULT 0,
+            appeal_text TEXT,
+            appeal_reviewed INTEGER DEFAULT 0,
+            appeal_result TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (suspended_by) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_suspensions_user ON suspensions(user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS photo_hashes (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            photo_filename TEXT NOT NULL,
+            phash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_photo_hashes_hash ON photo_hashes(phash);
+
+        CREATE TABLE IF NOT EXISTS saved_searches (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            filters TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_saved_searches_profile ON saved_searches(profile_id);
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -1013,11 +1060,21 @@ def _migrate(conn):
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
-        # v2.1.0
+        # v2.2.0
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
         "ALTER TABLE profiles ADD COLUMN availability_text TEXT",
         # Phase 3
         "ALTER TABLE notification_preferences ADD COLUMN read_receipts_enabled INTEGER DEFAULT 1",
+        # v2.2.0
+        "ALTER TABLE safety_reports ADD COLUMN status TEXT DEFAULT 'open'",
+        "ALTER TABLE safety_reports ADD COLUMN reason_category TEXT",
+        "ALTER TABLE safety_reports ADD COLUMN reviewed_by TEXT",
+        "ALTER TABLE safety_reports ADD COLUMN reviewed_at TIMESTAMP",
+        "ALTER TABLE safety_reports ADD COLUMN resolution TEXT",
+        "ALTER TABLE profiles ADD COLUMN response_rate REAL",
+        "ALTER TABLE profiles ADD COLUMN avg_reply_minutes REAL",
+        "ALTER TABLE profiles ADD COLUMN last_message_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN suspended INTEGER DEFAULT 0",
     ]
     for sql in migrations:
         try:
@@ -5652,3 +5709,384 @@ def get_engagement_over_time(days: int = 30) -> dict:
         "messages": get_daily_messages(days),
         "matches": get_daily_matches(days),
     }
+
+
+# ---------------------------------------------------------------------------
+# Report Reasons & Escalation
+# ---------------------------------------------------------------------------
+
+def create_safety_report_v2(reporter_id: str, reported_id: str, report_type: str,
+                            reason_category: str, notes: str = None) -> str:
+    """Create report with structured reason category."""
+    conn = get_db()
+    report_id = uuid.uuid4().hex
+    conn.execute("""
+        INSERT INTO safety_reports (id, reporter_id, reported_id, report_type, notes, status, reason_category)
+        VALUES (?, ?, ?, ?, ?, 'open', ?)
+    """, (report_id, reporter_id, reported_id, report_type, notes, reason_category))
+    # Store detailed reason
+    conn.execute("""
+        INSERT INTO report_reasons (id, report_id, reason_category, reason_detail)
+        VALUES (?, ?, ?, ?)
+    """, (uuid.uuid4().hex, report_id, reason_category, notes))
+    # Auto-escalate: if user has 3+ open reports, flag for priority review
+    count = conn.execute(
+        "SELECT COUNT(*) FROM safety_reports WHERE reported_id = ? AND status = 'open'",
+        (reported_id,)
+    ).fetchone()[0]
+    if count >= 3:
+        conn.execute(
+            "UPDATE safety_reports SET status = 'escalated' WHERE reported_id = ? AND status = 'open'",
+            (reported_id,)
+        )
+    conn.commit()
+    return report_id
+
+
+def get_report_counts_for_user(profile_id: str) -> dict:
+    conn = get_db()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM safety_reports WHERE reported_id = ?", (profile_id,)
+    ).fetchone()[0]
+    open_count = conn.execute(
+        "SELECT COUNT(*) FROM safety_reports WHERE reported_id = ? AND status IN ('open','escalated')",
+        (profile_id,)
+    ).fetchone()[0]
+    return {"total": total, "open": open_count}
+
+
+def review_safety_report(report_id: str, admin_id: str, resolution: str, status: str = "resolved") -> bool:
+    conn = get_db()
+    from datetime import datetime, timezone
+    cur = conn.execute("""
+        UPDATE safety_reports SET status = ?, resolution = ?, reviewed_by = ?,
+        reviewed_at = ? WHERE id = ?
+    """, (status, resolution, admin_id, datetime.now(timezone.utc).isoformat(), report_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_safety_reports_queue(status: str = None, limit: int = 50, offset: int = 0) -> list[dict]:
+    conn = get_db()
+    if status:
+        rows = conn.execute("""
+            SELECT sr.*, p1.name as reporter_name, p2.name as reported_name
+            FROM safety_reports sr
+            LEFT JOIN profiles p1 ON p1.id = sr.reporter_id
+            LEFT JOIN profiles p2 ON p2.id = sr.reported_id
+            WHERE sr.status = ?
+            ORDER BY CASE sr.status WHEN 'escalated' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,
+                     sr.created_at DESC
+            LIMIT ? OFFSET ?
+        """, (status, limit, offset)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT sr.*, p1.name as reporter_name, p2.name as reported_name
+            FROM safety_reports sr
+            LEFT JOIN profiles p1 ON p1.id = sr.reporter_id
+            LEFT JOIN profiles p2 ON p2.id = sr.reported_id
+            ORDER BY CASE sr.status WHEN 'escalated' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,
+                     sr.created_at DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Suspensions
+# ---------------------------------------------------------------------------
+
+def suspend_user(user_id: str, reason: str, suspended_by: str,
+                 suspension_type: str = "temporary", duration_days: int = None) -> str:
+    conn = get_db()
+    from datetime import datetime, timedelta, timezone
+    suspension_id = uuid.uuid4().hex
+    expires_at = None
+    if suspension_type == "temporary" and duration_days:
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=duration_days)).isoformat()
+    conn.execute("""
+        INSERT INTO suspensions (id, user_id, reason, suspended_by, suspension_type, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (suspension_id, user_id, reason, suspended_by, suspension_type, expires_at))
+    conn.execute("UPDATE users SET suspended = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+    return suspension_id
+
+
+def unsuspend_user(user_id: str) -> bool:
+    conn = get_db()
+    conn.execute("UPDATE users SET suspended = 0 WHERE id = ?", (user_id,))
+    conn.execute("""
+        UPDATE suspensions SET appeal_result = 'overturned', appeal_reviewed = 1
+        WHERE user_id = ? AND appeal_reviewed = 0
+    """, (user_id,))
+    conn.commit()
+    return True
+
+
+def get_user_suspensions(user_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM suspensions WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def submit_appeal(suspension_id: str, appeal_text: str) -> bool:
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE suspensions SET appealed = 1, appeal_text = ? WHERE id = ? AND appealed = 0",
+        (appeal_text, suspension_id)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def review_appeal(suspension_id: str, result: str) -> bool:
+    """result: 'upheld' or 'overturned'"""
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE suspensions SET appeal_reviewed = 1, appeal_result = ? WHERE id = ?",
+        (result, suspension_id)
+    )
+    if result == "overturned":
+        row = conn.execute("SELECT user_id FROM suspensions WHERE id = ?", (suspension_id,)).fetchone()
+        if row:
+            conn.execute("UPDATE users SET suspended = 0 WHERE id = ?", (row["user_id"],))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_pending_appeals() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT s.*, u.email, u.display_name
+        FROM suspensions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.appealed = 1 AND s.appeal_reviewed = 0
+        ORDER BY s.created_at DESC
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def check_suspension_expired() -> int:
+    """Unsuspend users whose temporary suspension expired. Returns count."""
+    conn = get_db()
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    rows = conn.execute(
+        "SELECT DISTINCT user_id FROM suspensions WHERE suspension_type = 'temporary' AND expires_at <= ? AND appeal_result IS NULL",
+        (now,)
+    ).fetchall()
+    expired_users = [r["user_id"] for r in rows]
+    if expired_users:
+        placeholders = ",".join("?" * len(expired_users))
+        conn.execute(f"UPDATE users SET suspended = 0 WHERE id IN ({placeholders})", expired_users)
+        conn.commit()
+    return len(expired_users)
+
+
+# ---------------------------------------------------------------------------
+# Photo Hashes
+# ---------------------------------------------------------------------------
+
+def save_photo_hash(profile_id: str, photo_filename: str, phash: str) -> str:
+    conn = get_db()
+    hash_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO photo_hashes (id, profile_id, photo_filename, phash) VALUES (?, ?, ?, ?)",
+        (hash_id, profile_id, photo_filename, phash)
+    )
+    conn.commit()
+    return hash_id
+
+
+def find_similar_photos(phash: str, max_distance: int = 5) -> list[dict]:
+    """Find photos with similar perceptual hash. Returns matches within hamming distance."""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM photo_hashes").fetchall()
+    results = []
+    for r in rows:
+        dist = _hamming_distance(phash, r["phash"])
+        if dist <= max_distance:
+            results.append({**dict(r), "distance": dist})
+    return sorted(results, key=lambda x: x["distance"])
+
+
+def _hamming_distance(h1: str, h2: str) -> int:
+    """Compute hamming distance between two hex hash strings."""
+    if len(h1) != len(h2):
+        return 999
+    return bin(int(h1, 16) ^ int(h2, 16)).count('1')
+
+
+# ---------------------------------------------------------------------------
+# Conversation Quality Signals
+# ---------------------------------------------------------------------------
+
+def update_response_stats(profile_id: str):
+    """Recalculate response rate and avg reply time for a profile."""
+    conn = get_db()
+    # Get all conversations where this user received messages
+    received = conn.execute("""
+        SELECT m.from_id, m.created_at, m.to_id
+        FROM messages m WHERE m.to_id = ?
+        ORDER BY m.created_at
+    """, (profile_id,)).fetchall()
+
+    if not received:
+        return
+
+    total_received_convos = set()
+    replied_convos = set()
+    reply_times = []
+
+    for msg in received:
+        conv_key = msg["from_id"]
+        total_received_convos.add(conv_key)
+        # Check if user replied
+        reply = conn.execute("""
+            SELECT created_at FROM messages
+            WHERE from_id = ? AND to_id = ? AND created_at > ?
+            ORDER BY created_at LIMIT 1
+        """, (profile_id, msg["from_id"], msg["created_at"])).fetchone()
+        if reply:
+            replied_convos.add(conv_key)
+            from datetime import datetime
+            try:
+                t1 = datetime.fromisoformat(msg["created_at"].replace("Z", "+00:00"))
+                t2 = datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00"))
+                diff_minutes = (t2 - t1).total_seconds() / 60
+                if diff_minutes < 10080:  # ignore gaps > 7 days
+                    reply_times.append(diff_minutes)
+            except (ValueError, TypeError):
+                pass
+
+    rate = len(replied_convos) / max(len(total_received_convos), 1)
+    avg_minutes = sum(reply_times) / max(len(reply_times), 1) if reply_times else None
+
+    conn.execute(
+        "UPDATE profiles SET response_rate = ?, avg_reply_minutes = ? WHERE id = ?",
+        (round(rate, 2), round(avg_minutes, 1) if avg_minutes else None, profile_id)
+    )
+    conn.commit()
+
+
+def get_response_stats(profile_id: str) -> dict:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT response_rate, avg_reply_minutes, last_message_at FROM profiles WHERE id = ?",
+        (profile_id,)
+    ).fetchone()
+    if not row:
+        return {}
+    return {
+        "response_rate": row["response_rate"],
+        "avg_reply_minutes": row["avg_reply_minutes"],
+        "last_message_at": row["last_message_at"],
+    }
+
+
+def update_last_message_time(profile_id: str):
+    conn = get_db()
+    from datetime import datetime, timezone
+    conn.execute(
+        "UPDATE profiles SET last_message_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), profile_id)
+    )
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Saved Searches
+# ---------------------------------------------------------------------------
+
+def save_search(profile_id: str, name: str, filters: dict) -> str:
+    conn = get_db()
+    search_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO saved_searches (id, profile_id, name, filters) VALUES (?, ?, ?, ?)",
+        (search_id, profile_id, name, json.dumps(filters))
+    )
+    conn.commit()
+    return search_id
+
+
+def get_saved_searches(profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM saved_searches WHERE profile_id = ? ORDER BY created_at DESC",
+        (profile_id,)
+    ).fetchall()
+    results = []
+    for r in rows:
+        d = dict(r)
+        d["filters"] = json.loads(d["filters"]) if d["filters"] else {}
+        results.append(d)
+    return results
+
+
+def delete_saved_search(search_id: str, profile_id: str) -> bool:
+    conn = get_db()
+    cur = conn.execute(
+        "DELETE FROM saved_searches WHERE id = ? AND profile_id = ?",
+        (search_id, profile_id)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Recently Active / New Users
+# ---------------------------------------------------------------------------
+
+def get_recently_active_profiles(hours: int = 24, limit: int = 50) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.id, p.name, p.age, p.gender, p.photo, p.verified, p.last_active,
+               p.response_rate, p.avg_reply_minutes, p.created_at,
+               p.headline, p.profile_theme
+        FROM profiles p
+        WHERE p.deactivated = 0
+          AND p.last_active >= datetime('now', '-' || ? || ' hours')
+        ORDER BY p.last_active DESC
+        LIMIT ?
+    """, (hours, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_new_profiles(days: int = 7, limit: int = 50) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.id, p.name, p.age, p.gender, p.photo, p.verified,
+               p.headline, p.profile_theme, p.created_at
+        FROM profiles p
+        WHERE p.deactivated = 0
+          AND p.created_at >= datetime('now', '-' || ? || ' days')
+        ORDER BY p.created_at DESC
+        LIMIT ?
+    """, (days, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_ghost_matches(profile_id: str, days_silent: int = 7) -> list[dict]:
+    """Find mutual matches where neither has messaged in X days."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT l1.target_id as match_id, p.name, p.photo,
+               MAX(m.created_at) as last_msg
+        FROM likes l1
+        JOIN likes l2 ON l1.from_id = l2.target_id AND l1.target_id = l2.from_id
+            AND l1.target_type = 'profile' AND l2.target_type = 'profile'
+        JOIN profiles p ON p.id = l1.target_id
+        LEFT JOIN messages m ON (
+            (m.from_id = ? AND m.to_id = l1.target_id) OR
+            (m.from_id = l1.target_id AND m.to_id = ?)
+        )
+        WHERE l1.from_id = ?
+          AND p.deactivated = 0
+        GROUP BY l1.target_id
+        HAVING last_msg IS NULL OR last_msg < datetime('now', '-' || ? || ' days')
+    """, (profile_id, profile_id, profile_id, days_silent)).fetchall()
+    return [dict(r) for r in rows]
