@@ -172,11 +172,76 @@ textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); 
     .nav-tabs{width:100%;justify-content:center;}
     .health-grid{grid-template-columns:1fr 1fr;}
 }
+
+/* Rate Limits */
+.rate-table { width:100%; border-collapse:separate; border-spacing:0 4px; }
+.rate-table th { text-align:left; font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; padding:8px 12px; }
+.rate-table td { padding:10px 12px; background:var(--mantle); font-size:13px; color:var(--subtext1); vertical-align:middle; }
+.rate-table tr td:first-child { border-radius:8px 0 0 8px; }
+.rate-table tr td:last-child { border-radius:0 8px 8px 0; }
+.rate-table tr:hover td { background:var(--surface0); }
+.rate-bar-wrap { width:120px; background:var(--surface0); border-radius:4px; height:8px; overflow:hidden; }
+.rate-bar { height:8px; border-radius:4px; transition:width .4s; }
+.rate-green { background:var(--green); }
+.rate-yellow { background:var(--yellow); }
+.rate-red { background:var(--red); }
+.rate-badge-green { background:rgba(166,227,161,.15); color:var(--green); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+.rate-badge-yellow { background:rgba(249,226,175,.15); color:var(--yellow); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+.rate-badge-red { background:rgba(243,139,168,.15); color:var(--red); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+
+/* Vacuum / DB Maintenance */
+.vacuum-row { display:flex; align-items:center; justify-content:space-between; background:var(--mantle); border-radius:8px; padding:14px 16px; margin-bottom:8px; }
+.vacuum-row .vk { font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
+.vacuum-row .vv { font-size:14px; color:var(--text); font-weight:500; }
+
+/* Audit Log */
+.audit-table { width:100%; border-collapse:separate; border-spacing:0 4px; }
+.audit-table th { text-align:left; font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; padding:8px 12px; }
+.audit-table td { padding:10px 12px; background:var(--mantle); font-size:13px; color:var(--subtext1); vertical-align:middle; }
+.audit-table tr td:first-child { border-radius:8px 0 0 8px; }
+.audit-table tr td:last-child { border-radius:0 8px 8px 0; }
+.audit-table tr:hover td { background:var(--surface0); }
+.audit-action { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; text-transform:uppercase; }
+.audit-action-delete { background:rgba(243,139,168,.15); color:var(--red); }
+.audit-action-create { background:rgba(166,227,161,.15); color:var(--green); }
+.audit-action-update { background:rgba(137,180,250,.15); color:var(--blue); }
+.audit-action-login { background:rgba(203,166,247,.15); color:var(--mauve); }
+.audit-action-other { background:var(--surface0); color:var(--overlay0); }
+.audit-pagination { display:flex; align-items:center; gap:8px; margin-top:16px; justify-content:flex-end; }
+
+/* Webhooks */
+.webhook-item { background:var(--mantle); border:1px solid var(--surface0); border-radius:8px; padding:14px 16px; margin-bottom:8px; }
+.webhook-item.disabled { opacity:.55; }
+.webhook-url { font-family:monospace; font-size:12px; color:var(--yellow); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:360px; }
+.webhook-events { display:flex; gap:4px; flex-wrap:wrap; margin-top:6px; }
+.webhook-event-tag { background:var(--surface0); color:var(--subtext0); font-size:10px; padding:2px 7px; border-radius:4px; }
+.toggle-switch { position:relative; display:inline-block; width:36px; height:20px; cursor:pointer; }
+.toggle-switch input { opacity:0; width:0; height:0; }
+.toggle-slider { position:absolute; inset:0; background:var(--surface1); border-radius:20px; transition:.2s; }
+.toggle-slider::before { content:''; position:absolute; width:14px; height:14px; left:3px; top:3px; background:var(--overlay0); border-radius:50%; transition:.2s; }
+.toggle-switch input:checked+.toggle-slider { background:var(--green); }
+.toggle-switch input:checked+.toggle-slider::before { transform:translateX(16px); background:var(--crust); }
+.wh-form { background:var(--mantle); border-radius:8px; padding:18px; margin-top:16px; }
+.wh-form h3 { font-size:15px; color:var(--lavender); margin-bottom:14px; }
+.cb-group { display:flex; flex-wrap:wrap; gap:10px; }
+.cb-label { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--subtext1); cursor:pointer; }
+.cb-label input[type=checkbox] { accent-color:var(--red); width:14px; height:14px; cursor:pointer; }
+
+/* Email Templates */
+.tpl-item { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--mantle); border-radius:8px; margin-bottom:6px; cursor:pointer; transition:background .2s; }
+.tpl-item:hover { background:var(--surface0); }
+.tpl-item .tpl-name { font-size:14px; font-weight:500; color:var(--text); }
+.tpl-item .tpl-desc { font-size:12px; color:var(--overlay0); margin-top:2px; }
+.tpl-preview-modal { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:600; display:flex; align-items:center; justify-content:center; padding:20px; }
+.tpl-preview-box { background:var(--base); border:1px solid var(--surface0); border-radius:var(--radius); width:100%; max-width:680px; max-height:90vh; display:flex; flex-direction:column; box-shadow:var(--shadow); }
+.tpl-preview-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--surface0); }
+.tpl-preview-header h3 { color:var(--lavender); font-size:15px; }
+.tpl-preview-iframe { flex:1; border:none; border-radius:0 0 var(--radius) var(--radius); min-height:400px; background:#fff; }
 </style>
 </head>
 <body>
 <div class="header">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.6.0</span><span class="admin-badge">Admin</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.7.0</span><span class="admin-badge">Admin</span></div>
     <div class="nav-tabs" id="nav"></div>
 </div>
 <div class="container" id="app"></div>
@@ -201,6 +266,10 @@ const TABS=[
     {id:'analytics',label:'Analytics'},
     {id:'contentfilter',label:'Content Filter'},
     {id:'i18n',label:'i18n'},
+    {id:'ratelimits',label:'Rate Limits'},
+    {id:'auditlog',label:'Audit Log'},
+    {id:'webhooks',label:'Webhooks'},
+    {id:'emailtemplates',label:'Email Templates'},
 ];
 
 function adminHeaders(){
@@ -239,6 +308,10 @@ function showView(v){
     else if(v==='sessions')renderSessions();
     else if(v==='backups')renderBackups();
     else if(v==='i18n')renderI18n();
+    else if(v==='ratelimits')renderRateLimits();
+    else if(v==='auditlog')renderAuditLog();
+    else if(v==='webhooks')renderWebhooks();
+    else if(v==='emailtemplates')renderEmailTemplates();
 }
 
 function showLoginScreen(){
@@ -819,6 +892,16 @@ async function renderAnalytics(){
             <div class="analytics-card"><div class="value" style="color:var(--green)">${d.location_enabled_users!=null?d.location_enabled_users:'--'}</div><div class="label">Location-Enabled Users</div></div>
         </div>`;
 
+        // Extended feature metrics (v1.7.0)
+        html+=`<div class="section-head">Extended Feature Metrics</div>`;
+        html+=`<div class="analytics-cards">
+            <div class="analytics-card"><div class="value" style="color:var(--flamingo)">${d.blind_dates_active!=null?d.blind_dates_active:'--'}</div><div class="label">Blind Dates Active</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--yellow)">${d.games_played!=null?d.games_played:'--'}</div><div class="label">Games Played</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--mauve)">${d.shared_playlists!=null?d.shared_playlists:'--'}</div><div class="label">Shared Playlists</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--lavender)">${d.safety_checkins!=null?d.safety_checkins:'--'}</div><div class="label">Safety Check-ins</div></div>
+            <div class="analytics-card"><div class="value" style="color:var(--rosewater)">${d.webhook_deliveries!=null?d.webhook_deliveries:'--'}</div><div class="label">Webhook Deliveries</div></div>
+        </div>`;
+
         // Top viewed profiles
         const topProfiles=d.top_viewed_profiles||[];
         if(topProfiles.length){
@@ -981,6 +1064,10 @@ async function renderBackups(){
 
         html+=`<div style="margin-bottom:16px"><button class="btn btn-primary" id="backup-btn" onclick="createBackup()">Create Backup Now</button></div>`;
 
+        // Database Maintenance section
+        html+=`<div class="section-head">Database Maintenance</div>`;
+        html+=`<div id="vacuum-section"><div class="loading" style="padding:20px"><div class="spinner"></div>Loading maintenance info...</div></div>`;
+
         if(!backups.length){
             html+=`<div class="empty" style="padding:24px"><h3>No backups yet</h3><p>Create your first backup above.</p></div>`;
         } else {
@@ -1000,7 +1087,42 @@ async function renderBackups(){
         }
         html+=`</div>`;
         app.innerHTML=html;
+        loadVacuumSection();
     }catch(e){app.innerHTML='<div class="empty"><h3>Error loading backups</h3></div>';console.error(e);}
+}
+
+async function loadVacuumSection(){
+    const slot=document.getElementById('vacuum-section');
+    if(!slot) return;
+    try{
+        const d=await adminFetch(API+'/api/admin/vacuum').then(r=>r.json()).catch(()=>({}));
+        const lastVacuum=d.last_vacuum?new Date(d.last_vacuum).toLocaleString():'Never';
+        const nextVacuum=d.next_scheduled?new Date(d.next_scheduled).toLocaleString():'Not scheduled';
+        const dbSize=d.db_size_mb!=null?d.db_size_mb.toFixed(2)+' MB':(d.db_size||'--');
+        const interval=d.vacuum_interval||d.interval||'--';
+        slot.innerHTML=`
+            <div class="vacuum-row"><div><div class="vk">Last Vacuum</div><div class="vv">${escHtml(lastVacuum)}</div></div></div>
+            <div class="vacuum-row"><div><div class="vk">Next Scheduled</div><div class="vv">${escHtml(nextVacuum)}</div></div></div>
+            <div class="vacuum-row"><div><div class="vk">Database Size</div><div class="vv">${escHtml(dbSize)}</div></div></div>
+            <div class="vacuum-row"><div><div class="vk">Vacuum Interval</div><div class="vv">${escHtml(String(interval))}</div></div></div>
+            <div style="margin-top:10px"><button class="btn btn-secondary" id="vacuum-btn" onclick="runVacuum()">Run VACUUM Now</button></div>`;
+    }catch(e){
+        const slot2=document.getElementById('vacuum-section');
+        if(slot2) slot2.innerHTML=`<div style="color:var(--overlay0);font-size:13px;padding:8px 0">Vacuum info unavailable</div>`;
+    }
+}
+
+async function runVacuum(){
+    const btn=document.getElementById('vacuum-btn');
+    if(btn){btn.disabled=true;btn.textContent='Running...';}
+    try{
+        await adminFetch(API+'/api/admin/vacuum',{method:'POST'});
+        toast('VACUUM completed','success');
+        loadVacuumSection();
+    }catch(e){
+        toast('VACUUM failed','error');
+        if(btn){btn.disabled=false;btn.textContent='Run VACUUM Now';}
+    }
 }
 
 async function createBackup(){
@@ -1076,6 +1198,289 @@ async function renderI18n(){
         html+=`</div>`;
         app.innerHTML=html;
     }catch(e){app.innerHTML='<div class="empty"><h3>Error loading i18n data</h3><p>The i18n endpoint may not be available yet.</p></div>';console.error(e);}
+}
+
+// ─── Rate Limits ───
+let _rateLimitTimer=null;
+async function renderRateLimits(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading rate limit data...</div>';
+    if(_rateLimitTimer) clearInterval(_rateLimitTimer);
+    await _loadRateLimits();
+    _rateLimitTimer=setInterval(()=>{if(document.querySelector('[data-view="ratelimits"]')) _loadRateLimits(); else clearInterval(_rateLimitTimer);},30000);
+}
+
+async function _loadRateLimits(){
+    const app=document.getElementById('app');
+    try{
+        const d=await adminFetch(API+'/api/admin/rate-limits').then(r=>r.json());
+        const entries=d.rate_limits||d.entries||d||[];
+        let html=`<div class="card" data-view="ratelimits"><h2>API Rate Limits</h2><p class="subtitle">Live rate limit statistics — auto-refreshes every 30s</p>`;
+        if(!entries.length){
+            html+=`<div class="empty"><h3>No rate limit data</h3><p>No API rate limit events recorded yet.</p></div>`;
+        } else {
+            html+=`<div style="overflow-x:auto"><table class="rate-table"><thead><tr>
+                <th>Endpoint</th><th>Hits (24h)</th><th>Blocked (24h)</th><th>Current Rate</th><th>Usage</th>
+            </tr></thead><tbody>`;
+            for(const e of entries){
+                const limit=e.limit||100;
+                const current=e.current_rate||e.rate||0;
+                const pct=Math.min((current/limit)*100,100);
+                const barClass=pct<50?'rate-green':pct<80?'rate-yellow':'rate-red';
+                const badgeClass=pct<50?'rate-badge-green':pct<80?'rate-badge-yellow':'rate-badge-red';
+                html+=`<tr>
+                    <td><code style="color:var(--sapphire);font-size:12px">${escHtml(e.endpoint||'?')}</code></td>
+                    <td style="color:var(--text);font-weight:500">${e.hits_24h!=null?e.hits_24h:'--'}</td>
+                    <td style="color:var(--red)">${e.blocked_24h!=null?e.blocked_24h:'--'}</td>
+                    <td><span class="${badgeClass}">${current}/s</span></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <div class="rate-bar-wrap"><div class="rate-bar ${barClass}" style="width:${pct.toFixed(1)}%"></div></div>
+                            <span style="font-size:11px;color:var(--overlay0);min-width:36px">${pct.toFixed(0)}%</span>
+                        </div>
+                    </td>
+                </tr>`;
+            }
+            html+=`</tbody></table></div>`;
+        }
+        html+=`<div style="margin-top:12px;text-align:right;font-size:11px;color:var(--overlay0)">Last updated: ${new Date().toLocaleTimeString()}</div>`;
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading rate limits</h3><p>The rate limits endpoint may not be available yet.</p></div>';console.error(e);}
+}
+
+// ─── Audit Log ───
+let _auditPage=0;
+let _auditFilter='';
+async function renderAuditLog(){
+    _auditPage=0;
+    _auditFilter='';
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading audit log...</div>';
+    await _loadAuditLog();
+}
+
+async function _loadAuditLog(){
+    const app=document.getElementById('app');
+    try{
+        const params=new URLSearchParams({limit:50,offset:_auditPage*50});
+        if(_auditFilter) params.set('action',_auditFilter);
+        const d=await adminFetch(API+'/api/admin/audit-log?'+params).then(r=>r.json());
+        const entries=d.entries||d.logs||d||[];
+        const total=d.total||entries.length;
+
+        // Build action-type options from data or known defaults
+        const knownActions=['','delete','create','update','login','ban','restore'];
+        let actionOpts=knownActions.map(a=>`<option value="${a}" ${_auditFilter===a?'selected':''}>${a===''?'All Actions':a.charAt(0).toUpperCase()+a.slice(1)}</option>`).join('');
+
+        let html=`<div class="card"><h2>Audit Log</h2><p class="subtitle">Admin action history — ${total} total records</p>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <div class="form-group" style="margin:0;flex:0 0 200px"><select onchange="_auditFilter=this.value;_auditPage=0;_loadAuditLog()">${actionOpts}</select></div>
+        </div>`;
+
+        if(!entries.length){
+            html+=`<div class="empty"><h3>No audit log entries</h3><p>No admin actions recorded${_auditFilter?' for this filter':''}.</p></div>`;
+        } else {
+            html+=`<div style="overflow-x:auto"><table class="audit-table"><thead><tr>
+                <th>Timestamp</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th>
+            </tr></thead><tbody>`;
+            for(const e of entries){
+                const ac=e.action||'other';
+                const acClass=ac==='delete'?'audit-action-delete':ac==='create'?'audit-action-create':ac==='update'?'audit-action-update':ac==='login'?'audit-action-login':'audit-action-other';
+                html+=`<tr>
+                    <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${e.timestamp||e.created_at?new Date(e.timestamp||e.created_at).toLocaleString():'--'}</td>
+                    <td style="color:var(--lavender);font-size:13px">${escHtml(e.admin_email||e.admin||'?')}</td>
+                    <td><span class="audit-action ${acClass}">${escHtml(ac)}</span></td>
+                    <td style="font-size:13px;color:var(--subtext1)">${escHtml(e.target||'--')}</td>
+                    <td style="font-size:12px;color:var(--overlay0);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.details||'')}">${escHtml(e.details||'--')}</td>
+                </tr>`;
+            }
+            html+=`</tbody></table></div>`;
+        }
+
+        // Pagination
+        const totalPages=Math.max(1,Math.ceil(total/50));
+        html+=`<div class="audit-pagination">
+            <button class="btn btn-secondary" style="padding:6px 14px;font-size:12px" ${_auditPage===0?'disabled':''} onclick="_auditPage--;_loadAuditLog()">Prev</button>
+            <span style="font-size:13px;color:var(--overlay0)">Page ${_auditPage+1} / ${totalPages}</span>
+            <button class="btn btn-secondary" style="padding:6px 14px;font-size:12px" ${(_auditPage+1)>=totalPages?'disabled':''} onclick="_auditPage++;_loadAuditLog()">Next</button>
+        </div>`;
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading audit log</h3><p>The audit log endpoint may not be available yet.</p></div>';console.error(e);}
+}
+
+// ─── Webhooks ───
+async function renderWebhooks(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading webhooks...</div>';
+    await _loadWebhooks();
+}
+
+async function _loadWebhooks(){
+    const app=document.getElementById('app');
+    try{
+        const d=await adminFetch(API+'/api/admin/webhooks').then(r=>r.json());
+        const hooks=d.webhooks||d||[];
+        let html=`<div class="card"><h2>Webhooks</h2><p class="subtitle">${hooks.length} webhook${hooks.length!==1?'s':''} configured</p>`;
+
+        if(!hooks.length){
+            html+=`<div class="empty" style="padding:24px"><h3>No webhooks yet</h3><p>Create your first webhook below.</p></div>`;
+        } else {
+            for(const wh of hooks){
+                const events=(wh.events||[]).join(', ')||'none';
+                html+=`<div class="webhook-item ${wh.enabled===false?'disabled':''}">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+                        <div style="flex:1;min-width:0">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                                <strong style="color:var(--text)">${escHtml(wh.name||'Unnamed')}</strong>
+                                ${wh.enabled===false?`<span style="color:var(--overlay0);font-size:11px;font-weight:600;text-transform:uppercase">Disabled</span>`:`<span style="color:var(--green);font-size:11px;font-weight:600;text-transform:uppercase">Active</span>`}
+                            </div>
+                            <div class="webhook-url">${escHtml(wh.url||'?')}</div>
+                            <div class="webhook-events">${(wh.events||[]).map(ev=>`<span class="webhook-event-tag">${escHtml(ev)}</span>`).join('')}</div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                            <label class="toggle-switch" title="${wh.enabled===false?'Enable':'Disable'} webhook">
+                                <input type="checkbox" ${wh.enabled!==false?'checked':''} onchange="toggleWebhook('${escHtml(wh.id||'')}',this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <button class="btn-sm btn-delete" onclick="deleteWebhook('${escHtml(wh.id||'')}','${escHtml(wh.name||'')}')">Delete</button>
+                        </div>
+                    </div>
+                </div>`;
+            }
+        }
+
+        // Create webhook form
+        html+=`<div class="wh-form">
+            <h3>Create Webhook</h3>
+            <div class="form-group"><label>Name</label><input type="text" id="wh-name" placeholder="My Webhook"></div>
+            <div class="form-group"><label>URL</label><input type="text" id="wh-url" placeholder="https://example.com/webhook"></div>
+            <div class="form-group"><label>Events</label>
+                <div class="cb-group">
+                    <label class="cb-label"><input type="checkbox" id="wh-ev-match" value="match"> Match</label>
+                    <label class="cb-label"><input type="checkbox" id="wh-ev-message" value="message"> Message</label>
+                    <label class="cb-label"><input type="checkbox" id="wh-ev-signup" value="signup"> Signup</label>
+                    <label class="cb-label"><input type="checkbox" id="wh-ev-report" value="report"> Report</label>
+                    <label class="cb-label"><input type="checkbox" id="wh-ev-all" value="all"> All</label>
+                </div>
+            </div>
+            <div class="form-group"><label>Secret (optional)</label><input type="text" id="wh-secret" placeholder="Signing secret"></div>
+            <button class="btn btn-primary" onclick="createWebhook()">Create Webhook</button>
+        </div>`;
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading webhooks</h3><p>The webhooks endpoint may not be available yet.</p></div>';console.error(e);}
+}
+
+async function createWebhook(){
+    const name=document.getElementById('wh-name')?.value?.trim();
+    const url=document.getElementById('wh-url')?.value?.trim();
+    if(!name||!url){toast('Name and URL are required','error');return;}
+    const eventIds=['wh-ev-match','wh-ev-message','wh-ev-signup','wh-ev-report','wh-ev-all'];
+    const events=eventIds.map(id=>document.getElementById(id)).filter(el=>el&&el.checked).map(el=>el.value);
+    const secret=document.getElementById('wh-secret')?.value?.trim()||null;
+    try{
+        const r=await adminFetch(API+'/api/admin/webhooks',{method:'POST',body:JSON.stringify({name,url,events,secret})});
+        if(!r.ok){const err=await r.json().catch(()=>({}));toast(err.detail||'Create failed','error');return;}
+        toast('Webhook created','success');
+        _loadWebhooks();
+    }catch(e){toast('Create failed','error');}
+}
+
+async function toggleWebhook(id,enabled){
+    try{
+        await adminFetch(API+'/api/admin/webhooks/'+id,{method:'PUT',body:JSON.stringify({enabled})});
+        toast(enabled?'Webhook enabled':'Webhook disabled','success');
+        _loadWebhooks();
+    }catch(e){toast('Update failed','error');_loadWebhooks();}
+}
+
+async function deleteWebhook(id,name){
+    const old=document.getElementById('wh-del-modal');
+    if(old) old.remove();
+    const modal=document.createElement('div');
+    modal.id='wh-del-modal';
+    modal.className='modal-overlay';
+    modal.innerHTML=`<div class="modal-box">
+        <h3>Delete Webhook?</h3>
+        <p>Delete webhook <strong style="color:var(--yellow)">${escHtml(name||id)}</strong>?<br>This cannot be undone.</p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="document.getElementById('wh-del-modal').remove()">Cancel</button>
+            <button class="btn btn-danger" onclick="confirmDeleteWebhook('${escHtml(id)}')">Delete</button>
+        </div>
+    </div>`;
+    document.body.appendChild(modal);
+}
+
+async function confirmDeleteWebhook(id){
+    const modal=document.getElementById('wh-del-modal');
+    if(modal) modal.remove();
+    try{
+        await adminFetch(API+'/api/admin/webhooks/'+id,{method:'DELETE'});
+        toast('Webhook deleted','success');
+        _loadWebhooks();
+    }catch(e){toast('Delete failed','error');}
+}
+
+// ─── Email Templates ───
+async function renderEmailTemplates(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading email templates...</div>';
+    try{
+        const d=await adminFetch(API+'/api/admin/email-templates').then(r=>r.json());
+        const templates=d.templates||d||[];
+        let html=`<div class="card"><h2>Email Templates</h2><p class="subtitle">${templates.length} template${templates.length!==1?'s':''} available — click to preview</p>`;
+        if(!templates.length){
+            html+=`<div class="empty"><h3>No email templates</h3><p>No email templates are configured on the server.</p></div>`;
+        } else {
+            for(const t of templates){
+                html+=`<div class="tpl-item" onclick="previewEmailTemplate('${escHtml(t.id||t.name||'')}','${escHtml(t.name||t.id||'')}')">
+                    <div>
+                        <div class="tpl-name">${escHtml(t.name||t.id||'Unnamed')}</div>
+                        ${t.description?`<div class="tpl-desc">${escHtml(t.description)}</div>`:''}
+                    </div>
+                    <button class="btn-sm btn-view" style="flex-shrink:0">Preview</button>
+                </div>`;
+            }
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading email templates</h3><p>The email templates endpoint may not be available yet.</p></div>';console.error(e);}
+}
+
+async function previewEmailTemplate(id,name){
+    const old=document.getElementById('tpl-preview-modal');
+    if(old) old.remove();
+    const modal=document.createElement('div');
+    modal.id='tpl-preview-modal';
+    modal.className='tpl-preview-modal';
+    modal.innerHTML=`<div class="tpl-preview-box">
+        <div class="tpl-preview-header">
+            <h3>${escHtml(name||id)}</h3>
+            <button class="btn-sm btn-secondary" onclick="document.getElementById('tpl-preview-modal').remove()">Close</button>
+        </div>
+        <div style="padding:12px 20px;border-bottom:1px solid var(--surface0);display:flex;align-items:center;gap:8px">
+            <div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0"></div>
+            <span style="font-size:13px;color:var(--overlay0)">Loading preview...</span>
+        </div>
+        <iframe id="tpl-preview-frame" class="tpl-preview-iframe" sandbox="allow-same-origin"></iframe>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click',e=>{if(e.target===modal) modal.remove();});
+    try{
+        const r=await adminFetch(API+'/api/admin/email-templates/'+encodeURIComponent(id)+'/preview');
+        const html=await r.text();
+        const frame=document.getElementById('tpl-preview-frame');
+        if(frame){
+            const loadingBar=modal.querySelector('.tpl-preview-box>div:nth-child(2)');
+            if(loadingBar) loadingBar.remove();
+            frame.srcdoc=html;
+        }
+    }catch(e){
+        const frame=document.getElementById('tpl-preview-frame');
+        if(frame) frame.srcdoc=`<body style="font-family:sans-serif;padding:20px;color:#666"><p>Failed to load preview.</p></body>`;
+    }
 }
 
 // ─── Utils ───

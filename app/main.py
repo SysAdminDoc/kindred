@@ -1,5 +1,5 @@
 """
-Kindred v1.6.0 - FastAPI Backend (User Server)
+Kindred v1.7.0 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -36,6 +36,8 @@ from app.config import (
     PREMIUM_ENABLED, DAILY_SUGGESTION_COUNT,
     LOCATION_MATCH_RADIUS_KM, STORY_EXPIRY_HOURS,
     MATCH_EXPIRY_DAYS, DEFAULT_LOCALE,
+    BLIND_DATE_HOURS, MESSAGE_COOLDOWN_MINUTES, MESSAGE_COOLDOWN_COUNT,
+    UNDO_BLOCK_MINUTES, SAFETY_CHECKIN_DEFAULT_MINUTES,
 )
 from app.logging_config import setup_logging, get_logger
 from app.content_filter import check_content, filter_message
@@ -102,6 +104,20 @@ from app.database import (
     search_messages,
     delete_account, export_user_data,
     get_expiring_matches,
+    create_icebreaker_game, get_icebreaker_game, submit_game_turn, get_games_for_pair,
+    create_date_schedule, get_date_schedules, get_date_schedule, update_date_schedule_status,
+    create_blind_date, get_active_blind_dates, reveal_blind_dates,
+    pass_profile, get_passed_profiles, reconsider_profile,
+    save_thread_reply, get_reply_context,
+    create_shared_playlist, get_shared_playlists, add_playlist_song, get_playlist_songs, delete_playlist_song,
+    add_event_photo, get_event_photos, delete_event_photo,
+    award_badge, get_badges, check_and_award_badges,
+    react_to_story, get_story_reactions, get_story_reaction_counts,
+    pin_message, unpin_message, get_pinned_messages,
+    check_message_cooldown, create_undo_block, undo_block, cleanup_expired_undo_blocks,
+    create_safety_checkin, respond_safety_checkin, get_user_checkins,
+    check_dealbreaker_conflicts, get_profile_completeness,
+    log_rate_limit_hit,
     UPLOAD_DIR,
 )
 from app.questions import (
@@ -121,7 +137,7 @@ from app.engine import (
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="1.6.0")
+app = FastAPI(title="Kindred", version="1.7.0")
 
 # CORS middleware
 app.add_middleware(
@@ -272,6 +288,7 @@ class MessageSend(BaseModel):
     from_id: str
     to_id: str
     content: str
+    reply_to: str | None = None
 
 class WeightUpdate(BaseModel):
     weights: dict[str, float]
@@ -385,6 +402,47 @@ class IncognitoUpdate(BaseModel):
 class AccountDeleteConfirm(BaseModel):
     confirmation: str
 
+class GameStart(BaseModel):
+    partner_id: str
+    game_type: str  # word_association, would_you_rather, 20_questions
+
+class GameTurn(BaseModel):
+    content: str
+
+class DateScheduleCreate(BaseModel):
+    partner_id: str
+    date: str
+    time: str | None = None
+    venue: str | None = None
+    notes: str | None = None
+
+class BlindDateStart(BaseModel):
+    target_id: str
+
+class StoryReaction(BaseModel):
+    reaction: str
+
+class PlaylistCreate(BaseModel):
+    partner_id: str
+    name: str = "Our Playlist"
+
+class PlaylistSongAdd(BaseModel):
+    title: str
+    artist: str
+
+class SafetyCheckinCreate(BaseModel):
+    partner_name: str
+    emergency_contact: str
+    emergency_email: str
+    check_in_minutes: int = 60
+    date_schedule_id: str | None = None
+
+class ThemeUpdate(BaseModel):
+    theme: str  # "mocha" or "latte"
+
+class TypingPreviewUpdate(BaseModel):
+    enabled: bool
+
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
@@ -397,6 +455,8 @@ def startup():
     from app.backup import start_backup_scheduler
     start_backup_scheduler()
     cleanup_expired_stories()
+    reveal_blind_dates()
+    cleanup_expired_undo_blocks()
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -881,6 +941,9 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     if is_blocked_either(msg.from_id, msg.to_id):
         raise HTTPException(status_code=403, detail="Cannot message this user")
+    # Message cooldown for new matches
+    if not check_message_cooldown(msg.from_id, msg.to_id, MESSAGE_COOLDOWN_COUNT, MESSAGE_COOLDOWN_MINUTES):
+        raise HTTPException(status_code=429, detail="Slow down - message cooldown active")
     content_text = msg.content.strip()
     # Content filter
     filtered_text, was_filtered = filter_message(content_text)
@@ -892,6 +955,9 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
         log_content_filter("message", None, msg.from_id, content_text, spam_check["reason"], "spam", "blocked")
         raise HTTPException(status_code=400, detail="Message flagged as spam")
     msg_id = send_message(msg.from_id, msg.to_id, content_text)
+    # Thread reply support
+    if msg.reply_to:
+        save_thread_reply(msg_id, msg.reply_to)
     # Notify recipient
     sender = get_profile(msg.from_id)
     sender_name = sender["name"] if sender else "Someone"
@@ -1733,7 +1799,8 @@ def block_user(profile_id: str, blocked_id: str, user: dict = Depends(require_us
     if profile_id == blocked_id:
         raise HTTPException(status_code=400, detail="Cannot block yourself")
     block_profile(profile_id, blocked_id)
-    return {"message": "User blocked"}
+    create_undo_block(profile_id, blocked_id, UNDO_BLOCK_MINUTES)
+    return {"message": "User blocked", "undo_minutes": UNDO_BLOCK_MINUTES}
 
 
 @app.delete("/api/block/{profile_id}/{blocked_id}")
@@ -2152,7 +2219,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "1.6.0",
+        "version": "1.7.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
@@ -2548,6 +2615,379 @@ def list_locales():
 def get_translations(locale: str):
     from app.i18n import get_translations as _get_translations
     return {"locale": locale, "translations": _get_translations(locale)}
+
+
+# ---------------------------------------------------------------------------
+# Icebreaker Games
+# ---------------------------------------------------------------------------
+
+@app.post("/api/games/start")
+def start_game(body: GameStart, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    if body.game_type not in ("word_association", "would_you_rather", "20_questions"):
+        raise HTTPException(status_code=400, detail="Invalid game type")
+    game = create_icebreaker_game(profile_id, body.partner_id, body.game_type)
+    return game
+
+
+@app.get("/api/games/{game_id}")
+def get_game(game_id: str, user: dict = Depends(require_user)):
+    game = get_icebreaker_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return game
+
+
+@app.post("/api/games/{game_id}/turn")
+def play_turn(game_id: str, body: GameTurn, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    result = submit_game_turn(game_id, profile_id, body.content)
+    if not result:
+        raise HTTPException(status_code=400, detail="Not your turn or game inactive")
+    return result
+
+
+@app.get("/api/games/pair/{partner_id}")
+def get_pair_games(partner_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    return {"games": get_games_for_pair(profile_id, partner_id)}
+
+
+# ---------------------------------------------------------------------------
+# Date Scheduling
+# ---------------------------------------------------------------------------
+
+@app.post("/api/date-schedule")
+def schedule_date(body: DateScheduleCreate, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    result = create_date_schedule(profile_id, body.partner_id, profile_id,
+                                   body.date, body.time, body.venue, body.notes)
+    return result
+
+
+@app.get("/api/date-schedule/{partner_id}")
+def get_dates_with_partner(partner_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    return {"schedules": get_date_schedules(profile_id, partner_id)}
+
+
+@app.put("/api/date-schedule/{schedule_id}/status")
+def update_schedule_status(schedule_id: str, body: DatePlanUpdate, user: dict = Depends(require_user)):
+    if body.status not in ("accepted", "declined", "cancelled", "completed"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    update_date_schedule_status(schedule_id, body.status)
+    return {"message": "Status updated"}
+
+
+@app.get("/api/date-schedule/{schedule_id}/ics")
+def export_date_ics(schedule_id: str, user: dict = Depends(require_user)):
+    ds = get_date_schedule(schedule_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    ics = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Kindred//Date//EN
+BEGIN:VEVENT
+DTSTART:{ds['date_date'].replace('-', '')}T{(ds.get('date_time') or '19:00').replace(':', '')}00
+SUMMARY:Kindred Date
+LOCATION:{ds.get('venue', '')}
+DESCRIPTION:{ds.get('notes', '')}
+END:VEVENT
+END:VCALENDAR"""
+    from starlette.responses import Response
+    return Response(content=ics, media_type="text/calendar",
+                    headers={"Content-Disposition": f"attachment; filename=kindred-date-{schedule_id}.ics"})
+
+
+# ---------------------------------------------------------------------------
+# Blind Dates
+# ---------------------------------------------------------------------------
+
+@app.post("/api/blind-dates/start")
+def start_blind_date(body: BlindDateStart, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    result = create_blind_date(profile_id, body.target_id, BLIND_DATE_HOURS)
+    return result
+
+
+@app.get("/api/blind-dates/active")
+def active_blind_dates(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    return {"blind_dates": get_active_blind_dates(profile_id)}
+
+
+# ---------------------------------------------------------------------------
+# Dealbreaker Warnings
+# ---------------------------------------------------------------------------
+
+@app.get("/api/dealbreaker-check/{target_id}")
+def dealbreaker_check(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    warnings = check_dealbreaker_conflicts(profile_id, target_id)
+    return {"warnings": warnings}
+
+
+# ---------------------------------------------------------------------------
+# Second Look
+# ---------------------------------------------------------------------------
+
+@app.post("/api/pass/{target_id}")
+def pass_on_profile(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    pass_profile(profile_id, target_id)
+    return {"message": "Profile passed"}
+
+
+@app.get("/api/second-look")
+def second_look(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    return {"profiles": get_passed_profiles(profile_id)}
+
+
+@app.post("/api/second-look/{target_id}/reconsider")
+def reconsider(target_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    reconsider_profile(profile_id, target_id)
+    return {"message": "Profile reconsidered"}
+
+
+# ---------------------------------------------------------------------------
+# Threaded Replies
+# ---------------------------------------------------------------------------
+
+@app.get("/api/messages/{message_id}/reply-context")
+def message_reply_context(message_id: str, user: dict = Depends(require_user)):
+    ctx = get_reply_context(message_id)
+    return ctx or {}
+
+
+# ---------------------------------------------------------------------------
+# Shared Playlists
+# ---------------------------------------------------------------------------
+
+@app.post("/api/playlists")
+def create_playlist(body: PlaylistCreate, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    result = create_shared_playlist(profile_id, body.partner_id, body.name)
+    return result
+
+
+@app.get("/api/playlists/{partner_id}")
+def get_playlists(partner_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    return {"playlists": get_shared_playlists(profile_id, partner_id)}
+
+
+@app.post("/api/playlists/{playlist_id}/songs")
+def add_song(playlist_id: str, body: PlaylistSongAdd, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    return add_playlist_song(playlist_id, profile_id, body.title, body.artist)
+
+
+@app.get("/api/playlists/{playlist_id}/songs")
+def list_songs(playlist_id: str, user: dict = Depends(require_user)):
+    return {"songs": get_playlist_songs(playlist_id)}
+
+
+@app.delete("/api/playlists/{playlist_id}/songs/{song_id}")
+def remove_song(playlist_id: str, song_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    delete_playlist_song(song_id, profile_id)
+    return {"message": "Song removed"}
+
+
+# ---------------------------------------------------------------------------
+# Event Photos
+# ---------------------------------------------------------------------------
+
+@app.post("/api/events/{event_id}/photos")
+async def upload_event_photo(event_id: str, file: UploadFile = File(...),
+                              user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large")
+    ext = Path(file.filename or "photo.jpg").suffix.lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    if not validate_file_magic(content, ext):
+        raise HTTPException(status_code=400, detail="Invalid file content")
+    filename = f"event_{event_id}_{uuid.uuid4().hex[:8]}{ext}"
+    (UPLOAD_DIR / filename).write_bytes(content)
+    result = add_event_photo(event_id, profile_id, filename)
+    return result
+
+
+@app.get("/api/events/{event_id}/photos")
+def list_event_photos(event_id: str, user: dict = Depends(require_user)):
+    return {"photos": get_event_photos(event_id)}
+
+
+@app.delete("/api/events/{event_id}/photos/{photo_id}")
+def remove_event_photo(event_id: str, photo_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    delete_event_photo(photo_id, profile_id)
+    return {"message": "Photo removed"}
+
+
+# ---------------------------------------------------------------------------
+# Profile Badges
+# ---------------------------------------------------------------------------
+
+@app.get("/api/badges")
+def my_badges(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    check_and_award_badges(profile_id)
+    return {"badges": get_badges(profile_id)}
+
+
+@app.get("/api/badges/{profile_id}")
+def profile_badges(profile_id: str, user: dict = Depends(require_user)):
+    return {"badges": get_badges(profile_id)}
+
+
+# ---------------------------------------------------------------------------
+# Story Reactions
+# ---------------------------------------------------------------------------
+
+@app.post("/api/stories/{story_id}/react")
+def react_story(story_id: str, body: StoryReaction, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if body.reaction not in ("heart", "fire", "laugh", "wow", "sad"):
+        raise HTTPException(status_code=400, detail="Invalid reaction")
+    react_to_story(story_id, profile_id, body.reaction)
+    return {"message": "Reaction added"}
+
+
+@app.get("/api/stories/{story_id}/reactions")
+def story_reactions(story_id: str, user: dict = Depends(require_user)):
+    return {
+        "reactions": get_story_reactions(story_id),
+        "counts": get_story_reaction_counts(story_id),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pinned Messages
+# ---------------------------------------------------------------------------
+
+@app.post("/api/messages/{message_id}/pin")
+def pin_msg(message_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    from app.database import get_db
+    msg = get_db().execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    pair = sorted([msg["from_id"], msg["to_id"]])
+    conv_key = f"{pair[0]}:{pair[1]}"
+    pin_message(message_id, profile_id, conv_key)
+    return {"message": "Message pinned"}
+
+
+@app.delete("/api/messages/{message_id}/pin")
+def unpin_msg(message_id: str, user: dict = Depends(require_user)):
+    unpin_message(message_id)
+    return {"message": "Message unpinned"}
+
+
+@app.get("/api/conversations/{partner_id}/pinned")
+def pinned_messages(partner_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    pair = sorted([profile_id, partner_id])
+    conv_key = f"{pair[0]}:{pair[1]}"
+    return {"pinned": get_pinned_messages(conv_key)}
+
+
+# ---------------------------------------------------------------------------
+# Undo Block
+# ---------------------------------------------------------------------------
+
+@app.post("/api/undo-block/{blocked_id}")
+def undo_block_endpoint(blocked_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if undo_block(profile_id, blocked_id):
+        return {"message": "Block undone"}
+    raise HTTPException(status_code=400, detail="Undo period expired or no block found")
+
+
+# ---------------------------------------------------------------------------
+# Safety Check-in
+# ---------------------------------------------------------------------------
+
+@app.post("/api/safety-checkin")
+def create_checkin(body: SafetyCheckinCreate, user: dict = Depends(require_user)):
+    result = create_safety_checkin(
+        user["id"], body.partner_name, body.emergency_contact,
+        body.emergency_email, body.check_in_minutes, body.date_schedule_id,
+    )
+    return result
+
+
+@app.post("/api/safety-checkin/{checkin_id}/safe")
+def checkin_safe(checkin_id: str, user: dict = Depends(require_user)):
+    if respond_safety_checkin(checkin_id, user["id"]):
+        return {"message": "Checked in safely"}
+    raise HTTPException(status_code=400, detail="Check-in not found or already resolved")
+
+
+@app.get("/api/safety-checkins")
+def my_checkins(user: dict = Depends(require_user)):
+    return {"checkins": get_user_checkins(user["id"])}
+
+
+# ---------------------------------------------------------------------------
+# Profile Completeness
+# ---------------------------------------------------------------------------
+
+@app.get("/api/profile/completeness")
+def profile_completeness(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        return {"score": 0, "tips": []}
+    return get_profile_completeness(profile_id, user["id"])
+
+
+# ---------------------------------------------------------------------------
+# Theme & Typing Preview Settings
+# ---------------------------------------------------------------------------
+
+@app.post("/api/settings/theme")
+def update_theme(body: ThemeUpdate, user: dict = Depends(require_user)):
+    if body.theme not in ("mocha", "latte"):
+        raise HTTPException(status_code=400, detail="Invalid theme")
+    from app.database import get_db
+    get_db().execute("UPDATE users SET theme=? WHERE id=?", (body.theme, user["id"]))
+    get_db().commit()
+    return {"message": "Theme updated", "theme": body.theme}
+
+
+@app.get("/api/settings/theme")
+def get_theme(user: dict = Depends(require_user)):
+    from app.database import get_db
+    row = get_db().execute("SELECT theme FROM users WHERE id=?", (user["id"],)).fetchone()
+    return {"theme": row["theme"] if row and "theme" in row.keys() else "mocha"}
+
+
+@app.post("/api/settings/typing-preview")
+def update_typing_preview(body: TypingPreviewUpdate, user: dict = Depends(require_user)):
+    from app.database import get_db
+    get_db().execute("UPDATE users SET typing_preview=? WHERE id=?",
+                     (1 if body.enabled else 0, user["id"]))
+    get_db().commit()
+    return {"message": "Typing preview updated"}
+
+
+@app.get("/api/settings/typing-preview")
+def get_typing_preview(user: dict = Depends(require_user)):
+    from app.database import get_db
+    row = get_db().execute("SELECT typing_preview FROM users WHERE id=?", (user["id"],)).fetchone()
+    return {"enabled": bool(row["typing_preview"]) if row and "typing_preview" in row.keys() else False}
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/version-1.6.0-cba6f7?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.7.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-BSL%201.1-a6e3a1?style=flat-square" alt="License">
 </p>
@@ -60,6 +60,23 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Guided onboarding tour for new users
 - Notification sounds (AudioContext two-tone beep)
 - Image cropping before upload (Canvas API)
+- Icebreaker games (Word Association, Would You Rather, 20 Questions)
+- Date scheduling with ICS calendar export
+- Blind date mode (48h no-photo/name, then reveal)
+- Second look (review passed profiles)
+- Threaded replies (quote-reply in conversations)
+- Shared playlists between matched pairs
+- Event photo albums (shared galleries)
+- Profile badges (achievement system)
+- Story reactions (quick emoji reactions)
+- Pinned messages in conversations
+- Dark/Light theme toggle (Catppuccin Mocha/Latte)
+- Keyboard shortcuts with help overlay
+- Profile completeness coaching
+- Animated page transitions
+- Typing previews (opt-in)
+- WebSocket auto-reconnection with exponential backoff
+- Link preview scanning (suspicious URL warnings)
 
 **Trust & Safety**
 - Two-factor authentication (TOTP) with recovery codes
@@ -70,7 +87,11 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Selfie verification with admin review
 - Automated content filtering (profanity censoring, spam blocking)
 - Photo moderation queue with admin review
-- Profile blocking and safety reports
+- Profile blocking with undo grace period
+- Safety check-in timer with emergency contact alerts
+- Dealbreaker warnings on profile views
+- Message cooldown (rate limit for new matches)
+- Link preview scanning (suspicious URL warnings)
 - Rate-limited auth endpoints
 - File upload magic byte validation
 - JWT authentication on all mutating endpoints
@@ -93,6 +114,11 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Web push notifications
 - Premium subscription tier scaffolding
 - i18n framework (internationalization-ready with JSON locale files)
+- Audit log (admin action tracking)
+- Webhook system (configurable outbound webhooks)
+- HTML email templates (verification, reset, match notifications)
+- Database vacuum scheduler
+- API rate limit dashboard (admin)
 - Health check endpoint (`/api/health`)
 
 ## Tech Stack

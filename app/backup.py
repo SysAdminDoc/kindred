@@ -1,5 +1,5 @@
 """
-Kindred v1.6.0 - Database Backup Scheduler
+Kindred v1.7.0 - Database Backup Scheduler
 Automatic SQLite backups with rotation.
 """
 

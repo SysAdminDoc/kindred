@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindred v1.6.0 - Find Your Match</title>
+<title>Kindred v1.7.0 - Find Your Match</title>
 <meta name="description" content="Kindred - Compatibility-first dating platform. Answer detailed questionnaires, get matched on 8 dimensions of compatibility.">
 <meta property="og:title" content="Kindred - Find Your Match">
 <meta property="og:description" content="Dating built around genuine compatibility, not swiping on photos. Open source and privacy-first.">
@@ -723,12 +723,239 @@ textarea::placeholder { color:var(--surface2); }
     .stories-bar { gap:8px; }
     .story-circle .story-avatar { width:48px; height:48px; }
 }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 1: Dark/Light Theme Toggle
+   ═══════════════════════════════════════════════════ */
+body.theme-latte {
+    --base: #eff1f5; --mantle: #e6e9ef; --crust: #dce0e8;
+    --surface0: #ccd0da; --surface1: #bcc0cc; --surface2: #acb0be;
+    --overlay0: #6c6f85; --overlay1: #7c7f93;
+    --text: #4c4f69; --subtext0: #5c5f77; --subtext1: #6c6f85;
+    --lavender: #7287fd; --blue: #1e66f5; --sapphire: #209fb5;
+    --green: #40a02b; --peach: #fe640b; --red: #d20f39;
+    --mauve: #8839ef; --pink: #ea76cb; --yellow: #df8e1d;
+    --rosewater: #dc8a78; --flamingo: #dd7878; --teal: #179299;
+    --shadow: 0 8px 32px rgba(0,0,0,0.12);
+}
+body.theme-latte ::-webkit-scrollbar-track { background: var(--mantle); }
+body.theme-latte ::-webkit-scrollbar-thumb { background: var(--surface2); }
+body.theme-latte .header h1 { background:linear-gradient(135deg,var(--mauve),var(--pink),var(--flamingo)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 2: Threaded Replies
+   ═══════════════════════════════════════════════════ */
+.msg-reply-preview { background:var(--surface0); border-left:3px solid var(--mauve); border-radius:0 8px 8px 0; padding:6px 10px; margin-bottom:6px; font-size:12px; color:var(--subtext0); display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.msg-reply-preview .rp-name { color:var(--mauve); font-weight:600; margin-bottom:2px; }
+.msg-reply-preview .rp-text { color:var(--subtext1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px; }
+.msg-reply-cancel { cursor:pointer; color:var(--overlay0); font-size:16px; flex-shrink:0; }
+.msg-reply-cancel:hover { color:var(--red); }
+.msg-quote-block { background:var(--surface0); border-left:3px solid var(--mauve); border-radius:0 6px 6px 0; padding:4px 8px; margin-bottom:4px; font-size:11px; }
+.msg-quote-block .qb-name { color:var(--mauve); font-weight:600; }
+.msg-quote-block .qb-text { color:var(--subtext0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
+.msg-reply-btn { opacity:0; cursor:pointer; font-size:11px; color:var(--overlay0); background:var(--surface0); border:1px solid var(--surface1); border-radius:6px; padding:2px 7px; transition:opacity .15s; white-space:nowrap; }
+.msg-bubble:hover .msg-reply-btn { opacity:1; }
+.msg-reply-btn:hover { color:var(--mauve); border-color:var(--mauve); }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 3: Pinned Messages
+   ═══════════════════════════════════════════════════ */
+.pinned-banner { background:linear-gradient(90deg,rgba(203,166,247,.08),rgba(245,194,231,.06)); border:1px solid var(--surface1); border-radius:8px; padding:8px 12px; margin-bottom:8px; }
+.pinned-banner-header { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--mauve); font-weight:600; margin-bottom:4px; text-transform:uppercase; letter-spacing:.5px; }
+.pinned-item { display:flex; align-items:center; gap:8px; padding:3px 0; font-size:12px; color:var(--subtext1); cursor:pointer; border-bottom:1px solid var(--surface0); }
+.pinned-item:last-child { border-bottom:none; }
+.pinned-item:hover { color:var(--text); }
+.pinned-item .pi-name { color:var(--mauve); font-size:11px; margin-right:4px; }
+.pinned-item .pi-text { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.msg-pin-btn { opacity:0; cursor:pointer; font-size:11px; color:var(--overlay0); background:var(--surface0); border:1px solid var(--surface1); border-radius:6px; padding:2px 7px; transition:opacity .15s; white-space:nowrap; margin-left:2px; }
+.msg-bubble:hover .msg-pin-btn { opacity:1; }
+.msg-pin-btn:hover { color:var(--yellow); border-color:var(--yellow); }
+.msg-bubble.is-pinned { border-left:2px solid var(--yellow); }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 4: Story Reactions
+   ═══════════════════════════════════════════════════ */
+.story-reactions-row { display:flex; gap:10px; justify-content:center; margin-top:16px; }
+.story-react-btn { background:rgba(255,255,255,.12); border:none; border-radius:50%; width:44px; height:44px; font-size:20px; cursor:pointer; transition:all .2s; display:flex; align-items:center; justify-content:center; }
+.story-react-btn:hover { background:rgba(255,255,255,.25); transform:scale(1.2); }
+.story-react-btn.reacted { background:rgba(203,166,247,.35); transform:scale(1.15); }
+.story-reaction-count { color:rgba(255,255,255,.7); font-size:11px; font-weight:600; text-align:center; margin-top:2px; }
+.story-viewers-list { position:absolute; bottom:80px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.75); border-radius:10px; padding:10px 14px; max-width:300px; }
+.story-viewer-item { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; color:white; }
+.story-viewer-item .sv-reaction { font-size:16px; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 5: Profile Badges
+   ═══════════════════════════════════════════════════ */
+.profile-badge { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; font-size:11px; margin-left:3px; vertical-align:middle; cursor:default; position:relative; }
+.profile-badge[data-tooltip]:hover::after { content:attr(data-tooltip); position:absolute; bottom:110%; left:50%; transform:translateX(-50%); background:var(--surface0); color:var(--text); font-size:11px; padding:3px 8px; border-radius:6px; white-space:nowrap; border:1px solid var(--surface1); z-index:10; pointer-events:none; }
+.pb-verified { background:rgba(166,227,161,.2); color:var(--green); }
+.pb-early { background:rgba(249,226,175,.2); color:var(--yellow); }
+.pb-starter { background:rgba(137,180,250,.2); color:var(--blue); }
+.pb-matcher { background:rgba(243,139,168,.2); color:var(--red); }
+.pb-host { background:rgba(203,166,247,.2); color:var(--mauve); }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 6: Shared Playlists
+   ═══════════════════════════════════════════════════ */
+.playlist-section { background:var(--mantle); border:1px solid var(--surface0); border-radius:var(--radius); padding:16px; margin-top:12px; }
+.playlist-section h3 { font-size:15px; color:var(--lavender); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+.playlist-song { display:flex; align-items:center; gap:10px; padding:7px 10px; background:var(--surface0); border-radius:8px; margin-bottom:5px; font-size:13px; }
+.playlist-song .ps-icon { color:var(--mauve); font-size:16px; }
+.playlist-song .ps-info { flex:1; }
+.playlist-song .ps-title { color:var(--text); font-weight:500; }
+.playlist-song .ps-artist { color:var(--overlay0); font-size:11px; }
+.playlist-add-form { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; margin-top:8px; }
+.playlist-add-form input { font-size:13px; padding:7px 10px; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 7: Event Photo Albums
+   ═══════════════════════════════════════════════════ */
+.event-album-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }
+.event-album-item { position:relative; border-radius:8px; overflow:hidden; aspect-ratio:1; cursor:pointer; }
+.event-album-item img { width:100%; height:100%; object-fit:cover; transition:transform .3s; }
+.event-album-item:hover img { transform:scale(1.05); }
+.event-album-del { position:absolute; top:4px; right:4px; background:rgba(0,0,0,.6); color:var(--red); font-size:14px; width:22px; height:22px; border-radius:50%; display:none; align-items:center; justify-content:center; cursor:pointer; border:none; }
+.event-album-item:hover .event-album-del { display:flex; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 8: Icebreaker Games
+   ═══════════════════════════════════════════════════ */
+.ig-panel { background:var(--mantle); border:1px solid var(--surface0); border-radius:var(--radius); padding:16px; margin-top:12px; }
+.ig-panel h3 { font-size:15px; color:var(--lavender); margin-bottom:10px; }
+.ig-game-types { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px; }
+.ig-type-card { padding:12px 8px; background:var(--surface0); border:2px solid transparent; border-radius:10px; cursor:pointer; text-align:center; font-size:13px; color:var(--subtext0); transition:all .2s; }
+.ig-type-card:hover { background:var(--surface1); color:var(--text); }
+.ig-type-card.active { border-color:var(--mauve); color:var(--mauve); background:rgba(203,166,247,.1); }
+.ig-type-card .ig-icon { font-size:22px; margin-bottom:4px; }
+.ig-card { background:var(--surface0); border-radius:10px; padding:16px; margin-bottom:10px; }
+.ig-card .ig-turn { font-size:11px; color:var(--mauve); font-weight:600; text-transform:uppercase; margin-bottom:6px; }
+.ig-card .ig-prompt { font-size:15px; color:var(--text); font-weight:500; line-height:1.5; margin-bottom:10px; }
+.ig-card .ig-response { font-size:13px; color:var(--subtext1); font-style:italic; border-top:1px solid var(--surface1); padding-top:6px; }
+.ig-waiting { text-align:center; color:var(--overlay0); font-size:13px; padding:12px; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 9: Date Scheduling
+   ═══════════════════════════════════════════════════ */
+.date-sched-card { background:var(--mantle); border:1px solid var(--surface0); border-radius:var(--radius); padding:14px; margin-top:10px; }
+.date-sched-card .dsc-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.date-sched-card .dsc-title { font-size:15px; font-weight:600; color:var(--text); }
+.date-sched-card .dsc-meta { font-size:12px; color:var(--overlay0); margin-bottom:4px; }
+.date-sched-card .dsc-notes { font-size:13px; color:var(--subtext1); font-style:italic; margin-top:6px; }
+.date-sched-form { background:var(--mantle); border-radius:var(--radius); padding:14px; margin-top:10px; }
+.date-sched-form .dsf-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+.ics-btn { background:rgba(137,180,250,.1); color:var(--blue); border:1px solid var(--blue); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; text-decoration:none; display:inline-block; margin-top:6px; }
+.ics-btn:hover { background:rgba(137,180,250,.2); }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 10: Blind Date Mode
+   ═══════════════════════════════════════════════════ */
+.blind-date-toggle-bar { background:var(--mantle); border:1px solid var(--surface1); border-radius:8px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; gap:10px; font-size:13px; color:var(--subtext0); }
+.blind-date-toggle-bar label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+.blind-mask-card { background:var(--surface0); border:2px dashed var(--surface2); border-radius:var(--radius); padding:24px 16px; text-align:center; }
+.blind-mask-card .bm-icon { font-size:48px; margin-bottom:10px; opacity:.6; }
+.blind-mask-card .bm-label { font-size:14px; color:var(--subtext0); font-weight:500; }
+.blind-mask-card .bm-score { font-size:28px; font-weight:700; color:var(--mauve); margin:8px 0; }
+.blind-timer { font-size:12px; color:var(--overlay0); margin-top:6px; }
+.convo-blind-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(203,166,247,.1); border:1px solid var(--mauve); border-radius:6px; padding:1px 7px; font-size:10px; color:var(--mauve); }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 11: Dealbreaker Warnings
+   ═══════════════════════════════════════════════════ */
+.dealbreaker-warning-banner { background:rgba(250,179,135,.08); border:1px solid var(--peach); border-radius:8px; padding:10px 14px; margin-bottom:12px; }
+.dealbreaker-warning-banner .dwb-title { font-size:13px; font-weight:600; color:var(--peach); margin-bottom:5px; }
+.dealbreaker-warning-item { font-size:12px; color:var(--subtext1); display:flex; gap:6px; align-items:baseline; margin-bottom:3px; }
+.dealbreaker-warning-item::before { content:'!'; color:var(--peach); font-weight:700; flex-shrink:0; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 12: Second Look
+   ═══════════════════════════════════════════════════ */
+.second-look-section { background:var(--base); border:1px solid var(--surface0); border-radius:var(--radius); padding:16px; margin-top:16px; }
+.second-look-section h2 { font-size:16px; color:var(--lavender); margin-bottom:4px; }
+.second-look-section .subtitle { font-size:13px; color:var(--overlay0); margin-bottom:12px; }
+.sl-card { display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--mantle); border-radius:8px; margin-bottom:6px; cursor:pointer; transition:all .2s; border:1px solid transparent; }
+.sl-card:hover { border-color:var(--mauve); }
+.sl-card img { width:44px; height:44px; border-radius:50%; object-fit:cover; border:2px solid var(--surface1); }
+.sl-card .sl-placeholder { width:44px; height:44px; border-radius:50%; background:var(--surface0); display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--overlay0); }
+.sl-card .sl-info { flex:1; }
+.sl-card .sl-name { font-size:14px; font-weight:500; color:var(--text); }
+.sl-card .sl-meta { font-size:11px; color:var(--overlay0); }
+.sl-reconsider-btn { background:rgba(203,166,247,.12); color:var(--mauve); border:1px solid var(--mauve); border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
+.sl-reconsider-btn:hover { background:rgba(203,166,247,.25); }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 13: Keyboard Shortcuts
+   ═══════════════════════════════════════════════════ */
+.shortcuts-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:800; display:flex; align-items:center; justify-content:center; }
+.shortcuts-panel { background:var(--base); border:1px solid var(--surface0); border-radius:var(--radius); padding:24px; max-width:380px; width:90%; box-shadow:var(--shadow); }
+.shortcuts-panel h3 { font-size:16px; color:var(--mauve); margin-bottom:14px; }
+.shortcut-row { display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--surface0); font-size:13px; }
+.shortcut-row:last-child { border-bottom:none; }
+.shortcut-row .sc-desc { color:var(--subtext1); }
+.shortcut-key { background:var(--surface0); border:1px solid var(--surface1); border-radius:5px; padding:2px 8px; font-size:12px; font-family:monospace; color:var(--text); }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 14: Profile Completeness Coaching
+   ═══════════════════════════════════════════════════ */
+.completeness-section { background:var(--base); border:1px solid var(--surface0); border-radius:var(--radius); padding:16px; margin-top:12px; }
+.completeness-section h3 { font-size:14px; color:var(--lavender); margin-bottom:8px; }
+.completeness-bar-wrap { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.completeness-bar { flex:1; height:8px; background:var(--surface0); border-radius:4px; overflow:hidden; }
+.completeness-bar-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,var(--red),var(--peach),var(--green)); transition:width .6s ease; }
+.completeness-score { font-size:18px; font-weight:700; min-width:44px; text-align:right; }
+.completeness-tip { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; background:var(--mantle); border-radius:8px; margin-bottom:6px; font-size:13px; cursor:pointer; transition:all .2s; border:1px solid transparent; }
+.completeness-tip:hover { border-color:var(--mauve); }
+.completeness-tip .ct-points { color:var(--mauve); font-weight:700; font-size:12px; min-width:32px; }
+.completeness-tip .ct-text { color:var(--subtext1); flex:1; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 15: Animated Transitions
+   ═══════════════════════════════════════════════════ */
+@keyframes tabEnter { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
+@keyframes tabLeave { from { opacity:1; transform:translateX(0); } to { opacity:0; transform:translateX(-18px); } }
+@keyframes modalEnter { from { opacity:0; transform:scale(.93); } to { opacity:1; transform:scale(1); } }
+@keyframes modalLeave { from { opacity:1; transform:scale(1); } to { opacity:0; transform:scale(.93); } }
+@keyframes matchReveal { 0%{transform:scale(1)} 30%{transform:scale(1.04)} 60%{transform:scale(.97)} 100%{transform:scale(1)} }
+@keyframes confettiFall { 0%{transform:translateY(-8px) rotate(0);opacity:1} 100%{transform:translateY(24px) rotate(180deg);opacity:0} }
+@keyframes staggerFade { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+.tab-enter { animation:tabEnter .25s ease forwards; }
+.tab-leave { animation:tabLeave .2s ease forwards; }
+.modal-enter .modal { animation:modalEnter .22s ease forwards; }
+.modal-leave .modal { animation:modalLeave .18s ease forwards; }
+.match-reveal { animation:matchReveal .5s ease; }
+.stagger-item { opacity:0; animation:staggerFade .35s ease forwards; }
+.confetti-dot { position:fixed; pointer-events:none; border-radius:2px; width:7px; height:7px; animation:confettiFall .7s ease forwards; z-index:9999; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 16: Typing Previews
+   ═══════════════════════════════════════════════════ */
+.typing-preview-text { font-size:12px; color:var(--overlay0); font-style:italic; padding:2px 0; min-height:18px; transition:opacity .2s; }
+.typing-preview-text:empty { opacity:0; }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 17: WebSocket Reconnection
+   ═══════════════════════════════════════════════════ */
+.ws-reconnect-banner { position:fixed; top:0; left:0; right:0; background:rgba(243,139,168,.15); border-bottom:2px solid var(--red); color:var(--red); text-align:center; font-size:13px; font-weight:600; padding:7px; z-index:999; display:none; }
+.ws-reconnect-banner.visible { display:block; }
+#ws-status-dot[data-state="connected"] { background:var(--green); box-shadow:0 0 5px var(--green); }
+#ws-status-dot[data-state="reconnecting"] { background:var(--yellow); box-shadow:0 0 5px var(--yellow); animation:pulse-ws .8s ease-in-out infinite; }
+#ws-status-dot[data-state="disconnected"] { background:var(--red); box-shadow:0 0 5px var(--red); }
+@keyframes pulse-ws { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ═══════════════════════════════════════════════════
+   FEATURE 18: Link Preview Scanning
+   ═══════════════════════════════════════════════════ */
+.link-warn { display:inline-flex; align-items:center; gap:3px; background:rgba(250,179,135,.12); border:1px solid var(--peach); border-radius:4px; padding:1px 5px; font-size:11px; color:var(--peach); cursor:default; position:relative; }
+.link-warn[data-tooltip]:hover::after { content:attr(data-tooltip); position:absolute; bottom:110%; left:0; background:var(--surface0); color:var(--text); font-size:11px; padding:4px 8px; border-radius:6px; white-space:nowrap; border:1px solid var(--surface1); z-index:50; pointer-events:none; min-width:160px; }
+.link-safe { display:inline-flex; align-items:center; gap:3px; background:rgba(166,227,161,.1); border:1px solid var(--green); border-radius:4px; padding:1px 5px; font-size:11px; color:var(--green); }
 </style>
 </head>
 <body>
 <div class="header" role="banner">
-    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.6.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.7.0</span><span id="incognito-indicator" style="display:none;margin-left:8px;font-size:16px;color:var(--overlay0)" title="Incognito Mode On">&#128123;</span></div>
     <div style="display:flex;align-items:center;gap:8px">
+        <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:var(--surface0);border:1px solid var(--surface1);color:var(--subtext0);width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0" aria-label="Toggle theme">&#9790;</button>
+        <div id="ws-status-dot" title="Connected" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s" aria-label="Connection status"></div>
         <div id="notif-bell" style="display:none;position:relative;cursor:pointer" onclick="toggleNotifications()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--subtext0)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span id="notif-count" style="display:none;position:absolute;top:-6px;right:-6px;background:var(--red);color:var(--crust);font-size:10px;font-weight:700;padding:1px 5px;border-radius:10px"></span>
@@ -736,6 +963,7 @@ textarea::placeholder { color:var(--surface2); }
         <div class="nav-tabs" id="nav"></div>
     </div>
 </div>
+<div id="ws-reconnect-banner" class="ws-reconnect-banner" role="status">Reconnecting...</div>
 <div id="notif-panel" style="display:none;position:fixed;top:52px;right:16px;width:340px;max-height:400px;overflow-y:auto;background:var(--base);border:1px solid var(--surface0);border-radius:var(--radius);box-shadow:var(--shadow);z-index:200;padding:12px"></div>
 <div class="container" id="app" role="main"></div>
 <div class="toast-container" id="toastContainer" role="status" aria-live="polite"></div>
@@ -1517,6 +1745,8 @@ async function viewProfilePage(pid,viewer){
                 <div style="padding:12px 0"><div id="location-settings-area"><div class="loading"><div class="spinner"></div></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Notification Sounds</summary>
                 <div style="padding:12px 0"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="notif-sounds-toggle" ${_notifSoundsEnabled?'checked':''} onchange="setNotifSounds(this.checked)" style="accent-color:var(--mauve)"> Enable Notification Sounds</label><p style="color:var(--overlay0);font-size:12px;margin-top:6px">Plays a subtle chime when new messages arrive.</p></div></details>
+                <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Typing Previews</summary>
+                <div style="padding:12px 0"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="typing-preview-toggle" ${typeof _typingPreviewEnabled!=='undefined'&&_typingPreviewEnabled?'checked':''} onchange="setTypingPreviewEnabled(this.checked)" style="accent-color:var(--mauve)"> Show typing previews to matches</label><p style="color:var(--overlay0);font-size:12px;margin-top:6px">Sends the first few characters of your message as a live preview. Both users must have this enabled.</p></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Language</summary>
                 <div style="padding:12px 0"><div class="form-group"><label style="font-size:12px;color:var(--overlay0)">Display Language</label><select id="lang-select" onchange="loadTranslations(this.value);toast('Language updated','success')" style="width:100%"><option value="en">English</option></select></div><p style="color:var(--overlay0);font-size:12px;margin-top:4px">More languages coming soon.</p></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Export My Data</summary>
@@ -1740,11 +1970,13 @@ async function showMatchesFor(pid){
             if(m.super_liked_you) badges.push('<span class="super-liked-badge">&#11088;</span>');
             const expiryHtml=getExpiryBadgeHtml(m);
             const isExpired=expiryHtml.includes('Expired')&&!expiryHtml.includes('Expires in');
-            return `<div class="match-card${isExpired?' expired':''}" style="animation-delay:${i*.06}s" onclick="showDetail('${pid}','${m.profile_id}')">
+            return `<div class="match-card${isExpired?' expired':''} match-reveal" style="animation-delay:${i*.06}s" onclick="showDetail('${pid}','${m.profile_id}')">
                 ${photo}<div class="match-score ${sc}">${m.compatibility.dealbreaker_conflict?'X':s+'%'}</div>
                 <div class="match-info"><h3>${m.name}${badges.join('')}</h3><div class="meta">${m.age?m.age+' yrs':''}${expiryHtml?' &bull; ':''}<span style="font-size:11px">${expiryHtml}</span></div></div>
                 <div class="match-tags">${Object.entries(m.compatibility.breakdown).map(([k,v])=>`<span class="match-tag">${k.slice(0,4)}: ${v}%</span>`).join('')}</div></div>`;
         }).join('');
+        staggerListItems(c);
+        if(d.matches.length>0&&typeof triggerConfetti==='function')triggerConfetti();
     }catch(e){c.innerHTML='<div class="empty"><h3>Error</h3></div>';}
 }
 
@@ -2159,8 +2391,13 @@ async function renderInbox(){
     inbox.innerHTML=cd.conversations.map(c=>{
         const turnBadge=c.your_turn?'<span class="badge-turn">Your Turn</span>':'';
         const dot=onlineSet.has(c.partner_id)?'<span class="online-dot"></span>':'<span class="offline-dot"></span>';
-        return `<div class="convo-item" onclick="openChat('${activeProfile}','${c.partner_id}')">${dot}<strong>${c.partner_name}</strong>${turnBadge}<span style="color:var(--overlay0);font-size:12px;margin-left:8px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.last_message}</span>${c.unread>0?`<span class="convo-unread">${c.unread}</span>`:''}</div>`;
+        const isBlind=typeof _activeBlindDates!=='undefined'&&_activeBlindDates&&_activeBlindDates.some&&_activeBlindDates.some(b=>b.partner_id===c.partner_id||b.target_id===c.partner_id);
+        const blindBadge=isBlind?'<span class="convo-blind-badge">&#129638; Blind</span>':'';
+        const displayName=isBlind?`Mystery Match`:`${c.partner_name}`;
+        const previewText=isBlind?'[Blind Date - identity hidden]':c.last_message;
+        return `<div class="convo-item" onclick="openChat('${activeProfile}','${c.partner_id}')">${dot}<strong>${displayName}</strong>${blindBadge}${turnBadge}<span style="color:var(--overlay0);font-size:12px;margin-left:8px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${previewText}</span>${c.unread>0?`<span class="convo-unread">${c.unread}</span>`:''}</div>`;
     }).join('');
+    staggerListItems(inbox);
 }
 
 function startChat(profileId){showView('messages');}
@@ -2385,6 +2622,7 @@ async function doSearch(){
         </div>`).join('')+'</div>';
         // Load mutual friends for each result (non-blocking)
         d.results.filter(p=>p.id!==activeProfile).forEach(p=>loadMutualFriends(p.id,'mutual-sc-'+p.id));
+        staggerListItems(el);
     }catch(e){el.innerHTML='<div class="empty"><h3>Search error</h3></div>';}
 }
 
@@ -2487,11 +2725,11 @@ async function loadGroups(){
         const myEl=document.getElementById('my-groups');
         const allEl=document.getElementById('all-groups');
         if(myEl){
-            if(myD.groups.length) myEl.innerHTML='<div class="group-grid">'+myD.groups.map((g,i)=>`<div class="group-card" style="animation-delay:${i*.04}s" onclick="viewGroup('${g.id}')"><h3>${escHtml(g.name)}</h3><div class="gc-desc">${escHtml(g.description||'')}</div><div class="gc-meta">${g.member_count||0} members &bull; ${g.privacy}</div></div>`).join('')+'</div>';
+            if(myD.groups.length){myEl.innerHTML='<div class="group-grid">'+myD.groups.map((g,i)=>`<div class="group-card" style="animation-delay:${i*.04}s" onclick="viewGroup('${g.id}')"><h3>${escHtml(g.name)}</h3><div class="gc-desc">${escHtml(g.description||'')}</div><div class="gc-meta">${g.member_count||0} members &bull; ${g.privacy}</div></div>`).join('')+'</div>';staggerListItems(myEl);}
             else myEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">You haven\'t joined any groups yet</div>';
         }
         if(allEl){
-            if(allD.groups.length) allEl.innerHTML='<div class="group-grid">'+allD.groups.map((g,i)=>`<div class="group-card" style="animation-delay:${i*.04}s" onclick="viewGroup('${g.id}')"><h3>${escHtml(g.name)}</h3><div class="gc-desc">${escHtml(g.description||'')}</div><div class="gc-meta">${g.member_count||0} members &bull; ${g.privacy}</div></div>`).join('')+'</div>';
+            if(allD.groups.length){allEl.innerHTML='<div class="group-grid">'+allD.groups.map((g,i)=>`<div class="group-card" style="animation-delay:${i*.04}s" onclick="viewGroup('${g.id}')"><h3>${escHtml(g.name)}</h3><div class="gc-desc">${escHtml(g.description||'')}</div><div class="gc-meta">${g.member_count||0} members &bull; ${g.privacy}</div></div>`).join('')+'</div>';staggerListItems(allEl);}
             else allEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No groups yet. Create the first one!</div>';
         }
     }catch(e){}
@@ -2599,11 +2837,11 @@ async function loadEvents(){
         const myEl=document.getElementById('my-events');
         const allEl=document.getElementById('all-events');
         if(myEl){
-            if(myD.events.length) myEl.innerHTML='<div class="event-grid">'+myD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; ${e.my_status||'going'}</div></div>`).join('')+'</div>';
+            if(myD.events.length){myEl.innerHTML='<div class="event-grid">'+myD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; ${e.my_status||'going'}</div></div>`).join('')+'</div>';staggerListItems(myEl);}
             else myEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No events yet</div>';
         }
         if(allEl){
-            if(allD.events.length) allEl.innerHTML='<div class="event-grid">'+allD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; by ${escHtml(e.creator_name||'')}</div></div>`).join('')+'</div>';
+            if(allD.events.length){allEl.innerHTML='<div class="event-grid">'+allD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; by ${escHtml(e.creator_name||'')}</div></div>`).join('')+'</div>';staggerListItems(allEl);}
             else allEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No upcoming events. Create the first one!</div>';
         }
     }catch(e){}
@@ -3868,6 +4106,1025 @@ async function saveLocationSettings(){
         if(r.ok)toast('Location settings saved!','success');
         else toast('Save failed','error');
     }catch(e){toast('Error','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 1: Dark/Light Theme Toggle ───
+// ══════════════════════════════════════════════════════
+(function initTheme(){
+    const saved=localStorage.getItem('kindred_theme')||'mocha';
+    applyTheme(saved,false);
+})();
+function applyTheme(theme,save=true){
+    document.body.classList.toggle('theme-latte',theme==='latte');
+    const btn=document.getElementById('theme-toggle-btn');
+    if(btn)btn.innerHTML=theme==='latte'?'&#9728;':'&#9790;';
+    if(save)localStorage.setItem('kindred_theme',theme);
+}
+function toggleTheme(){
+    const current=document.body.classList.contains('theme-latte')?'latte':'mocha';
+    applyTheme(current==='latte'?'mocha':'latte');
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 17: WebSocket Reconnection (enhanced) ───
+// ══════════════════════════════════════════════════════
+let _wsBackoff=1000, _wsReconnecting=false, _wsMsgQueue=[], _wsMaxBackoff=30000;
+function setWsStatus(state){
+    const dot=document.getElementById('ws-status-dot');
+    const banner=document.getElementById('ws-reconnect-banner');
+    if(dot){dot.dataset.state=state;dot.title=state==='connected'?'Connected':state==='reconnecting'?'Reconnecting...':'Disconnected';}
+    if(banner){
+        if(state==='reconnecting'){banner.textContent='Reconnecting...';banner.classList.add('visible');}
+        else if(state==='disconnected'){banner.textContent='Disconnected — check your connection';banner.classList.add('visible');}
+        else{banner.classList.remove('visible');}
+    }
+}
+function connectWSEnhanced(){
+    if(!activeProfile)return;
+    if(ws&&ws.readyState===WebSocket.OPEN)return;
+    _wsReconnecting=true;
+    setWsStatus('reconnecting');
+    const proto=location.protocol==='https:'?'wss:':'ws:';
+    ws=new WebSocket(proto+'//'+location.host+'/ws/'+activeProfile);
+    ws.onopen=()=>{
+        _wsBackoff=1000;_wsReconnecting=false;
+        setWsStatus('connected');
+        // Flush queued messages
+        while(_wsMsgQueue.length){
+            const m=_wsMsgQueue.shift();
+            if(ws.readyState===WebSocket.OPEN)ws.send(m);
+        }
+    };
+    ws.onmessage=(e)=>{
+        try{
+            const msg=JSON.parse(e.data);
+            if(msg.type==='message'){
+                playNotifSound();
+                toast(msg.from_name+': '+msg.content.slice(0,60),'success');
+                const chatOpen=document.getElementById('msgs');
+                if(chatOpen&&window._chatPartner===msg.from)openChat(activeProfile,msg.from);
+                pollNotifications();
+            } else if(msg.type==='group_message'){
+                toast('New message in '+msg.group_name,'info');
+                const gcEl=document.getElementById('group-msgs');
+                if(gcEl&&window._activeGroupChat===msg.group_id)loadGroupChat(msg.group_id);
+            } else if(msg.type==='typing'){
+                const ti=document.getElementById('typing-indicator');
+                if(ti&&window._chatPartner===msg.from){
+                    ti.textContent='typing...';
+                    clearTimeout(window._typingTimeout);
+                    window._typingTimeout=setTimeout(()=>{if(ti)ti.textContent='';},3000);
+                }
+            } else if(msg.type==='typing_preview'){
+                handleTypingPreview(msg);
+            }
+        }catch(err){}
+    };
+    ws.onclose=()=>{
+        ws=null;
+        if(!_wsReconnecting)setWsStatus('disconnected');
+        setWsStatus('reconnecting');
+        if(wsReconnectTimer)clearTimeout(wsReconnectTimer);
+        wsReconnectTimer=setTimeout(()=>{
+            _wsBackoff=Math.min(_wsBackoff*2,_wsMaxBackoff);
+            connectWSEnhanced();
+        },_wsBackoff);
+    };
+    ws.onerror=()=>{ws?.close();};
+    const wsHB=setInterval(()=>{
+        if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:'heartbeat'}));
+        else clearInterval(wsHB);
+    },30000);
+}
+function wsSendQueued(payload){
+    const str=JSON.stringify(payload);
+    if(ws&&ws.readyState===WebSocket.OPEN)ws.send(str);
+    else _wsMsgQueue.push(str);
+}
+// Override the original connectWS to use enhanced version
+const _origConnectWS=connectWS;
+// Re-assign connectWS to the enhanced version
+// (We patch at call sites by overriding the original after definition)
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 2: Threaded Replies (Quote Reply) ───
+// ══════════════════════════════════════════════════════
+let _replyTo=null; // {id, name, content}
+
+function setReplyTo(msgId,fromName,content){
+    _replyTo={id:msgId,name:fromName,content};
+    const bar=document.getElementById('reply-preview-bar');
+    if(bar){
+        bar.innerHTML=`<div class="msg-reply-preview">
+            <div><div class="rp-name">${escHtml(fromName)}</div><div class="rp-text">${escHtml(content.slice(0,80))}</div></div>
+            <span class="msg-reply-cancel" onclick="clearReplyTo()" title="Cancel">&#10005;</span>
+        </div>`;
+    }
+    document.getElementById('msg-in')?.focus();
+}
+function clearReplyTo(){
+    _replyTo=null;
+    const bar=document.getElementById('reply-preview-bar');
+    if(bar)bar.innerHTML='';
+}
+function renderQuoteBlock(replyToContent,replyToName){
+    if(!replyToContent&&!replyToName)return '';
+    return `<div class="msg-quote-block"><span class="qb-name">${escHtml(replyToName||'')}</span><div class="qb-text">${escHtml((replyToContent||'').slice(0,80))}</div></div>`;
+}
+
+// Patch sendMsg to include reply_to
+const _origSendMsg=sendMsg;
+async function sendMsg(from,to){
+    const inp=document.getElementById('msg-in');const txt=inp?.value?.trim();if(!txt)return;
+    inp.value='';
+    const replyId=_replyTo?.id||null;
+    const ml=document.getElementById('msgs');
+    if(ml){
+        const bubble=document.createElement('div');bubble.className='msg-bubble msg-mine';bubble.style.opacity='0.6';
+        bubble.innerHTML=(_replyTo?renderQuoteBlock(_replyTo.content,_replyTo.name):'')+escHtml(txt)+`<div class="msg-time">Sending...</div>`;
+        ml.appendChild(bubble);ml.scrollTop=ml.scrollHeight;
+    }
+    clearReplyTo();
+    const body={from_id:from,to_id:to,content:txt};
+    if(replyId)body.reply_to=replyId;
+    const r=await authFetch(API+'/api/messages',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
+    if(!r.ok){const d=await r.json();toast(d.detail||'Failed to send','error');return;}
+    openChat(from,to);
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 3: Pinned Messages ───
+// ══════════════════════════════════════════════════════
+async function loadPinnedMessages(meId,themId){
+    const el=document.getElementById('pinned-banner');
+    if(!el)return;
+    try{
+        const convId=meId<themId?meId+'_'+themId:themId+'_'+meId;
+        const r=await authFetch(API+'/api/conversations/'+convId+'/pinned');
+        if(!r.ok){el.innerHTML='';return;}
+        const d=await r.json();
+        const pins=d.pinned||[];
+        if(!pins.length){el.innerHTML='';return;}
+        el.innerHTML=`<div class="pinned-banner">
+            <div class="pinned-banner-header">&#128204; Pinned Messages</div>
+            ${pins.slice(0,3).map(p=>`<div class="pinned-item" onclick="scrollToMsg('${p.id}')">
+                <span class="pi-name">${escHtml(p.from_name||'')}:</span>
+                <span class="pi-text">${escHtml((p.content||'').slice(0,80))}</span>
+            </div>`).join('')}
+        </div>`;
+    }catch(e){if(el)el.innerHTML='';}
+}
+async function pinMessage(msgId,meId,themId){
+    try{
+        const r=await authFetch(API+'/api/messages/'+msgId+'/pin',{method:'POST',headers:authHeaders()});
+        if(r.ok){toast('Message pinned','success');loadPinnedMessages(meId,themId);}
+        else{const d=await r.json();toast(d.detail||'Could not pin','error');}
+    }catch(e){toast('Error','error');}
+}
+async function unpinMessage(msgId,meId,themId){
+    try{
+        const r=await authFetch(API+'/api/messages/'+msgId+'/pin',{method:'DELETE',headers:authHeaders()});
+        if(r.ok){toast('Unpinned','success');loadPinnedMessages(meId,themId);}
+        else toast('Could not unpin','error');
+    }catch(e){toast('Error','error');}
+}
+function scrollToMsg(msgId){
+    const el=document.querySelector(`[data-msg-id="${msgId}"]`);
+    if(el)el.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 4: Story Reactions ───
+// ══════════════════════════════════════════════════════
+const STORY_REACTIONS=['❤️','🔥','😂','😮','😢'];
+async function reactToStory(storyId,reaction,btn){
+    try{
+        const r=await authFetch(API+'/api/stories/'+storyId+'/react',{method:'POST',headers:authHeaders(),body:JSON.stringify({reaction})});
+        if(r.ok){
+            document.querySelectorAll('.story-react-btn').forEach(b=>b.classList.remove('reacted'));
+            btn.classList.add('reacted');
+            toast('Reacted!','success');
+        }
+    }catch(e){}
+}
+async function loadStoryViewers(storyId){
+    const el=document.getElementById('story-viewers-area');
+    if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/stories/'+storyId+'/viewers');
+        if(!r.ok){el.innerHTML='';return;}
+        const d=await r.json();
+        const viewers=d.viewers||[];
+        if(!viewers.length){el.innerHTML='';return;}
+        el.innerHTML=`<div class="story-viewers-list">
+            <div style="font-size:11px;color:rgba(255,255,255,.6);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Viewers (${viewers.length})</div>
+            ${viewers.slice(0,5).map(v=>`<div class="story-viewer-item"><span>${escHtml(v.name)}</span>${v.reaction?`<span class="sv-reaction">${v.reaction}</span>`:''}</div>`).join('')}
+        </div>`;
+    }catch(e){}
+}
+function renderStoryReactions(storyId,isOwner){
+    const reactHtml=STORY_REACTIONS.map(r=>`<button class="story-react-btn" onclick="reactToStory('${storyId}','${r}',this)">${r}</button>`).join('');
+    return `<div class="story-reactions-row">${reactHtml}</div>${isOwner?`<div id="story-viewers-area"></div>`:''}`;
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 5: Profile Badges ───
+// ══════════════════════════════════════════════════════
+const BADGE_META={
+    verified:{cls:'pb-verified',icon:'&#10003;',label:'Verified'},
+    early_adopter:{cls:'pb-early',icon:'&#9733;',label:'Early Adopter'},
+    conversation_starter:{cls:'pb-starter',icon:'&#128172;',label:'Conversation Starter'},
+    frequent_matcher:{cls:'pb-matcher',icon:'&#10084;',label:'Frequent Matcher'},
+    event_host:{cls:'pb-host',icon:'&#128197;',label:'Event Host'},
+};
+async function loadProfileBadges(profileId,containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/badges?profile_id='+profileId);
+        if(!r.ok){el.innerHTML='';return;}
+        const d=await r.json();
+        const badges=d.badges||[];
+        if(!badges.length){el.innerHTML='';return;}
+        el.innerHTML=badges.map(b=>{
+            const m=BADGE_META[b]||{cls:'pb-verified',icon:'&#11088;',label:b};
+            return `<span class="profile-badge ${m.cls}" data-tooltip="${m.label}" role="img" aria-label="${m.label}">${m.icon}</span>`;
+        }).join('');
+    }catch(e){if(el)el.innerHTML='';}
+}
+function renderBadgesHtml(badges){
+    if(!badges||!badges.length)return '';
+    return badges.map(b=>{
+        const m=BADGE_META[b]||{cls:'pb-verified',icon:'&#11088;',label:b};
+        return `<span class="profile-badge ${m.cls}" data-tooltip="${m.label}">${m.icon}</span>`;
+    }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 6: Shared Playlists ───
+// ══════════════════════════════════════════════════════
+async function loadSharedPlaylist(partnerId,containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+    try{
+        const r=await authFetch(API+'/api/playlists/'+partnerId);
+        if(!r.ok){
+            el.innerHTML=`<div class="playlist-section"><h3>&#127925; Shared Playlist</h3>
+                <p style="font-size:13px;color:var(--overlay0);margin-bottom:10px">No shared playlist yet. Create one!</p>
+                <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="createPlaylist('${partnerId}','${containerId}')">Create Playlist</button>
+            </div>`;
+            return;
+        }
+        const d=await r.json();
+        renderPlaylistHtml(d,partnerId,containerId,el);
+    }catch(e){if(el)el.innerHTML='';}
+}
+function renderPlaylistHtml(d,partnerId,containerId,el){
+    const songs=d.songs||[];
+    el.innerHTML=`<div class="playlist-section">
+        <h3>&#127925; ${escHtml(d.name||'Shared Playlist')}</h3>
+        ${songs.map(s=>`<div class="playlist-song">
+            <span class="ps-icon">&#9835;</span>
+            <div class="ps-info"><div class="ps-title">${escHtml(s.title)}</div><div class="ps-artist">${escHtml(s.artist)}</div></div>
+            <button style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px" onclick="removePlaylistSong('${d.id}','${s.id}','${partnerId}','${containerId}')" title="Remove">&#10005;</button>
+        </div>`).join('')}
+        ${!songs.length?'<div style="color:var(--overlay0);font-size:13px;margin-bottom:8px">No songs yet. Add the first one!</div>':''}
+        <div class="playlist-add-form">
+            <input type="text" id="pl-title-${containerId}" placeholder="Song title">
+            <input type="text" id="pl-artist-${containerId}" placeholder="Artist">
+            <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="addPlaylistSong('${d.id}','${partnerId}','${containerId}')">Add</button>
+        </div>
+    </div>`;
+}
+async function createPlaylist(partnerId,containerId){
+    try{
+        const r=await authFetch(API+'/api/playlists',{method:'POST',headers:authHeaders(),body:JSON.stringify({partner_id:partnerId,name:'Our Playlist'})});
+        if(r.ok){toast('Playlist created!','success');loadSharedPlaylist(partnerId,containerId);}
+        else toast('Could not create playlist','error');
+    }catch(e){toast('Error','error');}
+}
+async function addPlaylistSong(playlistId,partnerId,containerId){
+    const title=document.getElementById('pl-title-'+containerId)?.value?.trim();
+    const artist=document.getElementById('pl-artist-'+containerId)?.value?.trim();
+    if(!title||!artist){toast('Title and artist required','error');return;}
+    try{
+        const r=await authFetch(API+'/api/playlists/'+playlistId+'/songs',{method:'POST',headers:authHeaders(),body:JSON.stringify({title,artist})});
+        if(r.ok){toast('Song added!','success');loadSharedPlaylist(partnerId,containerId);}
+        else toast('Could not add song','error');
+    }catch(e){toast('Error','error');}
+}
+async function removePlaylistSong(playlistId,songId,partnerId,containerId){
+    try{
+        const r=await authFetch(API+'/api/playlists/'+playlistId+'/songs/'+songId,{method:'DELETE',headers:authHeaders()});
+        if(r.ok)loadSharedPlaylist(partnerId,containerId);
+        else toast('Could not remove song','error');
+    }catch(e){toast('Error','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 7: Event Photo Albums ───
+// ══════════════════════════════════════════════════════
+async function loadEventPhotos(eventId,containerId,isAttendee){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/events/'+eventId+'/photos');
+        const d=r.ok?await r.json():{photos:[]};
+        const photos=d.photos||[];
+        let html='<div style="margin-top:12px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><span style="font-size:14px;font-weight:600;color:var(--lavender)">Photos ('+photos.length+')</span>';
+        if(isAttendee)html+=`<label class="btn btn-secondary" style="font-size:12px;padding:5px 12px;cursor:pointer">Upload Photo<input type="file" accept="image/*" multiple style="display:none" onchange="uploadEventPhotos('${eventId}','${containerId}',this.files)"></label>`;
+        html+='</div>';
+        if(!photos.length){html+='<div style="color:var(--overlay0);font-size:13px">No photos yet. Be the first to upload!</div>';}
+        else{
+            html+='<div class="event-album-grid">';
+            photos.forEach(p=>{
+                html+=`<div class="event-album-item" onclick="openLightbox('/uploads/${p.filename}')">
+                    <img src="/uploads/${p.filename}" loading="lazy">
+                    ${activeProfile===p.uploader_id?`<button class="event-album-del" onclick="event.stopPropagation();deleteEventPhoto('${eventId}','${p.id}','${containerId}')" title="Delete">&#10005;</button>`:''}
+                </div>`;
+            });
+            html+='</div>';
+        }
+        html+='</div>';
+        el.innerHTML=html;
+    }catch(e){if(el)el.innerHTML='';}
+}
+async function uploadEventPhotos(eventId,containerId,files){
+    if(!files||!files.length)return;
+    toast('Uploading...','');
+    for(const file of files){
+        const fd=new FormData();fd.append('file',file);
+        await authFetch(API+'/api/events/'+eventId+'/photos',{method:'POST',body:fd});
+    }
+    toast('Photos uploaded!','success');
+    loadEventPhotos(eventId,containerId,true);
+}
+async function deleteEventPhoto(eventId,photoId,containerId){
+    try{
+        const r=await authFetch(API+'/api/events/'+eventId+'/photos/'+photoId,{method:'DELETE',headers:authHeaders()});
+        if(r.ok){toast('Deleted','success');loadEventPhotos(eventId,containerId,true);}
+        else toast('Could not delete','error');
+    }catch(e){toast('Error','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 8: Icebreaker Games (in-chat) ───
+// ══════════════════════════════════════════════════════
+const IG_TYPES=[
+    {id:'word_association',label:'Word Association',icon:'&#128172;',desc:'Take turns with word chains'},
+    {id:'would_you_rather',label:'Would You Rather',icon:'&#9878;',desc:'Revealing hypothetical choices'},
+    {id:'20_questions',label:'20 Questions',icon:'&#10067;',desc:'Guess what the other is thinking'},
+];
+async function loadIcebreakerGame(partnerId,containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+    try{
+        const r=await authFetch(API+'/api/games/start?partner_id='+partnerId);
+        if(!r.ok){
+            renderIcebreakerPicker(partnerId,containerId,el);
+            return;
+        }
+        const d=await r.json();
+        renderActiveIcebreakerGame(d,partnerId,containerId,el);
+    }catch(e){renderIcebreakerPicker(partnerId,containerId,el);}
+}
+function renderIcebreakerPicker(partnerId,containerId,el){
+    el.innerHTML=`<div class="ig-panel">
+        <h3>&#127922; Icebreaker Games</h3>
+        <p style="font-size:13px;color:var(--overlay0);margin-bottom:10px">Pick a game to play with your match!</p>
+        <div class="ig-game-types">
+            ${IG_TYPES.map(t=>`<div class="ig-type-card" onclick="startIcebreakerGame('${partnerId}','${t.id}','${containerId}')">
+                <div class="ig-icon">${t.icon}</div>
+                <div style="font-size:12px;font-weight:600">${t.label}</div>
+                <div style="font-size:11px;color:var(--overlay0);margin-top:2px">${t.desc}</div>
+            </div>`).join('')}
+        </div>
+    </div>`;
+}
+async function startIcebreakerGame(partnerId,gameType,containerId){
+    try{
+        const r=await authFetch(API+'/api/games/start',{method:'POST',headers:authHeaders(),body:JSON.stringify({partner_id:partnerId,game_type:gameType})});
+        if(r.ok){
+            const d=await r.json();
+            const el=document.getElementById(containerId);
+            if(el)renderActiveIcebreakerGame(d,partnerId,containerId,el);
+        } else toast('Could not start game','error');
+    }catch(e){toast('Error','error');}
+}
+function renderActiveIcebreakerGame(game,partnerId,containerId,el){
+    const isMyTurn=game.next_turn===activeProfile;
+    const typeMeta=IG_TYPES.find(t=>t.id===game.game_type)||{label:'Game',icon:'&#127922;'};
+    let html=`<div class="ig-panel">
+        <h3>${typeMeta.icon} ${typeMeta.label}</h3>`;
+    if(game.history&&game.history.length){
+        html+=game.history.slice(-3).map(h=>`<div class="ig-card">
+            <div class="ig-turn">${escHtml(h.from_name)}</div>
+            <div class="ig-response">${escHtml(h.content)}</div>
+        </div>`).join('');
+    }
+    if(game.prompt){
+        html+=`<div class="ig-card"><div class="ig-prompt">${escHtml(game.prompt)}</div></div>`;
+    }
+    if(isMyTurn){
+        html+=`<div style="display:flex;gap:8px;margin-top:8px">
+            <input type="text" id="ig-input-${containerId}" placeholder="Your response..." style="flex:1" onkeydown="if(event.key==='Enter')submitIcebreakerTurn('${game.id}','${partnerId}','${containerId}')">
+            <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="submitIcebreakerTurn('${game.id}','${partnerId}','${containerId}')">Send</button>
+        </div>`;
+    } else {
+        html+=`<div class="ig-waiting">Waiting for their response...</div>`;
+    }
+    html+=`<div style="margin-top:8px"><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="loadIcebreakerGame('${partnerId}','${containerId}')">Refresh</button></div>`;
+    html+=`</div>`;
+    el.innerHTML=html;
+}
+async function submitIcebreakerTurn(gameId,partnerId,containerId){
+    const inp=document.getElementById('ig-input-'+containerId);
+    const content=inp?.value?.trim();
+    if(!content)return;
+    inp.value='';
+    try{
+        const r=await authFetch(API+'/api/games/'+gameId+'/turn',{method:'POST',headers:authHeaders(),body:JSON.stringify({content})});
+        if(r.ok){toast('Sent!','success');loadIcebreakerGame(partnerId,containerId);}
+        else toast('Could not submit','error');
+    }catch(e){toast('Error','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 9: Date Scheduling ───
+// ══════════════════════════════════════════════════════
+async function loadDateSchedules(partnerId,containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+    try{
+        const r=await authFetch(API+'/api/date-schedule/'+partnerId);
+        const d=r.ok?await r.json():{schedules:[]};
+        const schedules=d.schedules||[];
+        let html=`<div style="margin-top:8px">`;
+        html+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><span style="font-size:14px;font-weight:600;color:var(--lavender)">&#128197; Scheduled Dates</span><button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="showDateScheduleForm('${partnerId}','${containerId}')">+ Schedule</button></div>`;
+        if(!schedules.length){html+='<div style="color:var(--overlay0);font-size:13px">No dates scheduled yet.</div>';}
+        else{
+            schedules.forEach(s=>{
+                const dt=[s.date,s.time].filter(Boolean).join(' at ');
+                html+=`<div class="date-sched-card">
+                    <div class="dsc-header"><span class="dsc-title">${escHtml(s.venue||'Date')}</span><a class="ics-btn" href="${API}/api/date-schedule/${s.id}/ics" download>&#128197; Export .ics</a></div>
+                    ${dt?`<div class="dsc-meta">&#128336; ${escHtml(dt)}</div>`:''}
+                    ${s.notes?`<div class="dsc-notes">${escHtml(s.notes)}</div>`:''}
+                </div>`;
+            });
+        }
+        html+=`<div id="date-sched-form-${containerId}"></div>`;
+        html+=`</div>`;
+        el.innerHTML=html;
+    }catch(e){if(el)el.innerHTML='';}
+}
+function showDateScheduleForm(partnerId,containerId){
+    const formEl=document.getElementById('date-sched-form-'+containerId);
+    if(!formEl)return;
+    formEl.innerHTML=`<div class="date-sched-form">
+        <div class="dsf-grid">
+            <div class="form-group" style="margin:0"><label style="font-size:12px;color:var(--overlay0)">Date</label><input type="date" id="dsc-date-${containerId}"></div>
+            <div class="form-group" style="margin:0"><label style="font-size:12px;color:var(--overlay0)">Time</label><input type="time" id="dsc-time-${containerId}"></div>
+        </div>
+        <div class="form-group" style="margin-top:8px"><label style="font-size:12px;color:var(--overlay0)">Venue</label><input type="text" id="dsc-venue-${containerId}" placeholder="Where are you meeting?"></div>
+        <div class="form-group"><label style="font-size:12px;color:var(--overlay0)">Notes</label><textarea id="dsc-notes-${containerId}" placeholder="Anything to add..." style="min-height:60px"></textarea></div>
+        <div class="btn-row"><button class="btn btn-secondary" onclick="document.getElementById('date-sched-form-${containerId}').innerHTML=''">Cancel</button><button class="btn btn-primary" onclick="submitDateSchedule('${partnerId}','${containerId}')">Save</button></div>
+    </div>`;
+}
+async function submitDateSchedule(partnerId,containerId){
+    const date=document.getElementById('dsc-date-'+containerId)?.value;
+    const time=document.getElementById('dsc-time-'+containerId)?.value;
+    const venue=document.getElementById('dsc-venue-'+containerId)?.value?.trim()||'';
+    const notes=document.getElementById('dsc-notes-'+containerId)?.value?.trim()||'';
+    if(!date){toast('Date required','error');return;}
+    try{
+        const r=await authFetch(API+'/api/date-schedule',{method:'POST',headers:authHeaders(),body:JSON.stringify({partner_id:partnerId,date,time,venue,notes})});
+        if(r.ok){toast('Date scheduled!','success');loadDateSchedules(partnerId,containerId);}
+        else{const d=await r.json();toast(d.detail||'Could not schedule','error');}
+    }catch(e){toast('Error','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 10: Blind Date Mode ───
+// ══════════════════════════════════════════════════════
+let _blindDateMode=localStorage.getItem('kindred_blind_mode')==='1';
+
+function setBlindMode(on){
+    _blindDateMode=on;
+    localStorage.setItem('kindred_blind_mode',on?'1':'0');
+}
+async function startBlindDate(targetId){
+    try{
+        const r=await authFetch(API+'/api/blind-dates/start',{method:'POST',headers:authHeaders(),body:JSON.stringify({target_id:targetId})});
+        if(r.ok){toast('Blind date started! Photos reveal after 48h of chatting.','success');}
+        else{const d=await r.json();toast(d.detail||'Could not start','error');}
+    }catch(e){toast('Error','error');}
+}
+let _activeBlindDates=[];
+async function loadBlindDates(containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/blind-dates/active');
+        if(!r.ok){el.innerHTML='';return;}
+        const d=await r.json();
+        const actives=d.blind_dates||[];
+        _activeBlindDates=actives; // cache for inbox badge check
+        if(!actives.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">No active blind dates</div>';return;}
+        el.innerHTML=actives.map((bd,i)=>`<div class="blind-mask-card" style="margin-bottom:8px">
+            <div class="bm-icon">&#129693;</div>
+            <div class="bm-label">Mystery Match #${i+1}</div>
+            <div class="bm-score">${bd.compatibility_score||'?'}% match</div>
+            <div class="blind-timer">Photo reveals ${bd.hours_remaining?'in '+bd.hours_remaining+'h':'soon'}</div>
+            <button class="btn btn-primary" style="margin-top:10px;font-size:13px" onclick="openChat('${activeProfile}','${bd.partner_id}')">Send Message</button>
+        </div>`).join('');
+    }catch(e){if(el)el.innerHTML='';}
+}
+function renderBlindDateToggle(){
+    return `<div class="blind-date-toggle-bar">
+        <span>&#129693;</span>
+        <label><input type="checkbox" ${_blindDateMode?'checked':''} onchange="setBlindMode(this.checked);toast(this.checked?'Blind Date Mode on':'Blind Date Mode off','success')" style="accent-color:var(--mauve)"> Blind Date Mode</label>
+        <span style="font-size:12px;color:var(--overlay0)">See compatibility score only — photos reveal after 48h of chatting</span>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 11: Dealbreaker Warnings ───
+// ══════════════════════════════════════════════════════
+async function loadDealbreakerWarnings(profileId,containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/dealbreaker-check/'+profileId);
+        if(!r.ok){el.innerHTML='';return;}
+        const d=await r.json();
+        const warnings=d.warnings||[];
+        if(!warnings.length){el.innerHTML='';return;}
+        el.innerHTML=`<div class="dealbreaker-warning-banner">
+            <div class="dwb-title">&#9888; Heads up: Differing views on ${warnings.length} topic${warnings.length!==1?'s':''}</div>
+            ${warnings.map(w=>`<div class="dealbreaker-warning-item">${escHtml(w.topic)}: you said <strong style="color:var(--text)">${escHtml(w.yours)}</strong>, they said <strong style="color:var(--text)">${escHtml(w.theirs)}</strong></div>`).join('')}
+        </div>`;
+    }catch(e){if(el)el.innerHTML='';}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 12: Second Look ───
+// ══════════════════════════════════════════════════════
+async function loadSecondLook(containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+    try{
+        const r=await authFetch(API+'/api/second-look');
+        if(!r.ok){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Second Look not available</div>';return;}
+        const d=await r.json();
+        const profiles=d.profiles||[];
+        if(!profiles.length){el.innerHTML='<div style="color:var(--overlay0);font-size:13px;padding:8px">No passed profiles to reconsider</div>';return;}
+        el.innerHTML=profiles.map(p=>`<div class="sl-card">
+            ${p.photo?`<img src="/uploads/${p.photo}" onclick="viewProfilePage('${p.id}')">`:`<div class="sl-placeholder" onclick="viewProfilePage('${p.id}')">?</div>`}
+            <div class="sl-info" onclick="viewProfilePage('${p.id}')">
+                <div class="sl-name">${escHtml(p.name)}</div>
+                <div class="sl-meta">${p.age?p.age+' yrs':''}</div>
+            </div>
+            <button class="sl-reconsider-btn" onclick="reconsiderProfile('${p.id}','${containerId}')">Reconsider</button>
+        </div>`).join('');
+    }catch(e){if(el)el.innerHTML='';}
+}
+async function reconsiderProfile(profileId,containerId){
+    try{
+        const r=await authFetch(API+'/api/second-look/'+profileId+'/reconsider',{method:'POST',headers:authHeaders()});
+        if(r.ok){toast('Removed from passed list!','success');loadSecondLook(containerId);}
+        else toast('Could not reconsider','error');
+    }catch(e){toast('Error','error');}
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 13: Keyboard Shortcuts ───
+// ══════════════════════════════════════════════════════
+const KB_SHORTCUTS=[
+    {key:'1',desc:'My Profile tab'},
+    {key:'2',desc:'Matches tab'},
+    {key:'3',desc:'Messages tab'},
+    {key:'4',desc:'Discover tab'},
+    {key:'5',desc:'Groups tab'},
+    {key:'/',desc:'Focus search'},
+    {key:'Esc',desc:'Close modal / panel'},
+    {key:'Shift+?',desc:'Show this help'},
+];
+const KB_TAB_MAP={'1':'myprofile','2':'matches','3':'messages','4':'discover','5':'groups'};
+
+document.addEventListener('keydown',e=>{
+    // Skip if typing in an input
+    const tag=document.activeElement?.tagName?.toLowerCase();
+    if(tag==='input'||tag==='textarea'||tag==='select'){
+        if(e.key==='Escape'){document.activeElement.blur();closeOpenModals();}
+        return;
+    }
+    if(e.shiftKey&&e.key==='?'){showShortcutsPanel();return;}
+    if(e.key==='Escape'){closeOpenModals();return;}
+    if(e.key==='/'){ e.preventDefault();
+        const si=document.getElementById('s-query');
+        if(si){si.focus();}else{showView('discover');setTimeout(()=>document.getElementById('s-query')?.focus(),300);}
+        return;
+    }
+    if(KB_TAB_MAP[e.key]&&activeProfile){showView(KB_TAB_MAP[e.key]);return;}
+});
+
+function showShortcutsPanel(){
+    document.querySelectorAll('.shortcuts-overlay').forEach(e=>e.remove());
+    const overlay=document.createElement('div');
+    overlay.className='shortcuts-overlay';
+    overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
+    overlay.innerHTML=`<div class="shortcuts-panel">
+        <h3>&#9000; Keyboard Shortcuts</h3>
+        ${KB_SHORTCUTS.map(s=>`<div class="shortcut-row"><span class="sc-desc">${s.desc}</span><span class="shortcut-key">${s.key}</span></div>`).join('')}
+        <div style="margin-top:12px;text-align:right"><button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="this.closest('.shortcuts-overlay').remove()">Close</button></div>
+    </div>`;
+    document.body.appendChild(overlay);
+}
+function closeOpenModals(){
+    document.querySelectorAll('.modal-overlay,.shortcuts-overlay,.lightbox,.story-overlay,.crop-overlay,.shortcuts-overlay').forEach(e=>e.remove());
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 14: Profile Completeness Coaching ───
+// ══════════════════════════════════════════════════════
+async function loadProfileCompleteness(containerId){
+    const el=document.getElementById(containerId);
+    if(!el)return;
+    el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+    try{
+        const r=await authFetch(API+'/api/profile/completeness');
+        if(!r.ok){
+            // Fallback: compute client-side from current profile data
+            renderCompletenessFromProfile(el);
+            return;
+        }
+        const d=await r.json();
+        renderCompletenessHtml(d.score||0,d.tips||[],el);
+    }catch(e){renderCompletenessFromProfile(el);}
+}
+function renderCompletenessHtml(score,tips,el){
+    const color=score>=80?'var(--green)':score>=50?'var(--yellow)':'var(--peach)';
+    el.innerHTML=`<div class="completeness-section">
+        <h3>Profile Strength</h3>
+        <div class="completeness-bar-wrap">
+            <div class="completeness-bar"><div class="completeness-bar-fill" style="width:${score}%"></div></div>
+            <div class="completeness-score" style="color:${color}">${score}%</div>
+        </div>
+        ${tips.map(tip=>`<div class="completeness-tip">
+            <span class="ct-points">+${tip.points}%</span>
+            <div class="ct-text"><strong style="color:var(--text)">${escHtml(tip.action)}</strong><br><span style="font-size:12px;color:var(--overlay0)">${escHtml(tip.description)}</span></div>
+        </div>`).join('')}
+        ${!tips.length?`<div style="color:var(--green);font-size:13px;text-align:center;padding:8px">Your profile looks great!</div>`:''}
+    </div>`;
+}
+function renderCompletenessFromProfile(el){
+    // Simple client-side fallback with static tips
+    const tips=[
+        {action:'Add a photo',points:20,description:'Profiles with photos get 10x more views'},
+        {action:'Write a bio',points:15,description:'Tell people about yourself'},
+        {action:'Add profile prompts',points:15,description:'Showcase your personality'},
+        {action:'Answer the questionnaire',points:25,description:'Required for compatibility matching'},
+        {action:'Add your interests',points:10,description:'Help others find common ground'},
+        {action:'Get verified',points:15,description:'Build trust with a selfie verification'},
+    ];
+    renderCompletenessHtml(0,tips,el);
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 15: Animated Transitions ───
+// ══════════════════════════════════════════════════════
+// Patch showView to add tab-enter animation
+const _origShowView=showView;
+function showView(v){
+    const app=document.getElementById('app');
+    if(app){app.classList.remove('tab-enter');void app.offsetWidth;app.classList.add('tab-enter');}
+    _origShowView(v);
+}
+
+// Confetti burst for match reveals
+function triggerConfetti(){
+    const colors=['#cba6f7','#f5c2e7','#89b4fa','#a6e3a1','#fab387'];
+    for(let i=0;i<18;i++){
+        const dot=document.createElement('div');
+        dot.className='confetti-dot';
+        dot.style.cssText=`left:${Math.random()*100}vw;top:${Math.random()*30+20}vh;background:${colors[i%colors.length]};animation-delay:${Math.random()*0.4}s;animation-duration:${0.5+Math.random()*0.4}s`;
+        document.body.appendChild(dot);
+        dot.addEventListener('animationend',()=>dot.remove());
+    }
+}
+
+// Stagger list items after render
+function staggerListItems(parentEl){
+    if(!parentEl)return;
+    parentEl.querySelectorAll('.match-card,.search-card,.convo-item,.group-card,.event-card').forEach((el,i)=>{
+        el.classList.add('stagger-item');
+        el.style.animationDelay=(i*0.04)+'s';
+    });
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 16: Typing Previews ───
+// ══════════════════════════════════════════════════════
+let _typingPreviewEnabled=localStorage.getItem('kindred_typing_preview')==='1';
+let _previewSendTimer=null;
+
+function setTypingPreviewEnabled(on){
+    _typingPreviewEnabled=on;
+    localStorage.setItem('kindred_typing_preview',on?'1':'0');
+}
+function onMsgInputForPreview(e,toId){
+    if(!_typingPreviewEnabled)return;
+    clearTimeout(_previewSendTimer);
+    const val=e.target?.value||'';
+    if(!val.trim())return;
+    _previewSendTimer=setTimeout(()=>{
+        const preview=val.slice(0,30);
+        wsSendQueued({type:'typing_preview',to:toId,preview});
+    },300);
+}
+function handleTypingPreview(msg){
+    if(!_typingPreviewEnabled)return;
+    if(window._chatPartner!==msg.from)return;
+    const ti=document.getElementById('typing-indicator');
+    if(ti){
+        ti.innerHTML=`<span class="typing-preview-text">${escHtml(msg.preview)}...</span>`;
+        clearTimeout(window._typingTimeout);
+        window._typingTimeout=setTimeout(()=>{if(ti)ti.innerHTML='';},4000);
+    }
+}
+
+// ══════════════════════════════════════════════════════
+// ─── FEATURE 18: Link Preview Scanning ───
+// ══════════════════════════════════════════════════════
+const LINK_SHORTENED=['bit.ly','tinyurl.com','t.co','ow.ly','buff.ly','goo.gl','short.io','rb.gy','cutt.ly','v.gd'];
+const LINK_SAFE=['youtube.com','youtu.be','spotify.com','wikipedia.org','github.com','reddit.com','twitter.com','x.com','instagram.com'];
+const URL_REGEX=/https?:\/\/[^\s<>"']+/g;
+
+function scanLinksInMessage(html){
+    const rawContent=html;
+    const urls=[...rawContent.matchAll(URL_REGEX)].map(m=>m[0]);
+    if(!urls.length)return html;
+    let result=rawContent;
+    for(const url of urls){
+        try{
+            const host=new URL(url).hostname.replace(/^www\./,'');
+            const isShortened=LINK_SHORTENED.some(s=>host===s||host.endsWith('.'+s));
+            const isSafe=LINK_SAFE.some(s=>host===s||host.endsWith('.'+s));
+            const safeUrl=escHtml(url);
+            if(isShortened){
+                const badge=`<span class="link-warn" data-tooltip="Shortened link — exercise caution">&#9888; ${safeUrl}</span>`;
+                result=result.replace(url,badge);
+            } else if(isSafe){
+                const badge=`<span class="link-safe">&#10003; <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">${safeUrl}</a></span>`;
+                result=result.replace(url,badge);
+            }
+        }catch(e){}
+    }
+    return result;
+}
+
+// ══════════════════════════════════════════════════════
+// ─── Integration: patch openChat to include new features ───
+// ══════════════════════════════════════════════════════
+const _origOpenChat=openChat;
+async function openChat(meId,themId){
+    window._chatPartner=themId;
+    const app=document.getElementById('app');
+    const [pr,md,olr]=await Promise.all([
+        authFetch(API+'/api/profile/'+themId).then(r=>r.json()),
+        authFetch(API+'/api/messages/'+meId+'/'+themId).then(r=>r.json()),
+        authFetch(API+'/api/ws-online').then(r=>r.json())
+    ]);
+    const isOnline=(olr.online||[]).includes(themId);
+    let html=`<div class="card">`;
+
+    // Pinned messages banner placeholder
+    html+=`<div id="pinned-banner"></div>`;
+
+    html+=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <button class="btn btn-secondary" onclick="renderInbox()" style="padding:6px 12px">Back</button>
+        ${isOnline?'<span class="online-dot"></span>':'<span class="offline-dot"></span>'}
+        <h2 style="margin:0">${pr.name}</h2>
+        <div id="chat-badges-${themId}" style="display:inline-flex"></div>`;
+    if(md.your_turn)html+='<span class="badge-turn">Your Turn</span>';
+    html+=`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:13px" title="Search messages" onclick="toggleMsgSearch()">&#128269;</button>`;
+    html+=`<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="showChatExtras('${meId}','${themId}')" title="More options">&#8942;</button>`;
+    html+=`<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;color:var(--red)" onclick="blockUser('${meId}','${themId}')">Block</button>`;
+    html+=`</div>`;
+
+    if(md.suggest_date){
+        html+=`<div class="date-banner"><span class="db-text">You've been chatting a while! Ready to meet up?</span><button class="btn-sm btn-match" onclick="showDetail('${meId}','${themId}')">View Match</button></div>`;
+    }
+
+    if(md.has_more){
+        html+=`<div style="text-align:center;margin-bottom:8px"><button class="btn btn-secondary" style="padding:4px 16px;font-size:12px" onclick="loadMoreMessages('${meId}','${themId}','${md.messages.length?md.messages[0].id:''}')">Load older messages</button></div>`;
+    }
+
+    html+=`<div class="msg-list" id="msgs">${md.messages.map(m=>{
+        let content;
+        const gifMatch=m.content&&m.content.match(/^\[gif:(.*)\]$/);
+        const voiceMatch=m.content&&m.content.match(/^\[voice:(.*)\]$/);
+        if(m.photo)content=`<img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')">`;
+        else if(gifMatch)content=`<img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px">`;
+        else if(voiceMatch)content=`<div class="voice-msg">&#127908; <audio controls src="/uploads/${escHtml(voiceMatch[1])}"></audio></div>`;
+        else{content=escHtml(m.content);content=scanLinksInMessage(content);}
+        // Quote block for replies
+        const quoteBlock=(m.reply_to_content||m.reply_to_name)?renderQuoteBlock(m.reply_to_content,m.reply_to_name):'';
+        let readTag=m.from_id===meId?(m.read_at?`<span style="color:var(--blue);font-size:10px"> Read</span>`:(m.read?`<span style="color:var(--overlay0);font-size:10px"> Delivered</span>`:``)):'';
+        const reactions=(m.reactions||[]).map(r=>`<span class="reaction-badge" onclick="reactToMessage('${m.id}','${r.reaction}')">${r.reaction}<span class="r-count">${r.count}</span></span>`).join('');
+        const isPinned=m.is_pinned?'is-pinned':'';
+        return `<div class="msg-bubble ${m.from_id===meId?'msg-mine':'msg-theirs'} ${isPinned}" style="position:relative" data-msg-id="${m.id}">
+            ${quoteBlock}${content}
+            <div class="msg-time">${new Date(m.created_at).toLocaleTimeString()}${readTag}</div>
+            ${reactions?`<div class="reaction-bar">${reactions}</div>`:''}
+            <span class="reaction-trigger" onclick="showReactionPicker(event,'${m.id}')">+</span>
+            <button class="msg-reply-btn" onclick="setReplyTo('${m.id}','${escHtml(m.from_name||pr.name)}','${escHtml((m.content||'').slice(0,80))}')">Reply</button>
+            <button class="msg-pin-btn" onclick="${m.is_pinned?`unpinMessage('${m.id}','${meId}','${themId}')`:`pinMessage('${m.id}','${meId}','${themId}')`}">${m.is_pinned?'Unpin':'Pin'}</button>
+        </div>`;
+    }).join('')}</div>
+    <div><span id="typing-indicator" style="color:var(--overlay0);font-size:0.85em;min-height:1.2em;display:block"></span></div>
+    <div class="msg-search-bar" id="msg-search-bar"><input type="text" id="msg-search-input" placeholder="Search messages..." oninput="doMsgSearch()"><button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="toggleMsgSearch()">Close</button></div>
+    <div id="msg-search-results"></div>
+    <div id="reply-preview-bar"></div>
+    <div class="msg-input-row">
+        <input type="text" id="msg-in" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg('${meId}','${themId}');else wsSendTyping('${themId}')" oninput="onMsgInputForPreview(event,'${themId}')" style="flex:1">
+        <button id="voice-rec-btn" class="voice-record-btn" onclick="toggleVoiceRecord('${meId}','${themId}')" title="Voice message">&#127908;</button>
+        <label style="cursor:pointer;padding:8px 12px;background:var(--surface0);border-radius:8px;color:var(--overlay0);font-size:18px" title="Send photo">&#128247;<input type="file" accept="image/*" style="display:none" onchange="sendPhotoMsg('${meId}','${themId}',this.files[0])"></label>
+        <button class="btn btn-secondary" onclick="toggleGifPanel('${meId}','${themId}')" style="padding:8px 12px;font-size:13px">GIF</button>
+        <button class="btn btn-primary" onclick="sendMsg('${meId}','${themId}')">Send</button>
+    </div>
+    <div id="rec-indicator" class="recording-indicator" style="display:none;margin-top:6px"><span class="rec-dot"></span><span>Recording</span><span id="rec-timer" style="font-weight:700;min-width:36px">0:00</span><span style="font-size:11px;color:var(--overlay0)">(tap mic to stop)</span></div>
+    <div id="gif-panel-area"></div>
+    </div>`;
+
+    app.innerHTML=html;
+    const ml=document.getElementById('msgs');ml.scrollTop=ml.scrollHeight;
+    logEvent(meId,'message_view',themId);
+    // Load async extras
+    loadPinnedMessages(meId,themId);
+    loadProfileBadges(themId,'chat-badges-'+themId);
+}
+
+function showChatExtras(meId,themId){
+    const overlay=document.createElement('div');
+    overlay.className='modal-overlay';
+    overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
+    overlay.innerHTML=`<div class="modal"><h2>Conversation Options</h2>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+            <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove();showChatGames('${meId}','${themId}')">&#127922; Icebreaker Games</button>
+            <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove();showChatSchedule('${meId}','${themId}')">&#128197; Schedule a Date</button>
+            <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove();showChatPlaylist('${meId}','${themId}')">&#127925; Shared Playlist</button>
+        </div>
+        <div class="btn-row" style="margin-top:12px"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button></div>
+    </div>`;
+    document.body.appendChild(overlay);
+}
+
+function showChatGames(meId,themId){
+    const app=document.getElementById('app');
+    if(!app)return;
+    const div=document.createElement('div');
+    div.id='chat-games-panel';
+    div.innerHTML=`<div class="card" style="margin-top:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h2>Icebreaker Games</h2><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="document.getElementById('chat-games-panel').remove()">Close</button></div>
+        <div id="ig-area-${themId}"></div>
+    </div>`;
+    app.insertAdjacentElement('afterbegin',div);
+    loadIcebreakerGame(themId,'ig-area-'+themId);
+}
+
+function showChatSchedule(meId,themId){
+    const app=document.getElementById('app');
+    if(!app)return;
+    const div=document.createElement('div');
+    div.id='chat-sched-panel';
+    div.innerHTML=`<div class="card" style="margin-top:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h2>Schedule a Date</h2><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="document.getElementById('chat-sched-panel').remove()">Close</button></div>
+        <div id="sched-area-${themId}"></div>
+    </div>`;
+    app.insertAdjacentElement('afterbegin',div);
+    loadDateSchedules(themId,'sched-area-'+themId);
+}
+
+function showChatPlaylist(meId,themId){
+    const app=document.getElementById('app');
+    if(!app)return;
+    const div=document.createElement('div');
+    div.id='chat-playlist-panel';
+    div.innerHTML=`<div class="card" style="margin-top:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h2>Shared Playlist</h2><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="document.getElementById('chat-playlist-panel').remove()">Close</button></div>
+        <div id="playlist-area-${themId}"></div>
+    </div>`;
+    app.insertAdjacentElement('afterbegin',div);
+    loadSharedPlaylist(themId,'playlist-area-'+themId);
+}
+
+// ── Patch viewEvent to include photo albums ──
+const _origViewEvent=viewEvent;
+async function viewEvent(eid){
+    await _origViewEvent(eid);
+    // Inject photo album section after original content loads
+    const app=document.getElementById('app');
+    if(!app)return;
+    const photoDiv=document.createElement('div');
+    photoDiv.id='event-photo-section';
+    photoDiv.innerHTML=`<div class="card" style="margin-top:8px">
+        <h2 style="font-size:16px;color:var(--lavender);margin-bottom:6px">Event Photos</h2>
+        <div id="event-photos-${eid}"><div class="loading"><div class="spinner"></div></div></div>
+    </div>`;
+    app.appendChild(photoDiv);
+    loadEventPhotos(eid,'event-photos-'+eid,!!activeProfile);
+}
+
+// ── Patch renderDiscover to include blind date toggle + second look ──
+const _origRenderDiscover=renderDiscover;
+async function renderDiscover(){
+    await _origRenderDiscover();
+    const app=document.getElementById('app');
+    if(!app)return;
+    // Blind date toggle at top
+    const blindDiv=document.createElement('div');
+    blindDiv.innerHTML=renderBlindDateToggle();
+    const firstCard=app.querySelector('.card');
+    if(firstCard)firstCard.insertAdjacentElement('beforebegin',blindDiv);
+    // Second Look section at bottom
+    const slDiv=document.createElement('div');
+    slDiv.className='second-look-section';
+    slDiv.innerHTML=`<h2>&#128260; Second Look</h2><p class="subtitle">Profiles you previously passed on</p><div id="second-look-area"></div>`;
+    app.appendChild(slDiv);
+    loadSecondLook('second-look-area');
+}
+
+// ── Patch viewProfilePage to show badges + dealbreaker warnings + completeness ──
+const _origViewProfilePage=viewProfilePage;
+async function viewProfilePage(pid,viewer){
+    await _origViewProfilePage(pid,viewer);
+    const v=viewer||activeProfile||'';
+    const isOwner=v===pid;
+    // Badges under name — inject into ms-name if present
+    const nameEl=document.querySelector('.ms-name');
+    if(nameEl&&!nameEl.querySelector('.profile-badges-area')){
+        const badgesSpan=document.createElement('span');
+        badgesSpan.id='profile-badges-area-'+pid;
+        badgesSpan.className='profile-badges-area';
+        nameEl.appendChild(badgesSpan);
+        loadProfileBadges(pid,'profile-badges-area-'+pid);
+    }
+    // Dealbreaker warnings for non-owner
+    if(!isOwner&&v){
+        const actionsEl=document.querySelector('.ms-actions');
+        if(actionsEl){
+            const warnDiv=document.createElement('div');
+            warnDiv.id='dealbreaker-warn-'+pid;
+            actionsEl.insertAdjacentElement('beforebegin',warnDiv);
+            loadDealbreakerWarnings(pid,'dealbreaker-warn-'+pid);
+        }
+    }
+    // Profile completeness coaching for owner
+    if(isOwner){
+        const settingsSection=document.querySelector('.ms-section h2');
+        // Find right column last section
+        const rightCol=document.querySelector('.ms-right');
+        if(rightCol){
+            const complDiv=document.createElement('div');
+            complDiv.id='completeness-area-'+pid;
+            rightCol.insertAdjacentElement('afterbegin',complDiv);
+            loadProfileCompleteness('completeness-area-'+pid);
+        }
+    }
+}
+
+// ── Patch showStoryOverlay to include reactions ──
+const _origShowStoryOverlay=showStoryOverlay;
+function showStoryOverlay(stories,idx,profileId,profileName,profilePhoto){
+    _origShowStoryOverlay(stories,idx,profileId,profileName,profilePhoto);
+    // Inject reactions row into story overlay
+    const overlay=document.getElementById('story-overlay-el');
+    if(!overlay)return;
+    const story=stories[idx];
+    if(!story)return;
+    const isOwner=profileId===activeProfile;
+    const reactDiv=document.createElement('div');
+    reactDiv.style.cssText='position:absolute;bottom:20px;left:50%;transform:translateX(-50%);width:100%;text-align:center';
+    reactDiv.innerHTML=renderStoryReactions(story.id,isOwner);
+    overlay.appendChild(reactDiv);
+    if(isOwner)loadStoryViewers(story.id);
+}
+
+// ── Use connectWSEnhanced in init ──
+const _origInit=init;
+async function init(){
+    await _origInit.call(this);
+    // Replace ws handlers post-init
+    if(activeProfile){
+        disconnectWS();
+        connectWSEnhanced();
+    }
 }
 
 init();

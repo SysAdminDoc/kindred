@@ -1,5 +1,5 @@
 """
-Kindred v1.6.0 - Database Layer
+Kindred v1.7.0 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,
@@ -632,6 +632,213 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_recovery_codes ON recovery_codes(user_id);
+
+        CREATE TABLE IF NOT EXISTS icebreaker_games (
+            id TEXT PRIMARY KEY,
+            profile_a TEXT NOT NULL,
+            profile_b TEXT NOT NULL,
+            game_type TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            current_turn TEXT,
+            turn_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_a) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_b) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS game_turns (
+            id TEXT PRIMARY KEY,
+            game_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            turn_number INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (game_id) REFERENCES icebreaker_games(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_game_turns ON game_turns(game_id, turn_number);
+
+        CREATE TABLE IF NOT EXISTS date_schedules (
+            id TEXT PRIMARY KEY,
+            profile_a TEXT NOT NULL,
+            profile_b TEXT NOT NULL,
+            scheduled_by TEXT NOT NULL,
+            date_date TEXT NOT NULL,
+            date_time TEXT,
+            venue TEXT,
+            notes TEXT,
+            status TEXT DEFAULT 'proposed',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_a) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_b) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS blind_dates (
+            id TEXT PRIMARY KEY,
+            initiator_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            reveal_at TIMESTAMP NOT NULL,
+            revealed INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (initiator_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (target_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(initiator_id, target_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS passed_profiles (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            passed_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (passed_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, passed_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS threaded_replies (
+            message_id TEXT PRIMARY KEY,
+            reply_to_id TEXT NOT NULL,
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS shared_playlists (
+            id TEXT PRIMARY KEY,
+            profile_a TEXT NOT NULL,
+            profile_b TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT 'Our Playlist',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_a) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_b) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS playlist_songs (
+            id TEXT PRIMARY KEY,
+            playlist_id TEXT NOT NULL,
+            added_by TEXT NOT NULL,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (playlist_id) REFERENCES shared_playlists(id) ON DELETE CASCADE,
+            FOREIGN KEY (added_by) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_playlist_songs ON playlist_songs(playlist_id);
+
+        CREATE TABLE IF NOT EXISTS event_photos (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            caption TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_event_photos ON event_photos(event_id);
+
+        CREATE TABLE IF NOT EXISTS profile_badges (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            badge_type TEXT NOT NULL,
+            awarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, badge_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_profile_badges ON profile_badges(profile_id);
+
+        CREATE TABLE IF NOT EXISTS story_reactions (
+            id TEXT PRIMARY KEY,
+            story_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            reaction TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(story_id, profile_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS pinned_messages (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL UNIQUE,
+            pinned_by TEXT NOT NULL,
+            conversation_key TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (pinned_by) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_pinned_messages ON pinned_messages(conversation_key);
+
+        CREATE TABLE IF NOT EXISTS message_cooldowns (
+            id TEXT PRIMARY KEY,
+            from_id TEXT NOT NULL,
+            to_id TEXT NOT NULL,
+            message_count INTEGER DEFAULT 1,
+            window_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (from_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(from_id, to_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS undo_blocks (
+            id TEXT PRIMARY KEY,
+            blocker_id TEXT NOT NULL,
+            blocked_id TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (blocker_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS safety_checkins (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            date_schedule_id TEXT,
+            partner_name TEXT,
+            emergency_contact TEXT,
+            emergency_email TEXT,
+            check_in_at TIMESTAMP NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            admin_user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_type TEXT,
+            target_id TEXT,
+            details TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log ON audit_log(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+
+        CREATE TABLE IF NOT EXISTS webhooks (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            events TEXT NOT NULL DEFAULT '[]',
+            secret TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS rate_limit_log (
+            id TEXT PRIMARY KEY,
+            endpoint TEXT NOT NULL,
+            ip_address TEXT,
+            user_id TEXT,
+            blocked INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_rate_limit_log ON rate_limit_log(endpoint, created_at);
+
+        CREATE TABLE IF NOT EXISTS vacuum_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ran_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            db_size_bytes INTEGER
+        );
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -691,6 +898,10 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN latitude REAL",
         "ALTER TABLE profiles ADD COLUMN longitude REAL",
         "ALTER TABLE profiles ADD COLUMN location_radius_km INTEGER DEFAULT 100",
+        # v1.7.0
+        "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
+        "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
+        "ALTER TABLE messages ADD COLUMN reply_to TEXT",
     ]
     for sql in migrations:
         try:
@@ -3606,6 +3817,14 @@ def delete_account(user_id: str) -> bool:
             ("compat_games", "profile_a"), ("compat_games", "profile_b"),
             ("music_preferences", "profile_id"), ("blocks", "blocker_id"),
             ("blocks", "blocked_id"),
+            ("icebreaker_games", "profile_a"), ("icebreaker_games", "profile_b"),
+            ("game_turns", "profile_id"), ("shared_playlists", "profile_a"),
+            ("shared_playlists", "profile_b"), ("playlist_songs", "added_by"),
+            ("event_photos", "profile_id"), ("profile_badges", "profile_id"),
+            ("story_reactions", "profile_id"), ("pinned_messages", "pinned_by"),
+            ("passed_profiles", "profile_id"), ("passed_profiles", "passed_id"),
+            ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),
+            ("date_schedules", "profile_a"), ("date_schedules", "profile_b"),
         ]
         for table, col in tables_with_profile:
             try:
@@ -3619,6 +3838,7 @@ def delete_account(user_id: str) -> bool:
         "email_verifications", "totp_secrets", "push_subscriptions",
         "user_sessions", "user_locations", "recovery_codes",
         "premium_subscriptions", "questionnaire_progress",
+        "safety_checkins",
     ]
     for table in user_tables:
         try:
@@ -3699,3 +3919,708 @@ def get_expiring_matches(profile_id: str, expiry_days: int = 7) -> list[dict]:
         (profile_id, f"-{expiry_days}"),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Icebreaker Games
+# ---------------------------------------------------------------------------
+
+def create_icebreaker_game(profile_a: str, profile_b: str, game_type: str) -> dict:
+    conn = get_db()
+    game_id = uuid.uuid4().hex[:12]
+    conn.execute("""
+        INSERT INTO icebreaker_games (id, profile_a, profile_b, game_type, current_turn)
+        VALUES (?, ?, ?, ?, ?)
+    """, (game_id, profile_a, profile_b, game_type, profile_a))
+    conn.commit()
+    return {"id": game_id, "game_type": game_type, "status": "active", "current_turn": profile_a}
+
+
+def get_icebreaker_game(game_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute("SELECT * FROM icebreaker_games WHERE id=?", (game_id,)).fetchone()
+    if not row:
+        return None
+    game = dict(row)
+    turns = conn.execute(
+        "SELECT * FROM game_turns WHERE game_id=? ORDER BY turn_number", (game_id,)
+    ).fetchall()
+    game["turns"] = [dict(t) for t in turns]
+    return game
+
+
+def submit_game_turn(game_id: str, profile_id: str, content: str) -> dict | None:
+    conn = get_db()
+    game = conn.execute("SELECT * FROM icebreaker_games WHERE id=?", (game_id,)).fetchone()
+    if not game or game["status"] != "active" or game["current_turn"] != profile_id:
+        return None
+    turn_id = uuid.uuid4().hex[:12]
+    turn_num = game["turn_count"] + 1
+    next_turn = game["profile_b"] if profile_id == game["profile_a"] else game["profile_a"]
+    conn.execute(
+        "INSERT INTO game_turns (id, game_id, profile_id, content, turn_number) VALUES (?,?,?,?,?)",
+        (turn_id, game_id, profile_id, content, turn_num),
+    )
+    new_status = "completed" if turn_num >= 20 and game["game_type"] == "20_questions" else "active"
+    conn.execute(
+        "UPDATE icebreaker_games SET current_turn=?, turn_count=?, status=? WHERE id=?",
+        (next_turn, turn_num, new_status, game_id),
+    )
+    conn.commit()
+    return {"turn_number": turn_num, "content": content, "next_turn": next_turn, "status": new_status}
+
+
+def get_games_for_pair(profile_a: str, profile_b: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM icebreaker_games
+        WHERE (profile_a=? AND profile_b=?) OR (profile_a=? AND profile_b=?)
+        ORDER BY created_at DESC
+    """, (profile_a, profile_b, profile_b, profile_a)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_total_games_count() -> int:
+    conn = get_db()
+    return conn.execute("SELECT COUNT(*) FROM icebreaker_games").fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Date Scheduling
+# ---------------------------------------------------------------------------
+
+def create_date_schedule(profile_a: str, profile_b: str, scheduled_by: str,
+                         date_date: str, date_time: str = None,
+                         venue: str = None, notes: str = None) -> dict:
+    conn = get_db()
+    ds_id = uuid.uuid4().hex[:12]
+    conn.execute("""
+        INSERT INTO date_schedules (id, profile_a, profile_b, scheduled_by, date_date, date_time, venue, notes)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (ds_id, profile_a, profile_b, scheduled_by, date_date, date_time, venue, notes))
+    conn.commit()
+    return {"id": ds_id, "status": "proposed"}
+
+
+def get_date_schedules(profile_a: str, profile_b: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM date_schedules
+        WHERE (profile_a=? AND profile_b=?) OR (profile_a=? AND profile_b=?)
+        ORDER BY date_date DESC
+    """, (profile_a, profile_b, profile_b, profile_a)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_date_schedule(ds_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute("SELECT * FROM date_schedules WHERE id=?", (ds_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_date_schedule_status(ds_id: str, status: str) -> bool:
+    conn = get_db()
+    conn.execute("UPDATE date_schedules SET status=? WHERE id=?", (status, ds_id))
+    conn.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Blind Dates
+# ---------------------------------------------------------------------------
+
+def create_blind_date(initiator_id: str, target_id: str, reveal_hours: int = 48) -> dict:
+    conn = get_db()
+    bd_id = uuid.uuid4().hex[:12]
+    conn.execute("""
+        INSERT OR IGNORE INTO blind_dates (id, initiator_id, target_id, reveal_at)
+        VALUES (?, ?, ?, datetime('now', '+' || ? || ' hours'))
+    """, (bd_id, initiator_id, target_id, str(reveal_hours)))
+    conn.commit()
+    return {"id": bd_id, "status": "active"}
+
+
+def get_active_blind_dates(profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT bd.*
+        FROM blind_dates bd
+        WHERE (bd.initiator_id=? OR bd.target_id=?) AND bd.status='active'
+        ORDER BY bd.created_at DESC
+    """, (profile_id, profile_id)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def reveal_blind_dates():
+    """Reveal blind dates past their reveal time."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE blind_dates SET revealed=1 WHERE reveal_at <= datetime('now') AND revealed=0"
+    )
+    conn.commit()
+
+
+def get_blind_date_count() -> int:
+    conn = get_db()
+    return conn.execute("SELECT COUNT(*) FROM blind_dates WHERE status='active'").fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Second Look (Passed Profiles)
+# ---------------------------------------------------------------------------
+
+def pass_profile(profile_id: str, passed_id: str):
+    conn = get_db()
+    pp_id = uuid.uuid4().hex[:12]
+    conn.execute(
+        "INSERT OR IGNORE INTO passed_profiles (id, profile_id, passed_id) VALUES (?,?,?)",
+        (pp_id, profile_id, passed_id),
+    )
+    conn.commit()
+
+
+def get_passed_profiles(profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT pp.passed_id, p.name, p.age, p.photo, pp.created_at as passed_at
+        FROM passed_profiles pp
+        JOIN profiles p ON p.id = pp.passed_id
+        WHERE pp.profile_id = ?
+        ORDER BY pp.created_at DESC
+    """, (profile_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def reconsider_profile(profile_id: str, passed_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "DELETE FROM passed_profiles WHERE profile_id=? AND passed_id=?",
+        (profile_id, passed_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Threaded Replies
+# ---------------------------------------------------------------------------
+
+def save_thread_reply(message_id: str, reply_to_id: str):
+    conn = get_db()
+    conn.execute(
+        "INSERT OR IGNORE INTO threaded_replies (message_id, reply_to_id) VALUES (?,?)",
+        (message_id, reply_to_id),
+    )
+    try:
+        conn.execute("UPDATE messages SET reply_to=? WHERE id=?", (reply_to_id, message_id))
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
+
+
+def get_reply_context(message_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute("""
+        SELECT tr.reply_to_id, m.content as reply_to_content, m.from_id as reply_to_from,
+               p.name as reply_to_name
+        FROM threaded_replies tr
+        JOIN messages m ON m.id = tr.reply_to_id
+        JOIN profiles p ON p.id = m.from_id
+        WHERE tr.message_id = ?
+    """, (message_id,)).fetchone()
+    return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Shared Playlists
+# ---------------------------------------------------------------------------
+
+def create_shared_playlist(profile_a: str, profile_b: str, name: str = "Our Playlist") -> dict:
+    conn = get_db()
+    pl_id = uuid.uuid4().hex[:12]
+    conn.execute(
+        "INSERT INTO shared_playlists (id, profile_a, profile_b, name) VALUES (?,?,?,?)",
+        (pl_id, profile_a, profile_b, name),
+    )
+    conn.commit()
+    return {"id": pl_id, "name": name}
+
+
+def get_shared_playlists(profile_a: str, profile_b: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM shared_playlists
+        WHERE (profile_a=? AND profile_b=?) OR (profile_a=? AND profile_b=?)
+        ORDER BY created_at DESC
+    """, (profile_a, profile_b, profile_b, profile_a)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_playlist_song(playlist_id: str, added_by: str, title: str, artist: str) -> dict:
+    conn = get_db()
+    song_id = uuid.uuid4().hex[:12]
+    conn.execute(
+        "INSERT INTO playlist_songs (id, playlist_id, added_by, title, artist) VALUES (?,?,?,?,?)",
+        (song_id, playlist_id, added_by, title, artist),
+    )
+    conn.commit()
+    return {"id": song_id, "title": title, "artist": artist}
+
+
+def get_playlist_songs(playlist_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT ps.*, p.name as added_by_name
+        FROM playlist_songs ps JOIN profiles p ON p.id=ps.added_by
+        WHERE ps.playlist_id=? ORDER BY ps.created_at
+    """, (playlist_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_playlist_song(song_id: str, profile_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "DELETE FROM playlist_songs WHERE id=? AND added_by=?", (song_id, profile_id)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_total_playlists_count() -> int:
+    conn = get_db()
+    return conn.execute("SELECT COUNT(*) FROM shared_playlists").fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Event Photos
+# ---------------------------------------------------------------------------
+
+def add_event_photo(event_id: str, profile_id: str, filename: str, caption: str = None) -> dict:
+    conn = get_db()
+    photo_id = uuid.uuid4().hex[:12]
+    conn.execute(
+        "INSERT INTO event_photos (id, event_id, profile_id, filename, caption) VALUES (?,?,?,?,?)",
+        (photo_id, event_id, profile_id, filename, caption),
+    )
+    conn.commit()
+    return {"id": photo_id, "filename": filename}
+
+
+def get_event_photos(event_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT ep.*, p.name as uploaded_by FROM event_photos ep
+        JOIN profiles p ON p.id = ep.profile_id
+        WHERE ep.event_id=? ORDER BY ep.created_at
+    """, (event_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_event_photo(photo_id: str, profile_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "DELETE FROM event_photos WHERE id=? AND profile_id=?", (photo_id, profile_id)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Profile Badges
+# ---------------------------------------------------------------------------
+
+BADGE_TYPES = {
+    "verified": "Verified",
+    "early_adopter": "Early Adopter",
+    "conversation_starter": "Conversation Starter",
+    "frequent_matcher": "Frequent Matcher",
+    "event_host": "Event Host",
+}
+
+
+def award_badge(profile_id: str, badge_type: str) -> bool:
+    if badge_type not in BADGE_TYPES:
+        return False
+    conn = get_db()
+    badge_id = uuid.uuid4().hex[:12]
+    try:
+        conn.execute(
+            "INSERT INTO profile_badges (id, profile_id, badge_type) VALUES (?,?,?)",
+            (badge_id, profile_id, badge_type),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def get_badges(profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT badge_type, awarded_at FROM profile_badges WHERE profile_id=?", (profile_id,)
+    ).fetchall()
+    return [{"type": r["badge_type"], "label": BADGE_TYPES.get(r["badge_type"], r["badge_type"]),
+             "awarded_at": r["awarded_at"]} for r in rows]
+
+
+def check_and_award_badges(profile_id: str):
+    """Auto-award badges based on activity."""
+    conn = get_db()
+    msg_count = conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE from_id=?", (profile_id,)
+    ).fetchone()[0]
+    if msg_count >= 50:
+        award_badge(profile_id, "conversation_starter")
+    match_count = conn.execute(
+        "SELECT COUNT(*) FROM likes WHERE from_id=? AND target_type='profile'", (profile_id,)
+    ).fetchone()[0]
+    if match_count >= 10:
+        award_badge(profile_id, "frequent_matcher")
+    event_count = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE creator_id=?", (profile_id,)
+    ).fetchone()[0]
+    if event_count >= 1:
+        award_badge(profile_id, "event_host")
+
+
+# ---------------------------------------------------------------------------
+# Story Reactions
+# ---------------------------------------------------------------------------
+
+def react_to_story(story_id: str, profile_id: str, reaction: str) -> bool:
+    conn = get_db()
+    sr_id = uuid.uuid4().hex[:12]
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO story_reactions (id, story_id, profile_id, reaction) VALUES (?,?,?,?)",
+            (sr_id, story_id, profile_id, reaction),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def get_story_reactions(story_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT sr.reaction, sr.profile_id, p.name
+        FROM story_reactions sr JOIN profiles p ON p.id = sr.profile_id
+        WHERE sr.story_id=?
+    """, (story_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_story_reaction_counts(story_id: str) -> dict:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT reaction, COUNT(*) as count FROM story_reactions WHERE story_id=? GROUP BY reaction",
+        (story_id,),
+    ).fetchall()
+    return {r["reaction"]: r["count"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Pinned Messages
+# ---------------------------------------------------------------------------
+
+def pin_message(message_id: str, pinned_by: str, conversation_key: str) -> bool:
+    conn = get_db()
+    pin_id = uuid.uuid4().hex[:12]
+    try:
+        conn.execute(
+            "INSERT INTO pinned_messages (id, message_id, pinned_by, conversation_key) VALUES (?,?,?,?)",
+            (pin_id, message_id, pinned_by, conversation_key),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def unpin_message(message_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute("DELETE FROM pinned_messages WHERE message_id=?", (message_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_pinned_messages(conversation_key: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT pm.*, m.content, m.from_id, p.name as from_name
+        FROM pinned_messages pm
+        JOIN messages m ON m.id = pm.message_id
+        JOIN profiles p ON p.id = m.from_id
+        WHERE pm.conversation_key=?
+        ORDER BY pm.created_at DESC LIMIT 10
+    """, (conversation_key,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Message Cooldowns
+# ---------------------------------------------------------------------------
+
+def check_message_cooldown(from_id: str, to_id: str, max_count: int = 10,
+                           window_minutes: int = 5) -> bool:
+    """Returns True if within cooldown limit (OK to send), False if rate limited."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM message_cooldowns WHERE from_id=? AND to_id=?",
+        (from_id, to_id),
+    ).fetchone()
+    if not row:
+        conn.execute(
+            "INSERT INTO message_cooldowns (id, from_id, to_id) VALUES (?,?,?)",
+            (uuid.uuid4().hex[:12], from_id, to_id),
+        )
+        conn.commit()
+        return True
+    from datetime import datetime as dt, timezone as tz, timedelta as td
+    window_start = row["window_start"]
+    try:
+        ws = dt.fromisoformat(window_start.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        ws = dt.now(tz.utc) - td(hours=1)
+    now = dt.now(tz.utc)
+    if (now - ws).total_seconds() > window_minutes * 60:
+        conn.execute(
+            "UPDATE message_cooldowns SET message_count=1, window_start=? WHERE from_id=? AND to_id=?",
+            (now.isoformat(), from_id, to_id),
+        )
+        conn.commit()
+        return True
+    if row["message_count"] >= max_count:
+        return False
+    conn.execute(
+        "UPDATE message_cooldowns SET message_count=message_count+1 WHERE from_id=? AND to_id=?",
+        (from_id, to_id),
+    )
+    conn.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Undo Blocks
+# ---------------------------------------------------------------------------
+
+def create_undo_block(blocker_id: str, blocked_id: str, grace_minutes: int = 5) -> str:
+    conn = get_db()
+    ub_id = uuid.uuid4().hex[:12]
+    conn.execute("""
+        INSERT INTO undo_blocks (id, blocker_id, blocked_id, expires_at)
+        VALUES (?, ?, ?, datetime('now', '+' || ? || ' minutes'))
+    """, (ub_id, blocker_id, blocked_id, str(grace_minutes)))
+    conn.commit()
+    return ub_id
+
+
+def undo_block(blocker_id: str, blocked_id: str) -> bool:
+    """Undo a block if within grace period."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id FROM undo_blocks WHERE blocker_id=? AND blocked_id=? AND expires_at > datetime('now')",
+        (blocker_id, blocked_id),
+    ).fetchone()
+    if not row:
+        return False
+    conn.execute("DELETE FROM undo_blocks WHERE id=?", (row["id"],))
+    conn.execute("DELETE FROM blocks WHERE blocker_id=? AND blocked_id=?", (blocker_id, blocked_id))
+    conn.commit()
+    return True
+
+
+def cleanup_expired_undo_blocks():
+    conn = get_db()
+    conn.execute("DELETE FROM undo_blocks WHERE expires_at <= datetime('now')")
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Safety Check-ins
+# ---------------------------------------------------------------------------
+
+def create_safety_checkin(user_id: str, partner_name: str, emergency_contact: str,
+                          emergency_email: str, check_in_minutes: int = 60,
+                          date_schedule_id: str = None) -> dict:
+    conn = get_db()
+    sc_id = uuid.uuid4().hex[:12]
+    conn.execute("""
+        INSERT INTO safety_checkins (id, user_id, date_schedule_id, partner_name,
+                                     emergency_contact, emergency_email, check_in_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+' || ? || ' minutes'))
+    """, (sc_id, user_id, date_schedule_id, partner_name, emergency_contact,
+          emergency_email, str(check_in_minutes)))
+    conn.commit()
+    return {"id": sc_id, "status": "pending"}
+
+
+def respond_safety_checkin(checkin_id: str, user_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        "UPDATE safety_checkins SET status='safe' WHERE id=? AND user_id=? AND status='pending'",
+        (checkin_id, user_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_overdue_checkins() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM safety_checkins
+        WHERE status='pending' AND check_in_at <= datetime('now')
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_user_checkins(user_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM safety_checkins WHERE user_id=? ORDER BY created_at DESC",
+        (user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_total_checkins_count() -> int:
+    conn = get_db()
+    return conn.execute("SELECT COUNT(*) FROM safety_checkins").fetchone()[0]
+
+
+# ---------------------------------------------------------------------------
+# Dealbreaker Warnings
+# ---------------------------------------------------------------------------
+
+def check_dealbreaker_conflicts(profile_id: str, target_id: str) -> list[dict]:
+    """Check for dealbreaker conflicts between two profiles."""
+    conn = get_db()
+    p1 = conn.execute("SELECT dealbreakers FROM profiles WHERE id=?", (profile_id,)).fetchone()
+    p2 = conn.execute("SELECT dealbreakers FROM profiles WHERE id=?", (target_id,)).fetchone()
+    if not p1 or not p2:
+        return []
+    try:
+        d1 = json.loads(p1["dealbreakers"]) if p1["dealbreakers"] else []
+        d2 = json.loads(p2["dealbreakers"]) if p2["dealbreakers"] else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    warnings = []
+    if isinstance(d1, list) and isinstance(d2, list):
+        for item in set(d1) & set(d2):
+            warnings.append({"topic": item, "type": "shared_dealbreaker"})
+    return warnings
+
+
+# ---------------------------------------------------------------------------
+# Profile Completeness
+# ---------------------------------------------------------------------------
+
+def get_profile_completeness(profile_id: str, user_id: str) -> dict:
+    conn = get_db()
+    profile = conn.execute("SELECT * FROM profiles WHERE id=?", (profile_id,)).fetchone()
+    if not profile:
+        return {"score": 0, "tips": []}
+    score = 0
+    tips = []
+    if profile["photo"]:
+        score += 20
+    else:
+        tips.append({"action": "Add a profile photo", "points": 20})
+    try:
+        about = profile["about_me"]
+    except (IndexError, KeyError):
+        about = None
+    if about:
+        score += 15
+    else:
+        tips.append({"action": "Write an About Me", "points": 15})
+    prompt_count = conn.execute(
+        "SELECT COUNT(*) FROM profile_prompts WHERE profile_id=?", (profile_id,)
+    ).fetchone()[0]
+    if prompt_count > 0:
+        score += 15
+    else:
+        tips.append({"action": "Answer profile prompts", "points": 15})
+    if profile["big_five"] and profile["big_five"] != "{}":
+        score += 25
+    else:
+        tips.append({"action": "Complete the questionnaire", "points": 25})
+    try:
+        interests = profile["interests"]
+    except (IndexError, KeyError):
+        interests = None
+    if interests:
+        score += 10
+    else:
+        tips.append({"action": "Add your interests", "points": 10})
+    verified = conn.execute(
+        "SELECT status FROM selfie_verifications WHERE profile_id=?", (profile_id,)
+    ).fetchone()
+    if verified and verified["status"] == "approved":
+        score += 15
+    else:
+        tips.append({"action": "Get verified", "points": 15})
+    return {"score": min(score, 100), "tips": tips}
+
+
+# ---------------------------------------------------------------------------
+# Rate Limit Logging
+# ---------------------------------------------------------------------------
+
+def log_rate_limit_hit(endpoint: str, ip_address: str = None,
+                       user_id: str = None, blocked: bool = False):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO rate_limit_log (id, endpoint, ip_address, user_id, blocked) VALUES (?,?,?,?,?)",
+        (uuid.uuid4().hex[:12], endpoint, ip_address, user_id, 1 if blocked else 0),
+    )
+    conn.commit()
+
+
+def get_rate_limit_stats() -> list[dict]:
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT endpoint,
+               COUNT(*) as total_hits,
+               SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked_count,
+               COUNT(DISTINCT ip_address) as unique_ips
+        FROM rate_limit_log
+        WHERE created_at >= datetime('now', '-24 hours')
+        GROUP BY endpoint
+        ORDER BY total_hits DESC
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Database Vacuum
+# ---------------------------------------------------------------------------
+
+def run_vacuum() -> dict:
+    import os as _os
+    conn = get_db()
+    db_size_before = _os.path.getsize(str(DB_PATH))
+    conn.execute("VACUUM")
+    db_size_after = _os.path.getsize(str(DB_PATH))
+    conn.execute(
+        "INSERT INTO vacuum_log (db_size_bytes) VALUES (?)",
+        (db_size_after,),
+    )
+    conn.commit()
+    return {"size_before": db_size_before, "size_after": db_size_after,
+            "freed": db_size_before - db_size_after}
+
+
+def get_last_vacuum() -> dict | None:
+    conn = get_db()
+    row = conn.execute("SELECT * FROM vacuum_log ORDER BY ran_at DESC LIMIT 1").fetchone()
+    return dict(row) if row else None
+
+
+def get_webhook_delivery_count() -> int:
+    conn = get_db()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM webhooks WHERE enabled=1").fetchone()[0]
+    except Exception:
+        return 0

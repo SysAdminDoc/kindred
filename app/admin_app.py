@@ -1,5 +1,5 @@
 """
-Kindred v1.6.0 - Admin Server
+Kindred v1.7.0 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -22,7 +22,7 @@ from app.config import (
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
     ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS,
     BCRYPT_ROUNDS, DB_PATH, BACKUP_INTERVAL_HOURS, BACKUP_KEEP_COUNT,
-    DEFAULT_LOCALE,
+    DEFAULT_LOCALE, VACUUM_INTERVAL_HOURS,
 )
 from app.database import (
     init_db, get_profile, get_all_profiles, delete_profile,
@@ -44,10 +44,15 @@ from app.database import (
     get_all_sessions, revoke_session, revoke_all_sessions,
     get_session_count, get_location_enabled_count,
     get_super_like_count,
+    get_total_games_count, get_blind_date_count,
+    get_total_playlists_count, get_total_checkins_count,
+    get_rate_limit_stats, log_rate_limit_hit,
+    run_vacuum, get_last_vacuum,
+    get_webhook_delivery_count,
     UPLOAD_DIR,
 )
 
-admin_app = FastAPI(title="Kindred Admin", version="1.6.0")
+admin_app = FastAPI(title="Kindred Admin", version="1.7.0")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -352,7 +357,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "1.6.0",
+        "version": "1.7.0",
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "pid": os.getpid(),
@@ -428,6 +433,112 @@ def admin_delete_story(story_id: str, admin: dict = Depends(require_admin)):
 def admin_locales(admin: dict = Depends(require_admin)):
     from app.i18n import get_available_locales
     return {"locales": get_available_locales(), "default": DEFAULT_LOCALE}
+
+
+# ─── Rate Limit Dashboard ───
+@admin_app.get("/api/admin/rate-limits")
+def admin_rate_limits(admin: dict = Depends(require_admin)):
+    return {"rate_limits": get_rate_limit_stats()}
+
+
+# ─── Database Vacuum ───
+@admin_app.post("/api/admin/vacuum")
+def admin_vacuum(admin: dict = Depends(require_admin)):
+    from app.audit import log_audit
+    result = run_vacuum()
+    log_audit(admin["id"], "vacuum", "database", None,
+              f"Freed {result['freed']} bytes")
+    return result
+
+
+@admin_app.get("/api/admin/vacuum/status")
+def admin_vacuum_status(admin: dict = Depends(require_admin)):
+    last = get_last_vacuum()
+    return {
+        "last_vacuum": last,
+        "interval_hours": VACUUM_INTERVAL_HOURS,
+        "db_size_mb": round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0,
+    }
+
+
+# ─── Audit Log ───
+@admin_app.get("/api/admin/audit-log")
+def admin_audit_log(limit: int = 50, offset: int = 0, action: str = None,
+                    admin: dict = Depends(require_admin)):
+    from app.audit import get_audit_logs, get_audit_log_count
+    return {
+        "logs": get_audit_logs(limit, offset, action),
+        "total": get_audit_log_count(),
+    }
+
+
+# ─── Webhooks ───
+@admin_app.get("/api/admin/webhooks")
+def admin_list_webhooks(admin: dict = Depends(require_admin)):
+    from app.webhooks import get_webhooks
+    return {"webhooks": get_webhooks()}
+
+
+@admin_app.post("/api/admin/webhooks")
+def admin_create_webhook(name: str, url: str, events: str = "*",
+                          secret: str = "", admin: dict = Depends(require_admin)):
+    from app.webhooks import create_webhook
+    from app.audit import log_audit
+    event_list = [e.strip() for e in events.split(",")]
+    wh = create_webhook(name, url, event_list, secret)
+    log_audit(admin["id"], "webhook_create", "webhook", wh["id"], f"URL: {url}")
+    return wh
+
+
+@admin_app.put("/api/admin/webhooks/{wh_id}")
+def admin_update_webhook(wh_id: str, enabled: int = None, name: str = None,
+                          admin: dict = Depends(require_admin)):
+    from app.webhooks import update_webhook
+    from app.audit import log_audit
+    kwargs = {}
+    if enabled is not None:
+        kwargs["enabled"] = enabled
+    if name is not None:
+        kwargs["name"] = name
+    update_webhook(wh_id, **kwargs)
+    log_audit(admin["id"], "webhook_update", "webhook", wh_id)
+    return {"message": "Webhook updated"}
+
+
+@admin_app.delete("/api/admin/webhooks/{wh_id}")
+def admin_delete_webhook(wh_id: str, admin: dict = Depends(require_admin)):
+    from app.webhooks import delete_webhook
+    from app.audit import log_audit
+    delete_webhook(wh_id)
+    log_audit(admin["id"], "webhook_delete", "webhook", wh_id)
+    return {"message": "Webhook deleted"}
+
+
+# ─── Email Templates ───
+@admin_app.get("/api/admin/email-templates")
+def admin_list_email_templates(admin: dict = Depends(require_admin)):
+    from app.email_templates import get_template_list
+    return {"templates": get_template_list()}
+
+
+@admin_app.get("/api/admin/email-templates/{template_id}/preview")
+def admin_preview_email_template(template_id: str, admin: dict = Depends(require_admin)):
+    from app.email_templates import preview_template
+    html = preview_template(template_id)
+    from starlette.responses import HTMLResponse
+    return HTMLResponse(content=html)
+
+
+# ─── Expanded Stats ───
+@admin_app.get("/api/admin/stats/extended")
+def admin_extended_stats(admin: dict = Depends(require_admin)):
+    return {
+        "blind_dates_active": get_blind_date_count(),
+        "games_played": get_total_games_count(),
+        "shared_playlists": get_total_playlists_count(),
+        "safety_checkins": get_total_checkins_count(),
+        "webhook_endpoints": get_webhook_delivery_count(),
+    }
 
 
 # ─── Static Files ───

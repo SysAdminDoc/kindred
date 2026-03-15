@@ -1,5 +1,5 @@
 """
-Kindred v1.6.0 - Configuration
+Kindred v1.7.0 - Configuration
 Loads settings from environment variables or .env file.
 """
 
@@ -92,5 +92,27 @@ BACKUP_INTERVAL_HOURS = int(os.getenv("KINDRED_BACKUP_INTERVAL_HOURS", "24"))
 # --- i18n ---
 DEFAULT_LOCALE = os.getenv("KINDRED_DEFAULT_LOCALE", "en")
 
+# --- Blind Date ---
+BLIND_DATE_HOURS = int(os.getenv("KINDRED_BLIND_DATE_HOURS", "48"))
+
+# --- Message Cooldown ---
+MESSAGE_COOLDOWN_MINUTES = int(os.getenv("KINDRED_MESSAGE_COOLDOWN_MINUTES", "5"))
+MESSAGE_COOLDOWN_COUNT = int(os.getenv("KINDRED_MESSAGE_COOLDOWN_COUNT", "10"))
+
+# --- Undo Block Grace Period ---
+UNDO_BLOCK_MINUTES = int(os.getenv("KINDRED_UNDO_BLOCK_MINUTES", "5"))
+
+# --- Safety Check-in ---
+SAFETY_CHECKIN_DEFAULT_MINUTES = int(os.getenv("KINDRED_SAFETY_CHECKIN_MINUTES", "60"))
+
+# --- Database Vacuum ---
+VACUUM_INTERVAL_HOURS = int(os.getenv("KINDRED_VACUUM_INTERVAL_HOURS", "168"))
+
+# --- Webhooks ---
+WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "true"
+
+# --- Theme ---
+DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
+
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
