@@ -1,0 +1,26 @@
+[Unit]
+Description=Kindred Admin Server (port 8001)
+After=network.target
+
+[Service]
+Type=simple
+User=kindred
+Group=kindred
+WorkingDirectory=/opt/kindred
+EnvironmentFile=/opt/kindred/.env
+ExecStart=/opt/kindred/.venv/bin/uvicorn app.admin_app:admin_app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kindred-admin
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/kindred/kindred.db /opt/kindred/kindred.db-wal /opt/kindred/kindred.db-shm /opt/kindred/uploads /opt/kindred/backups /opt/kindred/.jwt_secret
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,42 @@
+# Caddyfile for Docker Compose deployment
+# Replace YOUR_DOMAIN with your actual domain
+
+YOUR_DOMAIN {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        X-XSS-Protection "1; mode=block"
+        Permissions-Policy "camera=(), microphone=(self), geolocation=(self)"
+        -Server
+    }
+
+    handle /api/admin/* {
+        reverse_proxy kindred-app:8001
+    }
+
+    handle /admin* {
+        reverse_proxy kindred-app:8001
+    }
+
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    handle @websocket {
+        reverse_proxy kindred-app:8000
+    }
+
+    handle {
+        reverse_proxy kindred-app:8000
+    }
+
+    request_body {
+        max_size 30MB
+    }
+}
+
+www.YOUR_DOMAIN {
+    redir https://YOUR_DOMAIN{uri} permanent
+}

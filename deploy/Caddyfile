@@ -1,0 +1,63 @@
+# Kindred Production Caddyfile
+# Replace YOUR_DOMAIN with your actual domain (e.g., kindred.app)
+#
+# Usage:
+#   1. Copy to /etc/caddy/Caddyfile
+#   2. Replace YOUR_DOMAIN
+#   3. sudo systemctl reload caddy
+
+YOUR_DOMAIN {
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        X-XSS-Protection "1; mode=block"
+        Permissions-Policy "camera=(), microphone=(self), geolocation=(self)"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.puter.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://basemaps.cartocdn.com https://media.tenor.com; connect-src 'self' wss://YOUR_DOMAIN https://tenor.googleapis.com https://js.puter.com; frame-src https://meet.jit.si; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:"
+        -Server
+    }
+
+    # Admin portal - restricted path
+    handle /api/admin/* {
+        reverse_proxy localhost:8001
+    }
+
+    # Admin SPA
+    handle /admin* {
+        reverse_proxy localhost:8001
+    }
+
+    # WebSocket upgrade support
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    handle @websocket {
+        reverse_proxy localhost:8000
+    }
+
+    # Everything else -> user server
+    handle {
+        reverse_proxy localhost:8000
+    }
+
+    # Upload size limit (matches KINDRED_MAX_UPLOAD_MB)
+    request_body {
+        max_size 30MB
+    }
+
+    # Access logging
+    log {
+        output file /var/log/caddy/kindred-access.log {
+            roll_size 50MB
+            roll_keep 5
+        }
+    }
+}
+
+# Redirect www to bare domain
+www.YOUR_DOMAIN {
+    redir https://YOUR_DOMAIN{uri} permanent
+}
