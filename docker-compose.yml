@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  kindred:
+    build: .
+    ports:
+      - "${KINDRED_USER_PORT:-8000}:8000"
+      - "${KINDRED_ADMIN_PORT:-8001}:8001"
+    volumes:
+      - ./kindred.db:/app/kindred.db
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    environment:
+      - KINDRED_HOST=0.0.0.0
+    restart: unless-stopped

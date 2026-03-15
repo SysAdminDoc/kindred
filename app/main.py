@@ -1,0 +1,1675 @@
+"""
+Kindred v1.3.0 - FastAPI Backend (User Server)
+AI-powered compatibility matching + social platform.
+"""
+
+import shutil
+import uuid
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import jwt
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from passlib.hash import bcrypt
+from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from app.config import (
+    JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
+    CORS_ORIGINS, RATE_LIMIT_DEFAULT, RATE_LIMIT_AUTH,
+    PHOTO_REVEAL_THRESHOLD, MAX_UPLOAD_MB,
+)
+from app.database import (
+    init_db, save_profile, get_profile, get_all_profiles,
+    update_profile_field, send_message, get_conversation, get_conversations_for,
+    get_conversation_count, get_last_message_sender,
+    mark_messages_read, use_invite,
+    create_date_plan, update_date_plan, get_date_plans, get_date_plans_between,
+    log_behavioral_event, get_behavioral_profile,
+    create_safety_report,
+    create_blog_post, get_blog_posts, delete_blog_post,
+    create_profile_comment, get_profile_comments, delete_profile_comment,
+    send_friend_request, respond_friend_request, get_friends, get_friend_requests,
+    remove_friend, are_friends, increment_profile_views,
+    create_user, get_user_by_email, get_user_by_id, link_profile_to_user,
+    create_notification, get_notifications, get_unread_notification_count,
+    mark_notifications_read, mark_notification_read,
+    toggle_like, get_likes, get_like_count, has_liked,
+    create_status_update, get_status_updates, get_friend_status_feed,
+    delete_status_update, update_last_seen, get_online_friends,
+    add_photo, get_photos, delete_photo, set_primary_photo,
+    search_profiles,
+    log_activity, get_activity_feed, get_explore_profiles, get_recent_profiles,
+    create_group, get_group, get_all_groups, get_my_groups,
+    join_group, leave_group, is_group_member, get_group_members,
+    create_group_post, get_group_posts, delete_group_post,
+    create_event, get_event, get_all_events, rsvp_event,
+    get_event_rsvps, get_my_events,
+    get_or_create_game, answer_game, get_game_history, get_game_score,
+    submit_selfie_verification, get_verification_status,
+    save_video_intro, get_video_intro, delete_video_intro,
+    add_music_pref, get_music_prefs, delete_music_pref, compute_music_compatibility,
+    block_profile, unblock_profile, is_blocked_either, get_blocked_profiles,
+    create_password_reset, use_password_reset,
+    get_notification_prefs, update_notification_prefs, should_notify,
+    get_conversation_paginated, mark_messages_read_with_timestamp,
+    deactivate_profile, reactivate_profile,
+    add_group_moderator, remove_group_moderator, is_group_moderator,
+    UPLOAD_DIR,
+)
+from app.questions import (
+    BIG_FIVE_ITEMS, VALUES_QUESTIONS, ATTACHMENT_ITEMS,
+    LOVE_LANGUAGES, DEALBREAKERS, OPEN_ENDED_PROMPTS,
+    SCENARIO_QUESTIONS, TRADEOFF_QUESTIONS, BEHAVIORAL_QUESTIONS,
+    SELF_DISCLOSURE, COMMUNICATION_QUESTIONS, FINANCIAL_QUESTIONS,
+    ENERGY_QUESTIONS,
+    score_big_five, classify_attachment, build_profile_text,
+)
+from app.engine import (
+    generate_embedding, find_matches, compute_compatibility,
+    generate_narrative, generate_icebreakers, generate_coaching_tips,
+    DEFAULT_WEIGHTS,
+)
+
+app = FastAPI(title="Kindred", version="1.3.0")
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(status_code=429, content={"detail": "Too many requests. Please slow down."})
+
+
+# File upload magic byte validation
+MAGIC_BYTES = {
+    ".jpg": [b"\xff\xd8\xff"],
+    ".jpeg": [b"\xff\xd8\xff"],
+    ".png": [b"\x89PNG"],
+    ".webp": [b"RIFF"],
+    ".gif": [b"GIF87a", b"GIF89a"],
+    ".mp4": [b"\x00\x00\x00\x18ftyp", b"\x00\x00\x00\x1cftyp", b"\x00\x00\x00\x20ftyp", b"\x00\x00\x00"],
+    ".webm": [b"\x1a\x45\xdf\xa3"],
+    ".mov": [b"\x00\x00\x00\x14ftyp", b"\x00\x00\x00\x08wide", b"\x00\x00\x00"],
+}
+
+
+def validate_file_magic(content: bytes, ext: str) -> bool:
+    patterns = MAGIC_BYTES.get(ext, [])
+    if not patterns:
+        return True
+    return any(content[:len(p)] == p for p in patterns)
+
+
+# WebSocket connection manager
+class ConnectionManager:
+    def __init__(self):
+        self.active: dict[str, list[WebSocket]] = defaultdict(list)
+
+    async def connect(self, profile_id: str, ws: WebSocket):
+        await ws.accept()
+        self.active[profile_id].append(ws)
+
+    def disconnect(self, profile_id: str, ws: WebSocket):
+        if profile_id in self.active:
+            self.active[profile_id] = [w for w in self.active[profile_id] if w is not ws]
+            if not self.active[profile_id]:
+                del self.active[profile_id]
+
+    async def send_to(self, profile_id: str, data: dict):
+        import json as _json
+        for ws in self.active.get(profile_id, []):
+            try:
+                await ws.send_text(_json.dumps(data))
+            except Exception:
+                pass
+
+    def is_online(self, profile_id: str) -> bool:
+        return bool(self.active.get(profile_id))
+
+
+ws_manager = ConnectionManager()
+
+security = HTTPBearer(auto_error=False)
+
+
+def create_token(user_id: str, is_admin: bool = False) -> str:
+    payload = {
+        "sub": user_id,
+        "admin": is_admin,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def get_current_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> dict | None:
+    """Returns user dict or None if no/invalid token. Non-blocking."""
+    if not creds:
+        return None
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user = get_user_by_id(payload["sub"])
+        return user
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
+
+
+def require_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Returns user dict or raises 401."""
+    if not creds:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user = get_user_by_id(payload["sub"])
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return user
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+# ---------------------------------------------------------------------------
+# Pydantic Models
+# ---------------------------------------------------------------------------
+
+class AuthRegister(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+
+class AuthLogin(BaseModel):
+    email: str
+    password: str
+
+class ProfileSubmission(BaseModel):
+    name: str
+    age: int
+    gender: str
+    seeking: str
+    big_five_answers: dict[str, int] = {}
+    attachment_answers: dict[str, int] = {}
+    values: dict[str, str | int] = {}
+    love_language: str = ""
+    dealbreakers: list[str] = []
+    open_ended: dict[str, str] = {}
+    scenario_answers: dict[str, int] = {}
+    tradeoffs: dict[str, str] = {}
+    behavioral_answers: dict[str, str] = {}
+    self_disclosure: dict[str, str] = {}
+    communication_style: dict[str, str] = {}
+    financial_values: dict[str, str] = {}
+    dating_energy: str = ""
+    dating_pace: str = ""
+    relationship_intent: str = ""
+    weight_prefs: dict[str, float] = {}
+    invite_code: str = ""
+
+class MessageSend(BaseModel):
+    from_id: str
+    to_id: str
+    content: str
+
+class WeightUpdate(BaseModel):
+    weights: dict[str, float]
+
+class PrivacyUpdate(BaseModel):
+    privacy: dict[str, str]
+
+class DatePlanCreate(BaseModel):
+    profile_a: str
+    profile_b: str
+    proposed_by: str
+    suggestion: str
+    proposed_time: str | None = None
+
+class DatePlanUpdate(BaseModel):
+    status: str
+
+class BehavioralEvent(BaseModel):
+    profile_id: str
+    event_type: str
+    target_id: str | None = None
+    duration_ms: int | None = None
+
+class SafetyReport(BaseModel):
+    reporter_id: str
+    reported_id: str
+    report_type: str
+    notes: str | None = None
+
+class ProfilePageUpdate(BaseModel):
+    location: str | None = None
+    headline: str | None = None
+    about_me: str | None = None
+    who_id_like_to_meet: str | None = None
+    interests: str | None = None
+    heroes: str | None = None
+    mood: str | None = None
+    music_embeds: list[str] | None = None
+    video_embeds: list[str] | None = None
+    profile_song: str | None = None
+    profile_theme: str | None = None
+
+class BlogPostCreate(BaseModel):
+    title: str
+    content: str
+
+class ProfileCommentCreate(BaseModel):
+    from_id: str
+    content: str
+
+class FriendAction(BaseModel):
+    accept: bool
+
+class LikeToggle(BaseModel):
+    from_id: str
+    target_type: str
+    target_id: str
+    reaction: str = "like"
+
+class StatusCreate(BaseModel):
+    profile_id: str
+    content: str
+    mood: str = ""
+
+class NotifPrefsUpdate(BaseModel):
+    messages: int = 1
+    friend_requests: int = 1
+    likes: int = 1
+    comments: int = 1
+    group_posts: int = 1
+    events: int = 1
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+# ---------------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------------
+
+@app.on_event("startup")
+def startup():
+    init_db()
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+@app.post("/api/auth/register")
+@limiter.limit(RATE_LIMIT_AUTH)
+def register(request: Request, body: AuthRegister):
+    if not body.email or "@" not in body.email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if get_user_by_email(body.email):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    pw_hash = bcrypt.hash(body.password)
+    user_id = create_user(body.email, pw_hash, body.display_name)
+    token = create_token(user_id)
+    return {"token": token, "user_id": user_id, "display_name": body.display_name or body.email.split("@")[0]}
+
+
+@app.post("/api/auth/login")
+@limiter.limit(RATE_LIMIT_AUTH)
+def login(request: Request, body: AuthLogin):
+    user = get_user_by_email(body.email)
+    if not user or not bcrypt.verify(body.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("deactivated"):
+        raise HTTPException(status_code=403, detail="Account deactivated")
+    token = create_token(user["id"], bool(user["is_admin"]))
+    return {
+        "token": token,
+        "user_id": user["id"],
+        "profile_id": user["profile_id"],
+        "display_name": user["display_name"],
+        "is_admin": bool(user["is_admin"]),
+    }
+
+
+@app.get("/api/auth/me")
+def get_me(user: dict = Depends(require_user)):
+    return {
+        "user_id": user["id"],
+        "email": user["email"],
+        "display_name": user["display_name"],
+        "profile_id": user["profile_id"],
+        "is_admin": bool(user["is_admin"]),
+    }
+
+
+@app.post("/api/auth/password-reset")
+@limiter.limit(RATE_LIMIT_AUTH)
+def request_password_reset(request: Request, body: PasswordResetRequest):
+    user = get_user_by_email(body.email)
+    if user:
+        token = create_password_reset(user["id"])
+        # In production, send email. For dev, return token directly.
+        return {"message": "If that email exists, a reset link has been sent", "dev_token": token}
+    return {"message": "If that email exists, a reset link has been sent"}
+
+
+@app.post("/api/auth/password-reset/confirm")
+@limiter.limit(RATE_LIMIT_AUTH)
+def confirm_password_reset(request: Request, body: PasswordResetConfirm):
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    pw_hash = bcrypt.hash(body.new_password)
+    if not use_password_reset(body.token, pw_hash):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    return {"message": "Password reset successful"}
+
+
+@app.post("/api/auth/change-password")
+def change_password(body: PasswordChange, user: dict = Depends(require_user)):
+    if not bcrypt.verify(body.current_password, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    from app.database import get_db
+    conn = get_db()
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?",
+                 (bcrypt.hash(body.new_password), user["id"]))
+    conn.commit()
+    return {"message": "Password changed successfully"}
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+@app.get("/api/notifications")
+def list_notifications(user: dict = Depends(require_user)):
+    notifs = get_notifications(user["id"])
+    unread = get_unread_notification_count(user["id"])
+    return {"notifications": notifs, "unread": unread}
+
+
+@app.post("/api/notifications/read")
+def read_all_notifications(user: dict = Depends(require_user)):
+    mark_notifications_read(user["id"])
+    return {"message": "All notifications marked read"}
+
+
+@app.post("/api/notifications/{notification_id}/read")
+def read_notification(notification_id: str, user: dict = Depends(require_user)):
+    mark_notification_read(notification_id)
+    return {"message": "Notification marked read"}
+
+
+@app.get("/api/notifications/preferences")
+def get_notif_prefs(user: dict = Depends(require_user)):
+    return get_notification_prefs(user["id"])
+
+
+@app.put("/api/notifications/preferences")
+def update_notif_prefs(body: NotifPrefsUpdate, user: dict = Depends(require_user)):
+    update_notification_prefs(user["id"], body.model_dump())
+    return {"message": "Notification preferences updated"}
+
+# ---------------------------------------------------------------------------
+# Questionnaire
+# ---------------------------------------------------------------------------
+
+@app.get("/api/questionnaire")
+def get_questionnaire():
+    return {
+        "big_five": [{"id": i[0], "text": i[1], "trait": i[2]} for i in BIG_FIVE_ITEMS],
+        "scenarios": [
+            {"id": s["id"], "text": s["text"],
+             "options": [o["label"] for o in s["options"]]}
+            for s in SCENARIO_QUESTIONS
+        ],
+        "behavioral": BEHAVIORAL_QUESTIONS,
+        "tradeoffs": TRADEOFF_QUESTIONS,
+        "self_disclosure": SELF_DISCLOSURE,
+        "values": VALUES_QUESTIONS,
+        "attachment": [{"id": i[0], "text": i[1]} for i in ATTACHMENT_ITEMS],
+        "love_languages": LOVE_LANGUAGES,
+        "dealbreakers": DEALBREAKERS,
+        "open_ended": OPEN_ENDED_PROMPTS,
+        "communication": COMMUNICATION_QUESTIONS,
+        "financial": FINANCIAL_QUESTIONS,
+        "energy": ENERGY_QUESTIONS,
+        "default_weights": DEFAULT_WEIGHTS,
+    }
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+
+@app.post("/api/profile")
+def create_profile(submission: ProfileSubmission,
+                   user: dict | None = Depends(get_current_user)):
+    big_five = score_big_five(
+        submission.big_five_answers,
+        submission.scenario_answers or None,
+        submission.behavioral_answers or None,
+    )
+    attachment = classify_attachment(
+        submission.attachment_answers,
+        submission.scenario_answers or None,
+    )
+
+    profile_data = {
+        "name": submission.name,
+        "age": submission.age,
+        "gender": submission.gender,
+        "seeking": submission.seeking,
+        "big_five": big_five,
+        "attachment": attachment,
+        "values": submission.values,
+        "tradeoffs": submission.tradeoffs,
+        "self_disclosure": submission.self_disclosure,
+        "love_language": submission.love_language,
+        "dealbreakers": submission.dealbreakers,
+        "open_ended": submission.open_ended,
+        "scenario_answers": submission.scenario_answers,
+        "behavioral_answers": submission.behavioral_answers,
+        "communication_style": submission.communication_style,
+        "financial_values": submission.financial_values,
+        "dating_energy": submission.dating_energy or None,
+        "dating_pace": submission.dating_pace or None,
+        "relationship_intent": submission.relationship_intent or None,
+        "weight_prefs": submission.weight_prefs,
+        "invite_code": submission.invite_code or None,
+    }
+
+    profile_text = build_profile_text(profile_data)
+    embedding = generate_embedding(profile_text)
+    profile_data["embedding"] = embedding.tobytes()
+
+    profile_id = save_profile(profile_data)
+
+    if submission.invite_code:
+        use_invite(submission.invite_code, profile_id)
+
+    # Link profile to authenticated user
+    if user:
+        link_profile_to_user(user["id"], profile_id)
+
+    return {
+        "id": profile_id,
+        "big_five": big_five,
+        "attachment": attachment,
+        "message": "Profile created successfully",
+    }
+
+
+@app.get("/api/profile/{profile_id}")
+def read_profile(profile_id: str):
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    result = {k: v for k, v in profile.items() if k != "embedding"}
+    return result
+
+
+@app.get("/api/profiles")
+def list_profiles():
+    profiles = get_all_profiles()
+    return [
+        {
+            "id": p["id"],
+            "name": p["name"],
+            "age": p["age"],
+            "gender": p["gender"],
+            "seeking": p["seeking"],
+            "photo": p.get("photo"),
+            "verified": p.get("verified", 0),
+            "dating_energy": p.get("dating_energy"),
+            "relationship_intent": p.get("relationship_intent"),
+            "created_at": p["created_at"],
+        }
+        for p in profiles
+    ]
+
+# ---------------------------------------------------------------------------
+# Photo Upload
+# ---------------------------------------------------------------------------
+
+@app.post("/api/profile/{profile_id}/photo")
+async def upload_photo(profile_id: str, file: UploadFile = File(...),
+                       user: dict = Depends(require_user)):
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only upload your own photo")
+
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, WEBP allowed")
+
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File too large (max {MAX_UPLOAD_MB}MB)")
+    if not validate_file_magic(content, ext):
+        raise HTTPException(status_code=400, detail="File content doesn't match extension")
+
+    # Generate thumbnail
+    filename = f"{profile_id}{ext}"
+    filepath = UPLOAD_DIR / filename
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    _generate_thumbnail(filepath, profile_id)
+    update_profile_field(profile_id, "photo", filename)
+    return {"photo": filename}
+
+
+def _generate_thumbnail(filepath: Path, profile_id: str, size: tuple = (200, 200)):
+    try:
+        from PIL import Image
+        img = Image.open(filepath)
+        img.thumbnail(size, Image.LANCZOS)
+        thumb_path = UPLOAD_DIR / f"thumb_{profile_id}{filepath.suffix}"
+        img.save(str(thumb_path), quality=85)
+    except Exception:
+        pass  # Thumbnail generation is best-effort
+
+# ---------------------------------------------------------------------------
+# Matching
+# ---------------------------------------------------------------------------
+
+@app.get("/api/matches/{profile_id}")
+def get_matches(profile_id: str, top_n: int = 20):
+    target = get_profile(profile_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    all_profiles = get_all_profiles()
+    if len(all_profiles) < 2:
+        return {"matches": [], "message": "Need at least 2 profiles to match"}
+
+    custom_weights = target.get("weight_prefs") or None
+    matches = find_matches(profile_id, all_profiles, top_n, custom_weights)
+
+    for m in matches:
+        if m["compatibility"]["total"] < PHOTO_REVEAL_THRESHOLD:
+            m["photo"] = None
+            m["photo_locked"] = True
+        else:
+            m["photo_locked"] = False
+
+    return {"matches": matches, "profile_id": profile_id}
+
+
+@app.get("/api/compatibility/{id_a}/{id_b}")
+def compare_profiles(id_a: str, id_b: str):
+    profile_a = get_profile(id_a)
+    profile_b = get_profile(id_b)
+    if profile_a is None or profile_b is None:
+        raise HTTPException(status_code=404, detail="One or both profiles not found")
+
+    result = compute_compatibility(profile_a, profile_b)
+    result["profiles"] = {
+        "a": {"id": id_a, "name": profile_a["name"]},
+        "b": {"id": id_b, "name": profile_b["name"]},
+    }
+
+    result["narrative"] = generate_narrative(profile_a, profile_b, result)
+    result["icebreakers"] = generate_icebreakers(profile_a, profile_b, result)
+    result["coaching_tips"] = generate_coaching_tips(profile_a, profile_b, result)
+
+    # Conversation stats for date suggestion
+    msg_count = get_conversation_count(id_a, id_b)
+    result["message_count"] = msg_count
+    result["suggest_date"] = msg_count >= 8
+
+    # Date plans between these two
+    result["date_plans"] = get_date_plans_between(id_a, id_b)
+
+    threshold_met = result["total"] >= PHOTO_REVEAL_THRESHOLD
+    result["photo_a"] = profile_a.get("photo") if threshold_met else None
+    result["photo_b"] = profile_b.get("photo") if threshold_met else None
+    result["photo_threshold"] = PHOTO_REVEAL_THRESHOLD
+
+    return result
+
+# ---------------------------------------------------------------------------
+# User Weights & Privacy
+# ---------------------------------------------------------------------------
+
+@app.put("/api/profile/{profile_id}/weights")
+def update_weights(profile_id: str, body: WeightUpdate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only update your own weights")
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    update_profile_field(profile_id, "weight_prefs", body.weights)
+    return {"message": "Weights updated", "weights": body.weights}
+
+
+@app.put("/api/profile/{profile_id}/privacy")
+def update_privacy(profile_id: str, body: PrivacyUpdate, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only update your own privacy")
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    update_profile_field(profile_id, "privacy", body.privacy)
+    return {"message": "Privacy settings updated"}
+
+# ---------------------------------------------------------------------------
+# Messaging
+# ---------------------------------------------------------------------------
+
+@app.post("/api/messages")
+async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
+    if not msg.content.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if is_blocked_either(msg.from_id, msg.to_id):
+        raise HTTPException(status_code=403, detail="Cannot message this user")
+    msg_id = send_message(msg.from_id, msg.to_id, msg.content.strip())
+    # Notify recipient
+    sender = get_profile(msg.from_id)
+    sender_name = sender["name"] if sender else "Someone"
+    from app.database import get_db
+    conn = get_db()
+    row = conn.execute("SELECT id FROM users WHERE profile_id=?", (msg.to_id,)).fetchone()
+    conn.close()
+    if row:
+        create_notification(
+            row["id"], "message",
+            f"New message from {sender_name}",
+            msg.content.strip()[:100],
+            f"/messages/{msg.from_id}"
+        )
+    # Real-time push via WebSocket
+    await ws_manager.send_to(msg.to_id, {
+        "type": "message",
+        "from": msg.from_id,
+        "from_name": sender_name,
+        "content": msg.content.strip(),
+        "id": msg_id,
+    })
+    return {"id": msg_id, "status": "sent"}
+
+
+@app.get("/api/messages/{profile_id}")
+def get_inbox(profile_id: str, user: dict = Depends(require_user)):
+    convos = get_conversations_for(profile_id)
+    for c in convos:
+        partner = get_profile(c["partner_id"])
+        c["partner_name"] = partner["name"] if partner else "Unknown"
+        c["your_turn"] = c.get("last_sender") != profile_id
+    return {"conversations": convos}
+
+
+@app.get("/api/messages/{id_a}/{id_b}")
+def get_msgs(id_a: str, id_b: str, limit: int = 50, before: str = "",
+             user: dict = Depends(require_user)):
+    if before:
+        messages = get_conversation_paginated(id_a, id_b, limit, before)
+    else:
+        messages = get_conversation_paginated(id_a, id_b, limit)
+    read_count = mark_messages_read_with_timestamp(id_a, id_b)
+    msg_count = get_conversation_count(id_a, id_b)
+    last_sender = get_last_message_sender(id_a, id_b)
+    return {
+        "messages": messages,
+        "message_count": msg_count,
+        "your_turn": last_sender != id_a if last_sender else False,
+        "suggest_date": msg_count >= 8,
+        "has_more": len(messages) == limit,
+        "read_count": read_count,
+    }
+
+
+@app.post("/api/messages/photo")
+async def send_photo_message(from_id: str, to_id: str,
+                              file: UploadFile = File(...),
+                              user: dict = Depends(require_user)):
+    if not from_id or not to_id:
+        raise HTTPException(status_code=400, detail="from_id and to_id required")
+    if is_blocked_either(from_id, to_id):
+        raise HTTPException(status_code=403, detail="Cannot message this user")
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        raise HTTPException(status_code=400, detail="Only image files allowed")
+    content = await file.read()
+    if not validate_file_magic(content, ext):
+        raise HTTPException(status_code=400, detail="File content doesn't match extension")
+    import uuid as _uuid
+    filename = f"msg_{_uuid.uuid4().hex[:8]}{ext}"
+    filepath = UPLOAD_DIR / filename
+    with open(filepath, "wb") as f:
+        f.write(content)
+    msg_id = send_message(from_id, to_id, "[Photo]", photo=filename)
+    # Notify
+    sender = get_profile(from_id)
+    sender_name = sender["name"] if sender else "Someone"
+    from app.database import get_db
+    conn = get_db()
+    row = conn.execute("SELECT id FROM users WHERE profile_id=?", (to_id,)).fetchone()
+    conn.close()
+    if row:
+        create_notification(
+            row["id"], "message",
+            f"Photo from {sender_name}", "Sent you a photo",
+            f"/messages/{from_id}"
+        )
+    return {"id": msg_id, "photo": filename}
+
+# ---------------------------------------------------------------------------
+# Date Plans
+# ---------------------------------------------------------------------------
+
+@app.post("/api/date-plans")
+def create_plan(plan: DatePlanCreate):
+    plan_id = create_date_plan(
+        plan.profile_a, plan.profile_b, plan.proposed_by,
+        plan.suggestion, plan.proposed_time
+    )
+    return {"id": plan_id, "status": "proposed"}
+
+
+@app.put("/api/date-plans/{plan_id}")
+def update_plan(plan_id: str, body: DatePlanUpdate):
+    if body.status not in ("accepted", "declined", "completed"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    if not update_date_plan(plan_id, body.status):
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"id": plan_id, "status": body.status}
+
+
+@app.get("/api/date-plans/{profile_id}")
+def get_plans(profile_id: str):
+    plans = get_date_plans(profile_id)
+    # Enrich with names
+    for p in plans:
+        pa = get_profile(p["profile_a"])
+        pb = get_profile(p["profile_b"])
+        p["name_a"] = pa["name"] if pa else "Unknown"
+        p["name_b"] = pb["name"] if pb else "Unknown"
+    return {"plans": plans}
+
+# ---------------------------------------------------------------------------
+# Behavioral Events
+# ---------------------------------------------------------------------------
+
+@app.post("/api/behavioral")
+def log_event(event: BehavioralEvent):
+    log_behavioral_event(
+        event.profile_id, event.event_type,
+        event.target_id, event.duration_ms
+    )
+    return {"status": "logged"}
+
+
+@app.get("/api/behavioral/{profile_id}")
+def get_behavior(profile_id: str):
+    return get_behavioral_profile(profile_id)
+
+# ---------------------------------------------------------------------------
+# Safety Reports
+# ---------------------------------------------------------------------------
+
+@app.post("/api/safety/report")
+def report_safety(report: SafetyReport):
+    report_id = create_safety_report(
+        report.reporter_id, report.reported_id,
+        report.report_type, report.notes
+    )
+    return {"id": report_id, "message": "Report submitted"}
+
+
+# ---------------------------------------------------------------------------
+# Profile Export (radar chart data)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/profile/{profile_id}/export")
+def export_profile(profile_id: str):
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {
+        "name": profile["name"],
+        "age": profile["age"],
+        "big_five": profile["big_five"],
+        "attachment": profile["attachment"],
+        "love_language": profile["love_language"],
+        "values": profile["values"],
+        "communication_style": profile.get("communication_style", {}),
+        "financial_values": profile.get("financial_values", {}),
+    }
+
+# ---------------------------------------------------------------------------
+# Profile Page
+# ---------------------------------------------------------------------------
+
+@app.get("/api/profile/{profile_id}/page")
+def get_profile_page(profile_id: str, viewer: str = ""):
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    increment_profile_views(profile_id)
+    friends = get_friends(profile_id)
+    comments = get_profile_comments(profile_id)
+    blog_posts = get_blog_posts(profile_id)
+    # Enrich comment authors
+    for c in comments:
+        author = get_profile(c["from_id"])
+        c["from_name"] = author["name"] if author else "Unknown"
+        c["from_photo"] = author.get("photo") if author else None
+    is_friend = are_friends(viewer, profile_id) if viewer else False
+    pending = False
+    if viewer and not is_friend:
+        reqs = get_friend_requests(profile_id)
+        pending = any(r["from_id"] == viewer for r in reqs)
+    return {
+        "id": profile["id"],
+        "name": profile["name"],
+        "age": profile["age"],
+        "gender": profile["gender"],
+        "photo": profile.get("photo"),
+        "verified": profile.get("verified", 0),
+        "location": profile.get("location"),
+        "headline": profile.get("headline"),
+        "about_me": profile.get("about_me"),
+        "who_id_like_to_meet": profile.get("who_id_like_to_meet"),
+        "interests": profile.get("interests"),
+        "heroes": profile.get("heroes"),
+        "mood": profile.get("mood"),
+        "music_embeds": profile.get("music_embeds", []),
+        "video_embeds": profile.get("video_embeds", []),
+        "profile_song": profile.get("profile_song"),
+        "profile_views": profile.get("profile_views", 0),
+        "love_language": profile.get("love_language"),
+        "big_five": profile.get("big_five", {}),
+        "attachment": profile.get("attachment"),
+        "dating_energy": profile.get("dating_energy"),
+        "relationship_intent": profile.get("relationship_intent"),
+        "profile_theme": profile.get("profile_theme"),
+        "created_at": profile["created_at"],
+        "friends": friends,
+        "friend_count": len(friends),
+        "is_friend": is_friend,
+        "friend_pending": pending,
+        "comments": comments,
+        "blog_posts": blog_posts,
+    }
+
+
+@app.put("/api/profile/{profile_id}/page")
+def update_profile_page(profile_id: str, body: ProfilePageUpdate):
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    import json as _json
+    for field in ("location", "headline", "about_me", "who_id_like_to_meet",
+                  "interests", "heroes", "mood", "profile_song", "profile_theme"):
+        val = getattr(body, field)
+        if val is not None:
+            update_profile_field(profile_id, field, val)
+    if body.music_embeds is not None:
+        update_profile_field(profile_id, "music_embeds", _json.dumps(body.music_embeds))
+    if body.video_embeds is not None:
+        update_profile_field(profile_id, "video_embeds", _json.dumps(body.video_embeds))
+    return {"message": "Profile page updated"}
+
+
+# Blog
+@app.post("/api/profile/{profile_id}/blog")
+def create_blog(profile_id: str, post: BlogPostCreate):
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if not post.title.strip() or not post.content.strip():
+        raise HTTPException(status_code=400, detail="Title and content required")
+    post_id = create_blog_post(profile_id, post.title.strip(), post.content.strip())
+    return {"id": post_id, "message": "Blog post created"}
+
+
+@app.get("/api/profile/{profile_id}/blog")
+def list_blog(profile_id: str):
+    return {"posts": get_blog_posts(profile_id)}
+
+
+@app.delete("/api/blog/{post_id}")
+def del_blog(post_id: str, profile_id: str = ""):
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="profile_id required")
+    if not delete_blog_post(post_id, profile_id):
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"message": "Deleted"}
+
+
+# Comments
+@app.post("/api/profile/{profile_id}/comments")
+def add_comment(profile_id: str, comment: ProfileCommentCreate):
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if not comment.content.strip():
+        raise HTTPException(status_code=400, detail="Content required")
+    cid = create_profile_comment(profile_id, comment.from_id, comment.content.strip())
+    return {"id": cid, "message": "Comment posted"}
+
+
+@app.get("/api/profile/{profile_id}/comments")
+def list_comments(profile_id: str):
+    comments = get_profile_comments(profile_id)
+    for c in comments:
+        author = get_profile(c["from_id"])
+        c["from_name"] = author["name"] if author else "Unknown"
+        c["from_photo"] = author.get("photo") if author else None
+    return {"comments": comments}
+
+
+@app.delete("/api/comment/{comment_id}")
+def del_comment(comment_id: str, profile_id: str = ""):
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="profile_id required")
+    if not delete_profile_comment(comment_id, profile_id):
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return {"message": "Deleted"}
+
+
+# Friends
+@app.post("/api/profile/{profile_id}/friend/{friend_id}")
+def add_friend(profile_id: str, friend_id: str):
+    if profile_id == friend_id:
+        raise HTTPException(status_code=400, detail="Cannot friend yourself")
+    if are_friends(profile_id, friend_id):
+        raise HTTPException(status_code=400, detail="Already friends")
+    req_id = send_friend_request(profile_id, friend_id)
+    # Notify
+    sender = get_profile(profile_id)
+    from app.database import get_db
+    conn = get_db()
+    row = conn.execute("SELECT id FROM users WHERE profile_id=?", (friend_id,)).fetchone()
+    conn.close()
+    if row and sender:
+        create_notification(
+            row["id"], "friend_request",
+            f"{sender['name']} sent you a friend request",
+            "", f"/profile/{profile_id}"
+        )
+    return {"id": req_id, "message": "Friend request sent"}
+
+
+@app.put("/api/profile/{profile_id}/friend/{friend_id}")
+def handle_friend_request(profile_id: str, friend_id: str, body: FriendAction):
+    respond_friend_request(profile_id, friend_id, body.accept)
+    return {"message": "Accepted" if body.accept else "Declined"}
+
+
+@app.delete("/api/profile/{profile_id}/friend/{friend_id}")
+def unfriend(profile_id: str, friend_id: str):
+    remove_friend(profile_id, friend_id)
+    return {"message": "Friend removed"}
+
+
+@app.get("/api/profile/{profile_id}/friends")
+def list_friends(profile_id: str):
+    return {"friends": get_friends(profile_id)}
+
+
+@app.get("/api/profile/{profile_id}/friend-requests")
+def list_friend_requests(profile_id: str):
+    return {"requests": get_friend_requests(profile_id)}
+
+
+# ---------------------------------------------------------------------------
+# Likes / Reactions
+# ---------------------------------------------------------------------------
+
+@app.post("/api/likes")
+def like_toggle(body: LikeToggle):
+    if body.target_type not in ("profile", "blog_post", "comment", "status"):
+        raise HTTPException(status_code=400, detail="Invalid target type")
+    liked = toggle_like(body.from_id, body.target_type, body.target_id, body.reaction)
+    count = get_like_count(body.target_type, body.target_id)
+    # Notify on like (not unlike)
+    if liked and body.target_type == "profile":
+        from app.database import get_db
+        sender = get_profile(body.from_id)
+        conn = get_db()
+        row = conn.execute("SELECT id FROM users WHERE profile_id=?", (body.target_id,)).fetchone()
+        conn.close()
+        if row and sender:
+            create_notification(row["id"], "like", f"{sender['name']} liked your profile", "", f"/profile/{body.from_id}")
+    return {"liked": liked, "count": count}
+
+
+@app.get("/api/likes/{target_type}/{target_id}")
+def get_target_likes(target_type: str, target_id: str, viewer: str = ""):
+    likes = get_likes(target_type, target_id)
+    viewer_liked = has_liked(viewer, target_type, target_id) if viewer else False
+    return {"likes": likes, "count": len(likes), "viewer_liked": viewer_liked}
+
+# ---------------------------------------------------------------------------
+# Status Updates
+# ---------------------------------------------------------------------------
+
+@app.post("/api/status")
+def post_status(body: StatusCreate):
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Status cannot be empty")
+    sid = create_status_update(body.profile_id, body.content.strip(), body.mood)
+    return {"id": sid, "message": "Status posted"}
+
+
+@app.get("/api/status/{profile_id}")
+def list_statuses(profile_id: str):
+    return {"statuses": get_status_updates(profile_id)}
+
+
+@app.delete("/api/status/{status_id}")
+def remove_status(status_id: str, profile_id: str = ""):
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="profile_id required")
+    if not delete_status_update(status_id, profile_id):
+        raise HTTPException(status_code=404, detail="Status not found")
+    return {"message": "Deleted"}
+
+
+@app.get("/api/feed/status")
+def status_feed(profile_id: str):
+    return {"feed": get_friend_status_feed(profile_id)}
+
+# ---------------------------------------------------------------------------
+# Online Status / Heartbeat
+# ---------------------------------------------------------------------------
+
+@app.post("/api/heartbeat/{profile_id}")
+def heartbeat(profile_id: str):
+    update_last_seen(profile_id)
+    return {"status": "ok"}
+
+
+@app.get("/api/online/{profile_id}")
+def online_friends(profile_id: str):
+    return {"online": get_online_friends(profile_id)}
+
+# ---------------------------------------------------------------------------
+# Photo Gallery
+# ---------------------------------------------------------------------------
+
+@app.post("/api/profile/{profile_id}/photos")
+async def upload_gallery_photo(profile_id: str, file: UploadFile = File(...),
+                                caption: str = "", is_primary: bool = False,
+                                user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only upload your own photos")
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, WEBP allowed")
+    content = await file.read()
+    if not validate_file_magic(content, ext):
+        raise HTTPException(status_code=400, detail="File content doesn't match extension")
+    import uuid as _uuid
+    filename = f"{profile_id}_{_uuid.uuid4().hex[:6]}{ext}"
+    filepath = UPLOAD_DIR / filename
+    with open(filepath, "wb") as f:
+        f.write(content)
+    _generate_thumbnail(filepath, f"{profile_id}_{_uuid.uuid4().hex[:4]}")
+    photo_id = add_photo(profile_id, filename, caption, is_primary)
+    if is_primary:
+        update_profile_field(profile_id, "photo", filename)
+    return {"id": photo_id, "filename": filename}
+
+
+@app.get("/api/profile/{profile_id}/photos")
+def list_photos(profile_id: str):
+    return {"photos": get_photos(profile_id)}
+
+
+@app.delete("/api/photo/{photo_id}")
+def remove_photo(photo_id: str, profile_id: str = ""):
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="profile_id required")
+    if not delete_photo(photo_id, profile_id):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return {"message": "Photo deleted"}
+
+
+@app.put("/api/photo/{photo_id}/primary")
+def make_primary(photo_id: str, profile_id: str = ""):
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="profile_id required")
+    if not set_primary_photo(photo_id, profile_id):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return {"message": "Primary photo updated"}
+
+
+# ---------------------------------------------------------------------------
+# Search / Discover
+# ---------------------------------------------------------------------------
+
+@app.get("/api/search")
+def search(query: str = "", gender: str = "", seeking: str = "",
+           age_min: int = 0, age_max: int = 999, location: str = ""):
+    results = search_profiles(query, gender, seeking, age_min, age_max, location)
+    return {"results": [
+        {
+            "id": p["id"], "name": p["name"], "age": p["age"],
+            "gender": p["gender"], "seeking": p["seeking"],
+            "photo": p.get("photo"), "headline": p.get("headline"),
+            "location": p.get("location"),
+            "dating_energy": p.get("dating_energy"),
+            "relationship_intent": p.get("relationship_intent"),
+        }
+        for p in results
+    ]}
+
+
+# ---------------------------------------------------------------------------
+# Activity Feed / Explore
+# ---------------------------------------------------------------------------
+
+@app.get("/api/activity/{profile_id}")
+def activity_feed(profile_id: str):
+    return {"activity": get_activity_feed(profile_id)}
+
+
+@app.get("/api/explore")
+def explore():
+    return {
+        "featured": [
+            {"id": p["id"], "name": p["name"], "age": p["age"],
+             "photo": p.get("photo"), "headline": p.get("headline"),
+             "location": p.get("location"), "profile_views": p.get("profile_views", 0),
+             "dating_energy": p.get("dating_energy"),
+             "relationship_intent": p.get("relationship_intent")}
+            for p in get_explore_profiles(12)
+        ],
+        "recent": [
+            {"id": p["id"], "name": p["name"], "age": p["age"],
+             "photo": p.get("photo"), "headline": p.get("headline"),
+             "created_at": p["created_at"]}
+            for p in get_recent_profiles(10)
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Groups / Communities
+# ---------------------------------------------------------------------------
+
+class GroupCreate(BaseModel):
+    name: str
+    description: str = ""
+    privacy: str = "public"
+
+class GroupPostCreate(BaseModel):
+    content: str
+
+
+@app.post("/api/groups")
+def create_group_endpoint(body: GroupCreate, user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        raise HTTPException(status_code=400, detail="Profile required to create groups")
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="Group name required")
+    gid = create_group(body.name.strip(), body.description.strip(), user["profile_id"], body.privacy)
+    log_activity(user["profile_id"], "created_group", "group", gid, body.name.strip())
+    return {"id": gid, "message": "Group created"}
+
+
+@app.get("/api/groups")
+def list_groups():
+    return {"groups": get_all_groups()}
+
+
+@app.get("/api/groups/mine")
+def my_groups(user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        return {"groups": []}
+    return {"groups": get_my_groups(user["profile_id"])}
+
+
+@app.get("/api/groups/{group_id}")
+def read_group(group_id: str, viewer: str = ""):
+    group = get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    members = get_group_members(group_id)
+    posts = get_group_posts(group_id)
+    is_member = is_group_member(group_id, viewer) if viewer else False
+    return {**group, "members": members, "member_count": len(members),
+            "posts": posts, "is_member": is_member}
+
+
+@app.post("/api/groups/{group_id}/join")
+def join_group_endpoint(group_id: str, user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        raise HTTPException(status_code=400, detail="Profile required")
+    join_group(group_id, user["profile_id"])
+    log_activity(user["profile_id"], "joined_group", "group", group_id)
+    return {"message": "Joined group"}
+
+
+@app.post("/api/groups/{group_id}/leave")
+def leave_group_endpoint(group_id: str, user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        raise HTTPException(status_code=400, detail="Profile required")
+    leave_group(group_id, user["profile_id"])
+    return {"message": "Left group"}
+
+
+@app.post("/api/groups/{group_id}/posts")
+def post_to_group(group_id: str, body: GroupPostCreate, user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        raise HTTPException(status_code=400, detail="Profile required")
+    if not is_group_member(group_id, user["profile_id"]):
+        raise HTTPException(status_code=403, detail="Must be a member to post")
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Content required")
+    pid = create_group_post(group_id, user["profile_id"], body.content.strip())
+    return {"id": pid, "message": "Post created"}
+
+
+@app.delete("/api/groups/{group_id}/posts/{post_id}")
+def delete_group_post_endpoint(group_id: str, post_id: str,
+                                user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        raise HTTPException(status_code=400, detail="Profile required")
+    if not delete_group_post(post_id, user["profile_id"]):
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"message": "Post deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Events
+# ---------------------------------------------------------------------------
+
+class EventCreate(BaseModel):
+    title: str
+    description: str = ""
+    location: str = ""
+    event_date: str = ""
+    event_time: str = ""
+    group_id: str = ""
+    max_attendees: int = 0
+
+class EventRSVP(BaseModel):
+    status: str = "going"
+
+
+@app.post("/api/events")
+def create_event_endpoint(body: EventCreate, user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        raise HTTPException(status_code=400, detail="Profile required")
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="Event title required")
+    eid = create_event(
+        body.title.strip(), body.description.strip(), user["profile_id"],
+        body.location.strip(), body.event_date, body.event_time,
+        body.group_id, body.max_attendees
+    )
+    log_activity(user["profile_id"], "created_event", "event", eid, body.title.strip())
+    return {"id": eid, "message": "Event created"}
+
+
+@app.get("/api/events")
+def list_events():
+    return {"events": get_all_events()}
+
+
+@app.get("/api/events/mine")
+def my_events(user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        return {"events": []}
+    return {"events": get_my_events(user["profile_id"])}
+
+
+@app.get("/api/events/{event_id}")
+def read_event(event_id: str):
+    event = get_event(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    rsvps = get_event_rsvps(event_id)
+    return {**event, "rsvps": rsvps, "attendee_count": len([r for r in rsvps if r["status"] == "going"])}
+
+
+@app.post("/api/events/{event_id}/rsvp")
+def rsvp_event_endpoint(event_id: str, body: EventRSVP,
+                         user: dict = Depends(require_user)):
+    if not user.get("profile_id"):
+        raise HTTPException(status_code=400, detail="Profile required")
+    if body.status not in ("going", "interested", "not_going"):
+        raise HTTPException(status_code=400, detail="Invalid RSVP status")
+    rsvp_event(event_id, user["profile_id"], body.status)
+    return {"message": f"RSVP: {body.status}"}
+
+
+# ---------------------------------------------------------------------------
+# Compatibility Games
+# ---------------------------------------------------------------------------
+
+class GameAnswer(BaseModel):
+    answer: str
+
+
+@app.get("/api/games/{profile_a}/{profile_b}")
+def get_game(profile_a: str, profile_b: str):
+    game = get_or_create_game(profile_a, profile_b)
+    if not game:
+        score = get_game_score(profile_a, profile_b)
+        return {"complete": True, "score": score, "game": None}
+    # Don't reveal the other person's answer
+    result = {**game}
+    if result.get("answer_a") and result.get("answer_b"):
+        pass  # Both answered, show both
+    elif profile_a == game["profile_a"]:
+        result.pop("answer_b", None)
+    else:
+        result.pop("answer_a", None)
+    return {"complete": False, "game": result, "score": get_game_score(profile_a, profile_b)}
+
+
+@app.post("/api/games/{game_id}/answer/{profile_id}")
+def submit_game_answer(game_id: str, profile_id: str, body: GameAnswer):
+    result = answer_game(game_id, profile_id, body.answer)
+    if not result:
+        raise HTTPException(status_code=404, detail="Game not found or not a participant")
+    return {"game": result, "message": "Answer submitted"}
+
+
+@app.get("/api/games/{profile_a}/{profile_b}/history")
+def game_history(profile_a: str, profile_b: str):
+    history = get_game_history(profile_a, profile_b)
+    score = get_game_score(profile_a, profile_b)
+    return {"history": history, "score": score}
+
+
+# ---------------------------------------------------------------------------
+# Selfie Verification
+# ---------------------------------------------------------------------------
+
+@app.post("/api/verify/selfie/{profile_id}")
+async def upload_selfie(profile_id: str, file: UploadFile = File(...),
+                        user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only verify your own profile")
+    profile = get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        raise HTTPException(status_code=400, detail="Invalid image format")
+    content = await file.read()
+    if not validate_file_magic(content, ext):
+        raise HTTPException(status_code=400, detail="File content doesn't match extension")
+    filename = f"verify_{profile_id}_{uuid.uuid4().hex[:6]}{ext}"
+    filepath = UPLOAD_DIR / filename
+    with open(filepath, "wb") as f:
+        f.write(content)
+    vid = submit_selfie_verification(profile_id, filename)
+    return {"id": vid, "status": "pending", "message": "Selfie submitted for verification"}
+
+
+@app.get("/api/verify/status/{profile_id}")
+def verification_status(profile_id: str):
+    status = get_verification_status(profile_id)
+    if not status:
+        return {"status": "none"}
+    return {"status": status["status"], "submitted_at": status["created_at"]}
+
+
+# ---------------------------------------------------------------------------
+# Video Intros
+# ---------------------------------------------------------------------------
+
+@app.post("/api/video-intro/{profile_id}")
+async def upload_video_intro(profile_id: str, file: UploadFile = File(...),
+                              user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only upload your own video intro")
+    profile = get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    ext = Path(file.filename).suffix.lower() if file.filename else ".mp4"
+    if ext not in (".mp4", ".webm", ".mov"):
+        raise HTTPException(status_code=400, detail="Supported formats: mp4, webm, mov")
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"Video too large (max {MAX_UPLOAD_MB}MB)")
+    if not validate_file_magic(content, ext):
+        raise HTTPException(status_code=400, detail="File content doesn't match extension")
+    filename = f"intro_{profile_id}_{uuid.uuid4().hex[:6]}{ext}"
+    filepath = UPLOAD_DIR / filename
+    with open(filepath, "wb") as f:
+        f.write(content)
+    vid = save_video_intro(profile_id, filename)
+    return {"id": vid, "filename": filename}
+
+
+@app.get("/api/video-intro/{profile_id}")
+def get_intro(profile_id: str):
+    intro = get_video_intro(profile_id)
+    if not intro:
+        return {"intro": None}
+    return {"intro": intro}
+
+
+@app.delete("/api/video-intro/{profile_id}")
+def remove_intro(profile_id: str):
+    if not delete_video_intro(profile_id):
+        raise HTTPException(status_code=404, detail="No video intro found")
+    return {"message": "Video intro deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Music Preferences
+# ---------------------------------------------------------------------------
+
+class MusicPrefCreate(BaseModel):
+    song_title: str
+    artist: str
+    genre: str = ""
+    spotify_url: str = ""
+
+
+@app.post("/api/music/{profile_id}")
+def add_music(profile_id: str, body: MusicPrefCreate):
+    mid = add_music_pref(profile_id, body.song_title, body.artist, body.genre, body.spotify_url)
+    return {"id": mid, "message": "Music added"}
+
+
+@app.get("/api/music/{profile_id}")
+def list_music(profile_id: str):
+    return {"music": get_music_prefs(profile_id)}
+
+
+@app.delete("/api/music/{pref_id}/{profile_id}")
+def remove_music(pref_id: str, profile_id: str):
+    if not delete_music_pref(pref_id, profile_id):
+        raise HTTPException(status_code=404, detail="Music preference not found")
+    return {"message": "Removed"}
+
+
+@app.get("/api/music-compat/{profile_a}/{profile_b}")
+def music_compatibility(profile_a: str, profile_b: str):
+    return compute_music_compatibility(profile_a, profile_b)
+
+
+# ---------------------------------------------------------------------------
+# Blocking
+# ---------------------------------------------------------------------------
+
+@app.post("/api/block/{profile_id}/{blocked_id}")
+def block_user(profile_id: str, blocked_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only block from your own profile")
+    if profile_id == blocked_id:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    block_profile(profile_id, blocked_id)
+    return {"message": "User blocked"}
+
+
+@app.delete("/api/block/{profile_id}/{blocked_id}")
+def unblock_user(profile_id: str, blocked_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only unblock from your own profile")
+    unblock_profile(profile_id, blocked_id)
+    return {"message": "User unblocked"}
+
+
+@app.get("/api/blocks/{profile_id}")
+def list_blocks(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only view your own blocks")
+    return {"blocks": get_blocked_profiles(profile_id)}
+
+
+# ---------------------------------------------------------------------------
+# Profile Deactivation
+# ---------------------------------------------------------------------------
+
+@app.post("/api/profile/{profile_id}/deactivate")
+def deactivate(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only deactivate your own profile")
+    deactivate_profile(profile_id)
+    return {"message": "Profile deactivated"}
+
+
+@app.post("/api/profile/{profile_id}/reactivate")
+def reactivate(profile_id: str, user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only reactivate your own profile")
+    reactivate_profile(profile_id)
+    return {"message": "Profile reactivated"}
+
+
+# ---------------------------------------------------------------------------
+# Group Moderation
+# ---------------------------------------------------------------------------
+
+@app.post("/api/groups/{group_id}/moderators/{target_id}")
+def add_mod(group_id: str, target_id: str, user: dict = Depends(require_user)):
+    group = get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if group["creator_id"] != user.get("profile_id"):
+        raise HTTPException(status_code=403, detail="Only group creator can add moderators")
+    add_group_moderator(group_id, target_id)
+    return {"message": "Moderator added"}
+
+
+@app.delete("/api/groups/{group_id}/moderators/{target_id}")
+def remove_mod(group_id: str, target_id: str, user: dict = Depends(require_user)):
+    group = get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if group["creator_id"] != user.get("profile_id"):
+        raise HTTPException(status_code=403, detail="Only group creator can remove moderators")
+    remove_group_moderator(group_id, target_id)
+    return {"message": "Moderator removed"}
+
+
+@app.delete("/api/groups/{group_id}/members/{target_id}")
+def kick_member(group_id: str, target_id: str, user: dict = Depends(require_user)):
+    if not is_group_moderator(group_id, user.get("profile_id")):
+        raise HTTPException(status_code=403, detail="Must be group creator or moderator")
+    leave_group(group_id, target_id)
+    return {"message": "Member removed from group"}
+
+
+# ---------------------------------------------------------------------------
+# WebSocket Real-time
+# ---------------------------------------------------------------------------
+
+@app.websocket("/ws/{profile_id}")
+async def websocket_endpoint(websocket: WebSocket, profile_id: str):
+    await ws_manager.connect(profile_id, websocket)
+    update_last_seen(profile_id)
+    try:
+        while True:
+            import json as _json
+            data = await websocket.receive_text()
+            msg = _json.loads(data)
+            msg_type = msg.get("type", "")
+
+            if msg_type == "message":
+                to_id = msg.get("to")
+                content = msg.get("content", "").strip()
+                if to_id and content:
+                    msg_id = send_message(profile_id, to_id, content)
+                    # Send to recipient in real-time
+                    sender = get_profile(profile_id)
+                    await ws_manager.send_to(to_id, {
+                        "type": "message",
+                        "from": profile_id,
+                        "from_name": sender["name"] if sender else "Unknown",
+                        "content": content,
+                        "id": msg_id,
+                    })
+                    # Also send back to sender for confirmation
+                    await ws_manager.send_to(profile_id, {
+                        "type": "message_sent",
+                        "to": to_id,
+                        "content": content,
+                        "id": msg_id,
+                    })
+
+            elif msg_type == "typing":
+                to_id = msg.get("to")
+                if to_id:
+                    await ws_manager.send_to(to_id, {
+                        "type": "typing",
+                        "from": profile_id,
+                    })
+
+            elif msg_type == "heartbeat":
+                update_last_seen(profile_id)
+
+    except WebSocketDisconnect:
+        ws_manager.disconnect(profile_id, websocket)
+
+
+@app.get("/api/ws-online")
+def ws_online_users():
+    return {"online": list(ws_manager.active.keys())}
+
+
+# ---------------------------------------------------------------------------
+# Static Files
+# ---------------------------------------------------------------------------
+
+UPLOAD_DIR.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+@app.get("/")
+def serve_frontend():
+    return FileResponse(str(STATIC_DIR / "index.html"))

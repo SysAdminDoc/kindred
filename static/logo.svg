@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#cba6f7"/>
+      <stop offset="50%" style="stop-color:#f5c2e7"/>
+      <stop offset="100%" style="stop-color:#f2cdcd"/>
+    </linearGradient>
+    <linearGradient id="heart" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e1e2e"/>
+      <stop offset="100%" style="stop-color:#313244"/>
+    </linearGradient>
+    <linearGradient id="pulse" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#a6e3a1"/>
+      <stop offset="50%" style="stop-color:#89b4fa"/>
+      <stop offset="100%" style="stop-color:#cba6f7"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="108" ry="108" fill="url(#bg)"/>
+  <!-- Heart shape -->
+  <path d="M256 420 C256 420 108 310 108 210 C108 160 148 120 198 120 C228 120 248 140 256 155 C264 140 284 120 314 120 C364 120 404 160 404 210 C404 310 256 420 256 420Z" fill="url(#heart)" opacity="0.9"/>
+  <!-- AI pulse/waveform inside heart -->
+  <path d="M168 255 L208 255 L223 210 L243 300 L263 195 L283 305 L303 220 L318 255 L348 255" stroke="url(#pulse)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Two small dots representing connection -->
+  <circle cx="195" cy="185" r="12" fill="#a6e3a1" opacity="0.8"/>
+  <circle cx="317" cy="185" r="12" fill="#89b4fa" opacity="0.8"/>
+  <!-- Subtle connection arc between dots -->
+  <path d="M207 185 Q256 155 305 185" stroke="#f5c2e7" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.6"/>
+</svg>

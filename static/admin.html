@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kindred Admin</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<style>
+:root {
+    --base: #1e1e2e; --mantle: #181825; --crust: #11111b;
+    --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+    --overlay0: #6c7086; --overlay1: #7f849c;
+    --text: #cdd6f4; --subtext0: #a6adc8; --subtext1: #bac2de;
+    --lavender: #b4befe; --blue: #89b4fa; --sapphire: #74c7ec;
+    --green: #a6e3a1; --peach: #fab387; --red: #f38ba8;
+    --mauve: #cba6f7; --pink: #f5c2e7; --yellow: #f9e2af;
+    --rosewater: #f5e0dc; --flamingo: #f2cdcd; --teal: #94e2d5;
+    --radius: 12px; --shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--crust); color:var(--text); min-height:100vh; }
+::-webkit-scrollbar { width:8px; }
+::-webkit-scrollbar-track { background:var(--mantle); }
+::-webkit-scrollbar-thumb { background:var(--surface2); border-radius:4px; }
+
+.header { background:var(--mantle); border-bottom:1px solid var(--surface0); padding:12px 24px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+.header h1 { font-size:22px; font-weight:700; background:linear-gradient(135deg,var(--red),var(--peach),var(--yellow)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.header .ver { color:var(--overlay0); font-size:11px; margin-left:8px; }
+.header .admin-badge { background:var(--red); color:var(--crust); font-size:10px; font-weight:700; padding:3px 8px; border-radius:4px; margin-left:10px; text-transform:uppercase; letter-spacing:.5px; }
+.nav-tabs { display:flex; gap:4px; flex-wrap:wrap; }
+.nav-tab { background:var(--surface0); border:1px solid var(--surface1); color:var(--subtext0); padding:7px 14px; border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all .2s; }
+.nav-tab:hover { background:var(--surface1); color:var(--text); }
+.nav-tab.active { background:var(--red); color:var(--crust); border-color:var(--red); font-weight:600; }
+
+.container { max-width:960px; margin:0 auto; padding:24px 16px; }
+.card { background:var(--base); border:1px solid var(--surface0); border-radius:var(--radius); padding:28px; margin-bottom:20px; box-shadow:var(--shadow); animation:fadeUp .4s ease forwards; opacity:0; transform:translateY(16px); }
+@keyframes fadeUp { to { opacity:1; transform:translateY(0); } }
+.card h2 { font-size:18px; margin-bottom:6px; color:var(--lavender); }
+.card .subtitle { color:var(--overlay0); font-size:13px; margin-bottom:20px; }
+
+.form-group { margin-bottom:16px; }
+.form-group label { display:block; font-size:13px; font-weight:500; color:var(--subtext1); margin-bottom:6px; }
+input[type="text"],input[type="number"],select { width:100%; padding:10px 14px; background:var(--mantle); border:1px solid var(--surface1); border-radius:8px; color:var(--text); font-size:14px; outline:none; transition:border-color .2s; }
+input:focus,select:focus,textarea:focus { border-color:var(--red); }
+select option { background:var(--mantle); color:var(--text); }
+textarea { width:100%; min-height:80px; padding:14px; background:var(--mantle); border:1px solid var(--surface1); border-radius:8px; color:var(--text); font-size:14px; font-family:inherit; resize:vertical; outline:none; line-height:1.5; }
+
+.btn { padding:10px 28px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; border:none; transition:all .2s; }
+.btn:active { transform:scale(.97); }
+.btn-primary { background:linear-gradient(135deg,var(--red),var(--peach)); color:var(--crust); }
+.btn-primary:hover { filter:brightness(1.1); }
+.btn-secondary { background:var(--surface0); color:var(--subtext1); border:1px solid var(--surface1); }
+.btn-secondary:hover { background:var(--surface1); }
+.btn-danger { background:rgba(243,139,168,.15); color:var(--red); border:1px solid var(--red); }
+.btn-danger:hover { background:rgba(243,139,168,.25); }
+.btn-sm { padding:5px 12px; font-size:12px; border-radius:6px; cursor:pointer; border:none; font-weight:500; transition:all .2s; }
+.btn-delete { background:var(--surface0); color:var(--red); }
+.btn-delete:hover { background:rgba(243,139,168,.15); }
+.btn-view { background:var(--surface0); color:var(--lavender); }
+.btn-view:hover { background:var(--surface1); }
+.btn-row { display:flex; gap:8px; margin-top:16px; }
+
+/* Stats */
+.stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.stat-card { background:var(--mantle); border-radius:8px; padding:16px; text-align:center; }
+.stat-card .num { font-size:28px; font-weight:700; color:var(--lavender); }
+.stat-card .label { font-size:12px; color:var(--overlay0); margin-top:4px; }
+
+/* Profile list */
+.profile-item { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--base); border:1px solid var(--surface0); border-radius:8px; margin-bottom:6px; transition:all .2s; }
+.profile-item:hover { border-color:var(--surface2); }
+.profile-item .actions { display:flex; gap:6px; }
+.photo-thumb { width:36px; height:36px; border-radius:50%; object-fit:cover; border:2px solid var(--surface1); }
+
+/* Safety reports */
+.report-item { background:var(--mantle); border:1px solid var(--surface0); border-radius:8px; padding:14px; margin-bottom:8px; }
+.report-item .report-type { font-size:11px; font-weight:600; text-transform:uppercase; padding:2px 8px; border-radius:4px; }
+.rt-harassment { background:rgba(243,139,168,.15); color:var(--red); }
+.rt-fake_profile { background:rgba(249,226,175,.15); color:var(--yellow); }
+.rt-inappropriate { background:rgba(250,179,135,.15); color:var(--peach); }
+.rt-other { background:var(--surface0); color:var(--overlay0); }
+
+/* Choice cards (for feedback form) */
+.choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.choice-card { padding:14px 16px; background:var(--surface0); border:2px solid transparent; border-radius:10px; cursor:pointer; font-size:14px; color:var(--subtext0); text-align:center; transition:all .2s; }
+.choice-card:hover { background:var(--surface1); color:var(--text); }
+.choice-card.selected { background:rgba(243,139,168,.12); border-color:var(--red); color:var(--red); font-weight:500; }
+
+/* Badges */
+.badge-verified { display:inline-block; background:var(--green); color:var(--crust); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; margin-left:6px; }
+.badge-energy { display:inline-block; background:var(--surface0); color:var(--subtext0); font-size:10px; padding:2px 6px; border-radius:4px; margin-left:4px; }
+.badge-intent { display:inline-block; background:rgba(203,166,247,.15); color:var(--mauve); font-size:10px; padding:2px 6px; border-radius:4px; margin-left:4px; }
+
+.section-head { font-size:14px; color:var(--subtext1); margin:20px 0 10px; font-weight:500; }
+.loading { text-align:center; padding:40px; color:var(--overlay0); }
+.spinner { width:28px; height:28px; border:3px solid var(--surface1); border-top-color:var(--red); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.empty { text-align:center; padding:48px 24px; color:var(--overlay0); }
+.empty h3 { color:var(--subtext0); margin-bottom:6px; }
+
+.toast { position:fixed; bottom:20px; right:20px; padding:12px 20px; background:var(--surface0); border:1px solid var(--surface1); border-radius:8px; color:var(--text); font-size:13px; box-shadow:var(--shadow); transform:translateY(80px); opacity:0; transition:all .3s; z-index:1000; }
+.toast.show { transform:translateY(0); opacity:1; }
+.toast.success { border-color:var(--green); }
+.toast.error { border-color:var(--red); }
+
+/* Profile detail modal */
+.detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+.detail-item { background:var(--mantle); border-radius:8px; padding:12px; }
+.detail-item .dk { font-size:11px; color:var(--overlay0); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
+.detail-item .dv { font-size:14px; color:var(--text); font-weight:500; }
+
+@media(max-width:600px) {
+    .container{padding:12px;}
+    .card{padding:16px;}
+    .stat-grid{grid-template-columns:1fr;}
+    .detail-grid{grid-template-columns:1fr;}
+    .header{flex-wrap:wrap;gap:8px;padding:10px 12px;}
+    .nav-tabs{width:100%;justify-content:center;}
+}
+</style>
+</head>
+<body>
+<div class="header">
+    <div style="display:flex;align-items:baseline"><h1>Kindred</h1><span class="ver">v1.2.0</span><span class="admin-badge">Admin</span></div>
+    <div class="nav-tabs" id="nav"></div>
+</div>
+<div class="container" id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API='';
+let adminToken=null;
+
+const TABS=[
+    {id:'dashboard',label:'Dashboard'},
+    {id:'profiles',label:'Profiles'},
+    {id:'groups',label:'Groups'},
+    {id:'events',label:'Events'},
+    {id:'verify',label:'Verifications'},
+    {id:'safety',label:'Safety Reports'},
+    {id:'invites',label:'Invites'},
+    {id:'feedback',label:'Feedback'},
+];
+
+function adminHeaders(){
+    const h={'Content-Type':'application/json'};
+    if(adminToken) h['Authorization']='Bearer '+adminToken;
+    return h;
+}
+async function adminFetch(url,opts={}){
+    if(!opts.headers) opts.headers=adminHeaders();
+    else if(adminToken) opts.headers={...opts.headers,'Authorization':'Bearer '+adminToken};
+    const r=await fetch(url,opts);
+    if(r.status===401||r.status===403){adminToken=null;localStorage.removeItem('kindred_admin_token');showLoginScreen();throw new Error('Auth required');}
+    return r;
+}
+
+function renderNav(){
+    let navHtml=TABS.map(t=>`<button class="nav-tab" data-v="${t.id}" onclick="showView('${t.id}')">${t.label}</button>`).join('');
+    navHtml+=`<button class="nav-tab" onclick="adminLogout()" style="color:var(--red)">Log Out</button>`;
+    document.getElementById('nav').innerHTML=navHtml;
+}
+
+function showView(v){
+    if(!adminToken){showLoginScreen();return;}
+    document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.v===v));
+    if(v==='dashboard')renderDashboard();
+    else if(v==='profiles')renderProfiles();
+    else if(v==='groups')renderGroups();
+    else if(v==='events')renderEvents();
+    else if(v==='verify')renderVerifications();
+    else if(v==='safety')renderSafety();
+    else if(v==='invites')renderInvites();
+    else if(v==='feedback')renderFeedback();
+}
+
+function showLoginScreen(){
+    document.getElementById('nav').innerHTML='';
+    document.getElementById('app').innerHTML=`<div class="card" style="max-width:400px;margin:60px auto;text-align:center">
+        <h2 style="background:linear-gradient(135deg,var(--red),var(--peach));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-size:24px">Admin Login</h2>
+        <p class="subtitle">Kindred Administration Portal</p>
+        <div style="text-align:left">
+            <div class="form-group"><label>Email</label><input type="text" id="admin-email" placeholder="admin@kindred.local" value="admin@kindred.local" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+            <div class="form-group"><label>Password</label><input type="text" id="admin-pass" placeholder="Password" style="-webkit-text-security:disc" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+            <button class="btn btn-primary" onclick="doAdminLogin()" style="width:100%;margin-top:8px">Sign In</button>
+            <div id="admin-error" style="color:var(--red);font-size:13px;margin-top:10px;text-align:center"></div>
+        </div>
+    </div>`;
+    setTimeout(()=>{const el=document.getElementById('admin-pass');if(el)el.focus();},50);
+}
+
+async function doAdminLogin(){
+    const email=document.getElementById('admin-email')?.value?.trim();
+    const pass=document.getElementById('admin-pass')?.value;
+    const errEl=document.getElementById('admin-error');
+    if(!email||!pass){errEl.textContent='Email and password required';return;}
+    try{
+        const r=await fetch(API+'/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass})});
+        const d=await r.json();
+        if(!r.ok){errEl.textContent=d.detail||'Login failed';return;}
+        adminToken=d.token;
+        localStorage.setItem('kindred_admin_token',adminToken);
+        toast('Welcome, '+d.display_name,'success');
+        renderNav();
+        showView('dashboard');
+    }catch(e){errEl.textContent='Connection error';}
+}
+
+function adminLogout(){
+    adminToken=null;
+    localStorage.removeItem('kindred_admin_token');
+    showLoginScreen();
+}
+
+// ─── Dashboard ───
+async function renderDashboard(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading stats...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/stats');const s=await r.json();
+        let html=`<div class="card"><h2>Platform Overview</h2><p class="subtitle">Real-time platform statistics</p>
+        <div class="stat-grid">
+            <div class="stat-card"><div class="num">${s.profiles}</div><div class="label">Profiles</div></div>
+            <div class="stat-card"><div class="num">${s.messages}</div><div class="label">Messages</div></div>
+            <div class="stat-card"><div class="num">${s.dates_reported||0}</div><div class="label">Dates Reported</div></div>
+            <div class="stat-card"><div class="num">${s.feedback||0}</div><div class="label">Feedback</div></div>
+            <div class="stat-card"><div class="num">${s.avg_rating||'--'}</div><div class="label">Avg Rating</div></div>
+            <div class="stat-card"><div class="num">${s.date_plans||0}</div><div class="label">Date Plans</div></div>
+            <div class="stat-card"><div class="num">${s.dates_completed||0}</div><div class="label">Dates Done</div></div>
+            <div class="stat-card"><div class="num">${s.safety_reports||0}</div><div class="label">Safety Reports</div></div>
+            <div class="stat-card"><div class="num">${s.groups||0}</div><div class="label">Groups</div></div>
+            <div class="stat-card"><div class="num">${s.events||0}</div><div class="label">Events</div></div>
+            <div class="stat-card"><div class="num" style="color:var(--green);font-size:16px">Puter.js</div><div class="label">AI Narratives</div></div>
+        </div>`;
+
+        if(Object.keys(s.gender_distribution||{}).length){
+            html+=`<div class="section-head">Gender Distribution</div><div style="display:flex;gap:12px;flex-wrap:wrap">${Object.entries(s.gender_distribution).map(([g,c])=>`<div class="stat-card" style="flex:1;min-width:100px"><div class="num">${c}</div><div class="label">${g}</div></div>`).join('')}</div>`;
+        }
+        if(Object.keys(s.age_distribution||{}).length){
+            html+=`<div class="section-head">Age Distribution</div><div style="display:flex;gap:12px;flex-wrap:wrap">${Object.entries(s.age_distribution).map(([a,c])=>`<div class="stat-card" style="flex:1;min-width:80px"><div class="num">${c}</div><div class="label">${a}</div></div>`).join('')}</div>`;
+        }
+
+        html+=`<div class="section-head">Quick Actions</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="showView('profiles')">Manage Profiles</button>
+            <button class="btn btn-secondary" onclick="showView('safety')">View Safety Reports</button>
+            <button class="btn btn-secondary" onclick="showView('invites')">Manage Invites</button>
+            <button class="btn btn-secondary" onclick="showView('feedback')">Submit Feedback</button>
+        </div>`;
+
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading dashboard</h3><p>Make sure the admin server is running on port 8001</p></div>';}
+}
+
+// ─── Profiles ───
+async function renderProfiles(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading profiles...</div>';
+    try{
+        const r=await adminFetch(API+'/api/profiles');const ps=await r.json();
+        if(!ps.length){app.innerHTML='<div class="empty"><h3>No profiles yet</h3><p>Users need to register on the user portal (port 8000).</p></div>';return;}
+        let html=`<div class="card"><h2>All Profiles</h2><p class="subtitle">${ps.length} registered profile${ps.length!==1?'s':''}</p>`;
+        html+=ps.map(p=>{
+            const badges=[];
+            if(p.verified) badges.push('<span class="badge-verified">Verified</span>');
+            if(p.dating_energy) badges.push(`<span class="badge-energy">${p.dating_energy}</span>`);
+            if(p.relationship_intent) badges.push(`<span class="badge-intent">${p.relationship_intent}</span>`);
+            return `<div class="profile-item">
+                <div style="display:flex;align-items:center;gap:10px">
+                    ${p.photo?`<img src="/uploads/${p.photo}" class="photo-thumb">`:'<div style="width:36px;height:36px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--overlay0)">?</div>'}
+                    <div><strong>${escHtml(p.name)}</strong>${badges.join('')}<br>
+                    <span style="color:var(--overlay0);font-size:12px">${p.age} - ${p.gender} seeking ${p.seeking} - ${new Date(p.created_at).toLocaleDateString()}</span></div>
+                </div>
+                <div class="actions">
+                    <button class="btn-sm btn-view" onclick="viewProfile('${p.id}')">Inspect</button>
+                    <button class="btn-sm btn-delete" onclick="delProfile('${p.id}','${escHtml(p.name)}')">Delete</button>
+                </div>
+            </div>`;
+        }).join('');
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading profiles</h3></div>';}
+}
+
+async function viewProfile(id){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading profile...</div>';
+    try{
+        const [pr,br,fr,cr]=await Promise.all([
+            adminFetch(API+'/api/profile/'+id).then(r=>r.json()),
+            adminFetch(API+'/api/profile/'+id+'/blog').then(r=>r.json()),
+            adminFetch(API+'/api/profile/'+id+'/friends').then(r=>r.json()),
+            adminFetch(API+'/api/profile/'+id+'/comments').then(r=>r.json()),
+        ]);
+        let html=`<div class="card"><button class="btn btn-secondary" onclick="renderProfiles()" style="margin-bottom:16px;font-size:12px;padding:6px 12px">Back to Profiles</button>
+        <h2>${escHtml(pr.name)}</h2><p class="subtitle">Profile ID: ${pr.id}</p>`;
+
+        // Photo
+        if(pr.photo) html+=`<div style="margin-bottom:16px"><img src="/uploads/${pr.photo}" style="width:120px;height:120px;border-radius:8px;object-fit:cover;border:3px solid var(--surface1)"></div>`;
+
+        // Basic info
+        html+=`<div class="detail-grid">
+            <div class="detail-item"><div class="dk">Age</div><div class="dv">${pr.age}</div></div>
+            <div class="detail-item"><div class="dk">Gender</div><div class="dv">${pr.gender}</div></div>
+            <div class="detail-item"><div class="dk">Seeking</div><div class="dv">${pr.seeking}</div></div>
+            <div class="detail-item"><div class="dk">Attachment</div><div class="dv">${typeof pr.attachment==='string'?pr.attachment:JSON.stringify(pr.attachment||{})}</div></div>
+            <div class="detail-item"><div class="dk">Love Language</div><div class="dv">${pr.love_language||'--'}</div></div>
+            <div class="detail-item"><div class="dk">Dating Energy</div><div class="dv">${pr.dating_energy||'--'}</div></div>
+            <div class="detail-item"><div class="dk">Relationship Intent</div><div class="dv">${pr.relationship_intent||'--'}</div></div>
+            <div class="detail-item"><div class="dk">Dating Pace</div><div class="dv">${pr.dating_pace||'--'}</div></div>
+            <div class="detail-item"><div class="dk">Created</div><div class="dv">${new Date(pr.created_at).toLocaleString()}</div></div>
+            <div class="detail-item"><div class="dk">Verified</div><div class="dv">${pr.verified?'Yes':'No'}</div></div>
+        </div>`;
+
+        // Big Five
+        if(pr.big_five&&Object.keys(pr.big_five).length){
+            html+=`<div class="section-head">Big Five Personality</div><div class="detail-grid">${Object.entries(pr.big_five).map(([t,v])=>`<div class="detail-item"><div class="dk">${t}</div><div class="dv">${Math.round(v*100)}%</div></div>`).join('')}</div>`;
+        }
+
+        // Values
+        if(pr.values&&Object.keys(pr.values).length){
+            html+=`<div class="section-head">Values</div><div class="detail-grid">${Object.entries(pr.values).map(([k,v])=>`<div class="detail-item"><div class="dk">${k}</div><div class="dv">${v}</div></div>`).join('')}</div>`;
+        }
+
+        // Communication
+        if(pr.communication_style&&Object.keys(pr.communication_style).length){
+            html+=`<div class="section-head">Communication Style</div><div class="detail-grid">${Object.entries(pr.communication_style).map(([k,v])=>`<div class="detail-item"><div class="dk">${k.replace(/_/g,' ')}</div><div class="dv">${v}</div></div>`).join('')}</div>`;
+        }
+
+        // Financial
+        if(pr.financial_values&&Object.keys(pr.financial_values).length){
+            html+=`<div class="section-head">Financial Values</div><div class="detail-grid">${Object.entries(pr.financial_values).map(([k,v])=>`<div class="detail-item"><div class="dk">${k.replace(/_/g,' ')}</div><div class="dv">${v}</div></div>`).join('')}</div>`;
+        }
+
+        // Dealbreakers
+        if(pr.dealbreakers&&pr.dealbreakers.length){
+            html+=`<div class="section-head">Dealbreakers</div><div style="display:flex;gap:6px;flex-wrap:wrap">${pr.dealbreakers.map(d=>`<span style="background:rgba(243,139,168,.12);color:var(--red);padding:4px 10px;border-radius:6px;font-size:12px">${d}</span>`).join('')}</div>`;
+        }
+
+        // Self-disclosure
+        if(pr.self_disclosure&&Object.keys(pr.self_disclosure).length){
+            html+=`<div class="section-head">Self-Disclosure</div><div class="detail-grid">${Object.entries(pr.self_disclosure).map(([k,v])=>`<div class="detail-item"><div class="dk">${k}</div><div class="dv">${v}</div></div>`).join('')}</div>`;
+        }
+
+        // Open-ended
+        if(pr.open_ended&&Object.keys(pr.open_ended).length){
+            html+=`<div class="section-head">Open-Ended Responses</div>`;
+            for(const [k,v] of Object.entries(pr.open_ended)){
+                html+=`<div style="background:var(--mantle);padding:12px;border-radius:8px;margin-bottom:8px"><div style="font-size:11px;color:var(--overlay0);text-transform:uppercase;margin-bottom:4px">${k}</div><div style="font-size:13px;color:var(--subtext1);line-height:1.5;white-space:pre-wrap">${escHtml(String(v))}</div></div>`;
+            }
+        }
+
+        // Friends
+        html+=`<div class="section-head">Friends (${fr.friends?.length||0})</div>`;
+        if(fr.friends&&fr.friends.length){
+            html+=fr.friends.map(f=>`<span style="display:inline-block;background:var(--mantle);padding:4px 10px;border-radius:6px;font-size:12px;margin:2px">${f.name}</span>`).join('');
+        } else { html+=`<span style="color:var(--overlay0);font-size:13px">No friends</span>`; }
+
+        // Blog posts
+        html+=`<div class="section-head">Blog Posts (${br.posts?.length||0})</div>`;
+        if(br.posts&&br.posts.length){
+            for(const p of br.posts){
+                html+=`<div style="background:var(--mantle);padding:12px;border-radius:8px;margin-bottom:8px"><strong>${escHtml(p.title)}</strong><div style="font-size:11px;color:var(--overlay0)">${new Date(p.created_at).toLocaleString()}</div><div style="font-size:13px;color:var(--subtext1);margin-top:4px;white-space:pre-wrap">${escHtml(p.content)}</div></div>`;
+            }
+        } else { html+=`<span style="color:var(--overlay0);font-size:13px">No posts</span>`; }
+
+        // Comments
+        html+=`<div class="section-head">Profile Comments (${cr.comments?.length||0})</div>`;
+        if(cr.comments&&cr.comments.length){
+            for(const c of cr.comments){
+                html+=`<div style="background:var(--mantle);padding:10px;border-radius:8px;margin-bottom:6px"><strong style="color:var(--mauve);font-size:13px">${escHtml(c.from_name)}</strong> <span style="font-size:11px;color:var(--overlay0)">${new Date(c.created_at).toLocaleString()}</span><div style="font-size:13px;color:var(--subtext1);margin-top:4px">${escHtml(c.content)}</div></div>`;
+            }
+        } else { html+=`<span style="color:var(--overlay0);font-size:13px">No comments</span>`; }
+
+        html+=`<div class="btn-row" style="margin-top:20px"><button class="btn btn-danger" onclick="delProfile('${pr.id}','${escHtml(pr.name)}')">Delete This Profile</button></div>`;
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading profile</h3></div>';console.error(e);}
+}
+
+async function delProfile(id,name){
+    if(!confirm('Delete profile "'+name+'"? This cannot be undone.'))return;
+    await adminFetch(API+'/api/profile/'+id,{method:'DELETE'});
+    toast('Profile deleted','success');
+    renderProfiles();
+}
+
+// ─── Safety Reports ───
+async function renderSafety(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading safety reports...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/safety-reports');const d=await r.json();
+        if(!d.reports||!d.reports.length){app.innerHTML='<div class="card"><h2>Safety Reports</h2><div class="empty"><h3>No safety reports</h3><p>No users have filed any reports yet.</p></div></div>';return;}
+        let html=`<div class="card"><h2>Safety Reports</h2><p class="subtitle">${d.reports.length} report${d.reports.length!==1?'s':''} filed</p>`;
+        for(const rp of d.reports){
+            const rtClass='rt-'+(rp.report_type||'other');
+            html+=`<div class="report-item">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div><strong style="color:var(--text)">${escHtml(rp.reporter_name)}</strong> <span style="color:var(--overlay0);font-size:12px">reported</span> <strong style="color:var(--red)">${escHtml(rp.reported_name)}</strong></div>
+                    <span class="report-type ${rtClass}">${rp.report_type||'unknown'}</span>
+                </div>
+                ${rp.notes?`<div style="font-size:13px;color:var(--subtext1);line-height:1.5">${escHtml(rp.notes)}</div>`:''}
+                <div style="font-size:11px;color:var(--overlay0);margin-top:6px">${new Date(rp.created_at).toLocaleString()}</div>
+                <div style="margin-top:8px;display:flex;gap:6px">
+                    <button class="btn-sm btn-view" onclick="viewProfile('${rp.reporter_id}')">View Reporter</button>
+                    <button class="btn-sm btn-view" onclick="viewProfile('${rp.reported_id}')">View Reported</button>
+                    <button class="btn-sm btn-delete" onclick="delProfile('${rp.reported_id}','${escHtml(rp.reported_name)}')">Delete Reported</button>
+                </div>
+            </div>`;
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading safety reports</h3></div>';console.error(e);}
+}
+
+// ─── Invites ───
+async function renderInvites(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading invites...</div>';
+    try{
+        const r=await adminFetch(API+'/api/invites');const d=await r.json();
+        let html=`<div class="card"><h2>Invite Codes</h2><p class="subtitle">Generate and track invite codes</p>
+        <div style="margin-bottom:16px"><button class="btn btn-primary" onclick="genInvite()">Generate New Invite Code</button></div>`;
+
+        if(d.invites&&d.invites.length){
+            const available=d.invites.filter(i=>!i.used_by).length;
+            const used=d.invites.filter(i=>i.used_by).length;
+            html+=`<div style="display:flex;gap:12px;margin-bottom:16px"><div class="stat-card" style="flex:1"><div class="num">${d.invites.length}</div><div class="label">Total</div></div><div class="stat-card" style="flex:1"><div class="num" style="color:var(--green)">${available}</div><div class="label">Available</div></div><div class="stat-card" style="flex:1"><div class="num" style="color:var(--peach)">${used}</div><div class="label">Used</div></div></div>`;
+
+            for(const inv of d.invites){
+                html+=`<div class="profile-item" style="padding:10px 16px">
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <code style="color:var(--yellow);font-size:14px;font-weight:600;letter-spacing:1px">${inv.code}</code>
+                        ${inv.used_by?`<span style="color:var(--overlay0);font-size:12px">Used by ${inv.used_by}</span>`:`<span style="color:var(--green);font-size:12px">Available</span>`}
+                    </div>
+                    <button class="btn-sm btn-view" onclick="navigator.clipboard.writeText('${inv.code}');toast('Copied!','success')">Copy</button>
+                </div>`;
+            }
+        } else {
+            html+=`<div class="empty" style="padding:24px"><h3>No invite codes yet</h3><p>Generate your first invite code above.</p></div>`;
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading invites</h3></div>';}
+}
+
+async function genInvite(){
+    const r=await adminFetch(API+'/api/invites',{method:'POST'});const d=await r.json();
+    toast('Invite code: '+d.code,'success');
+    renderInvites();
+}
+
+// ─── Feedback ───
+async function renderFeedback(){
+    const app=document.getElementById('app');
+    try{
+        const ps=await(await adminFetch(API+'/api/profiles')).json();
+        if(!ps.length){app.innerHTML='<div class="card"><h2>Submit Feedback</h2><div class="empty"><h3>No profiles yet</h3></div></div>';return;}
+        const optHtml=ps.map(p=>`<option value="${p.id}">${escHtml(p.name)} (${p.age}, ${p.gender})</option>`).join('');
+        app.innerHTML=`<div class="card"><h2>Submit Date Feedback</h2><p class="subtitle">Record outcomes from dates between users</p>
+        <div class="form-group"><label>Profile A</label><select id="fb-a"><option value="">Select...</option>${optHtml}</select></div>
+        <div class="form-group"><label>Profile B</label><select id="fb-b"><option value="">Select...</option>${optHtml}</select></div>
+        <div class="form-group"><label>Went on a date?</label><div class="choice-grid">
+            <div class="choice-card" id="fb-date-yes" onclick="this.classList.add('selected');document.getElementById('fb-date-no').classList.remove('selected')">Yes</div>
+            <div class="choice-card selected" id="fb-date-no" onclick="this.classList.add('selected');document.getElementById('fb-date-yes').classList.remove('selected')">No</div>
+        </div></div>
+        <div class="form-group"><label>Rating (1-5)</label><input type="number" id="fb-rating" min="1" max="5" placeholder="1-5"></div>
+        <div class="form-group"><label>Safety Rating (1-5)</label><input type="number" id="fb-safety" min="1" max="5" placeholder="1-5"></div>
+        <div class="form-group"><label>Would meet again?</label><div class="choice-grid">
+            <div class="choice-card" id="fb-again-yes" onclick="this.classList.add('selected');document.getElementById('fb-again-no').classList.remove('selected')">Yes</div>
+            <div class="choice-card" id="fb-again-no" onclick="this.classList.add('selected');document.getElementById('fb-again-yes').classList.remove('selected')">No</div>
+        </div></div>
+        <div class="form-group"><label>Notes</label><textarea id="fb-notes" placeholder="Optional notes about the date..."></textarea></div>
+        <button class="btn btn-primary" onclick="submitFeedback()">Submit Feedback</button></div>`;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error</h3></div>';}
+}
+
+async function submitFeedback(){
+    const a=document.getElementById('fb-a')?.value;
+    const b=document.getElementById('fb-b')?.value;
+    if(!a||!b){toast('Select both profiles','error');return;}
+    const wentOnDate=document.getElementById('fb-date-yes')?.classList.contains('selected')||false;
+    const rating=parseInt(document.getElementById('fb-rating')?.value)||null;
+    const safetyRating=parseInt(document.getElementById('fb-safety')?.value)||null;
+    const wouldMeetAgain=document.getElementById('fb-again-yes')?.classList.contains('selected')?true:document.getElementById('fb-again-no')?.classList.contains('selected')?false:null;
+    const notes=document.getElementById('fb-notes')?.value||null;
+    await adminFetch(API+'/api/feedback',{method:'POST',headers:adminHeaders(),body:JSON.stringify({profile_a:a,profile_b:b,went_on_date:wentOnDate,rating,safety_rating:safetyRating,would_meet_again:wouldMeetAgain,notes})});
+    toast('Feedback submitted','success');
+}
+
+// ─── Groups ───
+async function renderGroups(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading groups...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/groups');const d=await r.json();
+        if(!d.groups||!d.groups.length){app.innerHTML='<div class="card"><h2>Groups</h2><div class="empty"><h3>No groups yet</h3><p>Users can create groups from the user portal.</p></div></div>';return;}
+        let html=`<div class="card"><h2>Groups</h2><p class="subtitle">${d.groups.length} group${d.groups.length!==1?'s':''}</p>`;
+        for(const g of d.groups){
+            html+=`<div class="profile-item">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div style="width:36px;height:36px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--mauve);font-weight:700">${g.member_count||0}</div>
+                    <div><strong>${escHtml(g.name)}</strong><br>
+                    <span style="color:var(--overlay0);font-size:12px">${escHtml(g.description||'').substring(0,80)} - Created by ${escHtml(g.creator_name||'?')}</span></div>
+                </div>
+                <div class="actions">
+                    <button class="btn-sm btn-view" onclick="viewAdminGroup('${g.id}')">View</button>
+                    <button class="btn-sm btn-delete" onclick="delGroup('${g.id}','${escHtml(g.name)}')">Delete</button>
+                </div>
+            </div>`;
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading groups</h3></div>';console.error(e);}
+}
+
+async function viewAdminGroup(id){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading group...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/groups/'+id);const g=await r.json();
+        let html=`<div class="card"><button class="btn btn-secondary" onclick="renderGroups()" style="margin-bottom:16px;font-size:12px;padding:6px 12px">Back to Groups</button>
+        <h2>${escHtml(g.name)}</h2><p class="subtitle">Created by ${escHtml(g.creator_name)} - ${g.member_count||0} members</p>
+        <div style="color:var(--subtext1);font-size:14px;margin-bottom:16px">${escHtml(g.description||'No description')}</div>`;
+        if(g.members&&g.members.length){
+            html+=`<div class="section-head">Members (${g.members.length})</div>`;
+            for(const m of g.members){
+                html+=`<div class="profile-item" style="padding:8px 12px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        ${m.photo?`<img src="/uploads/${m.photo}" class="photo-thumb" style="width:28px;height:28px">`:''}
+                        <span>${escHtml(m.name)}</span>
+                        ${m.role==='admin'?'<span style="color:var(--red);font-size:11px;font-weight:600">ADMIN</span>':''}
+                    </div>
+                    <button class="btn-sm btn-view" onclick="viewProfile('${m.profile_id}')">Inspect</button>
+                </div>`;
+            }
+        }
+        html+=`<div class="btn-row" style="margin-top:20px"><button class="btn btn-danger" onclick="delGroup('${g.id}','${escHtml(g.name)}')">Delete Group</button></div></div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading group</h3></div>';console.error(e);}
+}
+
+async function delGroup(id,name){
+    if(!confirm('Delete group "'+name+'"? All posts and memberships will be removed.'))return;
+    await adminFetch(API+'/api/admin/groups/'+id,{method:'DELETE'});
+    toast('Group deleted','success');
+    renderGroups();
+}
+
+// ─── Events ───
+async function renderEvents(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading events...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/events');const d=await r.json();
+        if(!d.events||!d.events.length){app.innerHTML='<div class="card"><h2>Events</h2><div class="empty"><h3>No events yet</h3><p>Users can create events from the user portal.</p></div></div>';return;}
+        let html=`<div class="card"><h2>Events</h2><p class="subtitle">${d.events.length} event${d.events.length!==1?'s':''}</p>`;
+        for(const ev of d.events){
+            html+=`<div class="profile-item">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div style="width:36px;height:36px;border-radius:50%;background:var(--surface0);display:flex;align-items:center;justify-content:center;color:var(--green);font-weight:700">${ev.attendee_count||0}</div>
+                    <div><strong>${escHtml(ev.title)}</strong><br>
+                    <span style="color:var(--overlay0);font-size:12px">${ev.event_date||'TBD'} ${ev.event_time||''} - ${escHtml(ev.location||'No location')} - by ${escHtml(ev.creator_name||'?')}</span></div>
+                </div>
+                <div class="actions">
+                    <button class="btn-sm btn-view" onclick="viewAdminEvent('${ev.id}')">View</button>
+                    <button class="btn-sm btn-delete" onclick="delEvent('${ev.id}','${escHtml(ev.title)}')">Delete</button>
+                </div>
+            </div>`;
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading events</h3></div>';console.error(e);}
+}
+
+async function viewAdminEvent(id){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading event...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/events/'+id);const ev=await r.json();
+        let html=`<div class="card"><button class="btn btn-secondary" onclick="renderEvents()" style="margin-bottom:16px;font-size:12px;padding:6px 12px">Back to Events</button>
+        <h2>${escHtml(ev.title)}</h2><p class="subtitle">Created by ${escHtml(ev.creator_name)}</p>
+        <div class="detail-grid">
+            <div class="detail-item"><div class="dk">Date</div><div class="dv">${ev.event_date||'TBD'}</div></div>
+            <div class="detail-item"><div class="dk">Time</div><div class="dv">${ev.event_time||'TBD'}</div></div>
+            <div class="detail-item"><div class="dk">Location</div><div class="dv">${ev.location||'TBD'}</div></div>
+            <div class="detail-item"><div class="dk">Max Attendees</div><div class="dv">${ev.max_attendees||'Unlimited'}</div></div>
+        </div>
+        <div style="color:var(--subtext1);font-size:14px;margin:16px 0">${escHtml(ev.description||'No description')}</div>`;
+        if(ev.rsvps&&ev.rsvps.length){
+            html+=`<div class="section-head">RSVPs (${ev.rsvps.length})</div>`;
+            for(const rp of ev.rsvps){
+                const statusColor=rp.status==='going'?'var(--green)':rp.status==='interested'?'var(--yellow)':'var(--overlay0)';
+                html+=`<div class="profile-item" style="padding:8px 12px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        ${rp.photo?`<img src="/uploads/${rp.photo}" class="photo-thumb" style="width:28px;height:28px">`:''}
+                        <span>${escHtml(rp.name)}</span>
+                        <span style="color:${statusColor};font-size:11px;font-weight:600;text-transform:uppercase">${rp.status}</span>
+                    </div>
+                    <button class="btn-sm btn-view" onclick="viewProfile('${rp.profile_id}')">Inspect</button>
+                </div>`;
+            }
+        }
+        html+=`<div class="btn-row" style="margin-top:20px"><button class="btn btn-danger" onclick="delEvent('${ev.id}','${escHtml(ev.title)}')">Delete Event</button></div></div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading event</h3></div>';console.error(e);}
+}
+
+async function delEvent(id,name){
+    if(!confirm('Delete event "'+name+'"? All RSVPs will be removed.'))return;
+    await adminFetch(API+'/api/admin/events/'+id,{method:'DELETE'});
+    toast('Event deleted','success');
+    renderEvents();
+}
+
+// ─── Verifications ───
+async function renderVerifications(){
+    const app=document.getElementById('app');
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading verifications...</div>';
+    try{
+        const r=await adminFetch(API+'/api/admin/verifications');const d=await r.json();
+        if(!d.verifications||!d.verifications.length){app.innerHTML='<div class="card"><h2>Selfie Verifications</h2><div class="empty"><h3>No pending verifications</h3><p>Users can submit selfie verification from their profile.</p></div></div>';return;}
+        let html=`<div class="card"><h2>Selfie Verifications</h2><p class="subtitle">${d.verifications.length} pending verification${d.verifications.length!==1?'s':''}</p>`;
+        for(const v of d.verifications){
+            html+=`<div class="profile-item" style="padding:16px">
+                <div style="display:flex;align-items:center;gap:16px;flex:1">
+                    ${v.photo?`<img src="/uploads/${v.photo}" class="photo-thumb" style="width:48px;height:48px">`:''}
+                    <div><strong>${escHtml(v.name)}</strong><br><span style="color:var(--overlay0);font-size:12px">Submitted ${new Date(v.created_at).toLocaleString()}</span></div>
+                    <img src="/uploads/${v.selfie_photo}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;border:2px solid var(--surface1);cursor:pointer" onclick="window.open('/uploads/${v.selfie_photo}','_blank')">
+                </div>
+                <div class="actions" style="gap:8px">
+                    <button class="btn-sm" style="background:var(--green);color:var(--crust)" onclick="approveVerify('${v.id}')">Approve</button>
+                    <button class="btn-sm btn-delete" onclick="rejectVerify('${v.id}')">Reject</button>
+                    <button class="btn-sm btn-view" onclick="viewProfile('${v.profile_id}')">Inspect</button>
+                </div>
+            </div>`;
+        }
+        html+=`</div>`;
+        app.innerHTML=html;
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading verifications</h3></div>';console.error(e);}
+}
+
+async function approveVerify(id){
+    await adminFetch(API+'/api/admin/verifications/'+id+'/approve',{method:'POST'});
+    toast('Verification approved','success');
+    renderVerifications();
+}
+
+async function rejectVerify(id){
+    await adminFetch(API+'/api/admin/verifications/'+id+'/reject',{method:'POST'});
+    toast('Verification rejected','success');
+    renderVerifications();
+}
+
+// ─── Utils ───
+function escHtml(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function toast(m,t=''){const e=document.getElementById('toast');e.textContent=m;e.className='toast show '+t;setTimeout(()=>e.className='toast',3500);}
+
+// ─── Init ───
+const savedAdminToken=localStorage.getItem('kindred_admin_token');
+if(savedAdminToken){
+    adminToken=savedAdminToken;
+    renderNav();
+    showView('dashboard');
+} else {
+    showLoginScreen();
+}
+</script>
+</body>
+</html>
