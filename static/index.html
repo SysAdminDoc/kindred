@@ -785,7 +785,7 @@ async function renderWelcome(){
     const app=document.getElementById('app');
     let html=`<div class="card" style="text-align:center">
         <h2 style="font-size:28px;background:linear-gradient(135deg,var(--mauve),var(--pink),var(--flamingo));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Welcome to Kindred</h2>
-        <p class="subtitle" style="margin-bottom:24px">AI-powered compatibility matching for serious daters</p>
+        <p class="subtitle" style="margin-bottom:24px">Compatibility-first matching for serious daters</p>
         <div id="auth-tabs" style="display:flex;justify-content:center;gap:8px;margin-bottom:20px">
             <button class="btn btn-primary" onclick="showAuthForm('login')" id="auth-login-tab">Sign In</button>
             <button class="btn btn-secondary" onclick="showAuthForm('register')" id="auth-reg-tab">Create Account</button>
@@ -1418,7 +1418,7 @@ async function showDetail(a,b){
         }
 
         // Narrative
-        html+=`<div class="card" style="animation-delay:.12s"><h2>Compatibility Insight</h2><div class="narrative" id="narrative-text">${comp.narrative||'Generating AI insight...'}</div></div>`;
+        html+=`<div class="card" style="animation-delay:.12s"><h2>Compatibility Insight</h2><div class="narrative" id="narrative-text">${comp.narrative||'Generating insight...'}</div></div>`;
 
         // Icebreakers
         if(comp.icebreakers&&comp.icebreakers.length){
@@ -1491,7 +1491,7 @@ async function showDetail(a,b){
         if(pa.big_five)drawRadar('radar-a',pa.big_five,'rgba(203,166,247,');
         if(pb.big_five)drawRadar('radar-b',pb.big_five,'rgba(245,194,231,');
 
-        // AI narrative via Puter.js
+        // Narrative via Puter.js
         generateAINarrative(pa,pb,comp);
 
         // Load music compatibility
@@ -1744,7 +1744,7 @@ function drawRadar(canvasId,bf,colorBase){
     for(let i=0;i<n;i++){const a=(Math.PI*2/n)*i-Math.PI/2;const v=vals[i];ctx.beginPath();ctx.arc(cx+r*v*Math.cos(a),cy+r*v*Math.sin(a),3,0,Math.PI*2);ctx.fillStyle=colorBase+'1)';ctx.fill();}
 }
 
-// ─── AI Narrative (Puter.js) ───
+// ─── Narrative (Puter.js) ───
 async function generateAINarrative(pa,pb,comp){
     const el=document.getElementById('narrative-text');
     if(!el||comp.dealbreaker_conflict)return;
@@ -1771,7 +1771,7 @@ Write the narrative now:`;
         const resp=await puter.ai.chat(prompt,{model:'gpt-4o-mini'});
         const text=resp?.message?.content||resp?.text||resp;
         if(text&&typeof text==='string'&&text.length>20) el.textContent=text;
-    }catch(e){console.log('Puter.js AI unavailable, using template narrative');}
+    }catch(e){console.log('Puter.js unavailable, using template narrative');}
 }
 
 // ─── Messages ───

@@ -1,6 +1,6 @@
 """
 Kindred v1.3.0 - FastAPI Backend (User Server)
-AI-powered compatibility matching + social platform.
+Compatibility-first dating + social platform.
 """
 
 import shutil

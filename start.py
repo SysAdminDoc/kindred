@@ -21,7 +21,7 @@ def run(cmd, **kwargs):
 def main():
     print()
     print("=" * 50)
-    print("  Kindred v1.3.0 - AI Compatibility Engine")
+    print("  Kindred v1.3.0 - Compatibility Engine")
     print("=" * 50)
     print()
 

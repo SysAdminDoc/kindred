@@ -19,7 +19,7 @@
   <rect width="512" height="512" rx="108" ry="108" fill="url(#bg)"/>
   <!-- Heart shape -->
   <path d="M256 420 C256 420 108 310 108 210 C108 160 148 120 198 120 C228 120 248 140 256 155 C264 140 284 120 314 120 C364 120 404 160 404 210 C404 310 256 420 256 420Z" fill="url(#heart)" opacity="0.9"/>
-  <!-- AI pulse/waveform inside heart -->
+  <!-- Pulse/waveform inside heart -->
   <path d="M168 255 L208 255 L223 210 L243 300 L263 195 L283 305 L303 220 L318 255 L348 255" stroke="url(#pulse)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
   <!-- Two small dots representing connection -->
   <circle cx="195" cy="185" r="12" fill="#a6e3a1" opacity="0.8"/>

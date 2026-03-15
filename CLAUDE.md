@@ -1,11 +1,12 @@
 # Kindred v1.3.0
 
-AI-powered compatibility matching + social platform. Open source, privacy-first dating.
+Compatibility-first dating + social platform. Open source, privacy-first.
 
 ## Tech Stack
 - **Backend**: Python 3.12+, FastAPI, Uvicorn, WebSocket
 - **Database**: SQLite with WAL mode, thread-local connection pooling
-- **AI/ML**: sentence-transformers (all-MiniLM-L6-v2) for embeddings, Puter.js for AI narratives (client-side, no API key)
+- **Embeddings**: sentence-transformers (all-MiniLM-L6-v2) for semantic similarity
+- **Narratives**: Puter.js (client-side, no API key)
 - **Frontend**: Single-file SPA (vanilla JS), Catppuccin Mocha dark theme
 - **Auth**: JWT (pyjwt + passlib[bcrypt]), 72-hour token expiry, env-configurable secret
 - **Security**: CORS middleware, rate limiting (slowapi), file magic byte validation, auth on all mutating endpoints
@@ -83,7 +84,7 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - Rate limiting on auth endpoints (slowapi)
 - File upload magic byte validation (prevents extension spoofing)
 - Auth (`require_user`) on all mutating user endpoints
-- Puter.js CDN for AI narratives - zero backend cost, template fallbacks
+- Puter.js CDN for match narratives - zero backend cost, template fallbacks
 - Docker + docker-compose for deployment
 - Pillow for auto-thumbnail generation
 
@@ -97,6 +98,6 @@ profiles, messages, invites, feedback, date_plans, behavioral_events, safety_rep
 - **v0.6.0** - Admin/User port separation
 - **v0.5.0** - MySpace-style profile pages
 - **v0.4.0** - 8-dimension matching, one-question-per-screen, coaching tips, date plans
-- **v0.3.0** - Puter.js AI narratives (replaced Ollama)
+- **v0.3.0** - Puter.js narratives (replaced Ollama)
 - **v0.2.0** - Major feature expansion
 - **v0.1.0** - Initial build

@@ -5,31 +5,33 @@
 <h1 align="center">Kindred</h1>
 
 <p align="center">
-  <strong>AI-powered compatibility matching + social platform</strong><br>
-  Open source, privacy-first dating
+  <strong>Compatibility-first dating + social platform</strong><br>
+  Open source. Privacy-first. No funny business.
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/status-in%20development-f9e2af?style=flat-square" alt="Status">
   <img src="https://img.shields.io/badge/version-1.3.0-cba6f7?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-89b4fa?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-a6e3a1?style=flat-square" alt="License">
-  <img src="https://img.shields.io/badge/theme-Catppuccin%20Mocha-f5c2e7?style=flat-square" alt="Theme">
 </p>
+
+---
+
+> **This project is in active development.** Kindred is being built to launch as a live website. This repository exists as a transparency measure -- the full source code is public so users can see exactly what runs behind the site. No hidden data collection, no dark patterns, no funny business. This is the code.
 
 ---
 
 ## What is Kindred?
 
-Kindred is a self-hosted dating and social platform that uses AI to find genuinely compatible matches. Instead of swiping on photos, users answer a detailed questionnaire covering personality, values, communication style, finances, and more. An 8-dimension matching engine scores compatibility and generates AI-powered narratives explaining *why* two people might click.
-
-**No cloud dependency. No subscription. No data harvesting.** Everything runs on your machine.
+Kindred is a dating and social platform built around genuine compatibility instead of swiping on photos. Users answer a detailed questionnaire covering personality, values, communication style, finances, and more. An 8-dimension matching engine scores compatibility and generates narratives explaining *why* two people might click.
 
 ## Features
 
 **Matching Engine**
 - 8-dimension compatibility scoring (personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker)
 - sentence-transformers embeddings for semantic similarity
-- AI-generated match narratives, icebreakers, and coaching tips via Puter.js (client-side, no API key)
+- Match narratives, icebreakers, and coaching tips
 - Customizable dimension weights per user
 - Photo reveal at compatibility threshold
 
@@ -56,51 +58,14 @@ Kindred is a self-hosted dating and social platform that uses AI to find genuine
 - Safety report triage
 - Platform statistics
 
-## Quick Start
-
-```bash
-git clone https://github.com/SysAdminDoc/kindred.git
-cd kindred
-python start.py
-```
-
-That's it. The launcher auto-creates a virtual environment, installs dependencies, and starts both servers.
-
-- **User portal**: http://localhost:8000
-- **Admin portal**: http://localhost:8001
-  - Default login: `admin@kindred.local` / `admin`
-
-### Docker
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-## Configuration
-
-Copy `.env.example` to `.env` to customize:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDRED_JWT_SECRET` | *auto-generated* | JWT signing key |
-| `KINDRED_ADMIN_EMAIL` | `admin@kindred.local` | Default admin email |
-| `KINDRED_ADMIN_PASSWORD` | `admin` | Default admin password |
-| `KINDRED_HOST` | `127.0.0.1` | Server bind address |
-| `KINDRED_USER_PORT` | `8000` | User portal port |
-| `KINDRED_ADMIN_PORT` | `8001` | Admin portal port |
-| `KINDRED_CORS_ORIGINS` | `*` | Allowed CORS origins |
-| `KINDRED_RATE_LIMIT` | `60/minute` | General rate limit |
-| `KINDRED_RATE_LIMIT_AUTH` | `10/minute` | Auth endpoint rate limit |
-| `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
-
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.12+, FastAPI, Uvicorn |
 | Database | SQLite (WAL mode, thread-local pooling) |
-| AI/ML | sentence-transformers (all-MiniLM-L6-v2), Puter.js |
+| Embeddings | sentence-transformers (all-MiniLM-L6-v2) |
+| Narratives | Puter.js (client-side) |
 | Frontend | Vanilla JS single-file SPA |
 | Auth | JWT (pyjwt + passlib/bcrypt) |
 | Security | CORS, slowapi rate limiting, magic byte validation |
@@ -139,16 +104,43 @@ kindred/
 | Semantic | Free-text response similarity via sentence embeddings |
 | Dealbreaker | Hard compatibility filters |
 
-## Screenshots
+## Running Locally (Development)
 
-The UI uses the Catppuccin Mocha dark theme with gradient accents. Key screens:
+```bash
+git clone https://github.com/SysAdminDoc/kindred.git
+cd kindred
+python start.py
+```
 
-- **Questionnaire** - One question per screen with animated transitions
-- **Match List** - Ranked matches with compatibility scores and photo reveal
-- **Match Detail** - Full breakdown across all 8 dimensions with AI narrative
-- **Profile Page** - MySpace-style with blog, comments, friends, themes
-- **Messaging** - Real-time chat with typing indicators and read receipts
-- **Admin Dashboard** - Stats, user management, verification queue
+The launcher auto-creates a virtual environment, installs dependencies, and starts both servers.
+
+- **User portal**: http://localhost:8000
+- **Admin portal**: http://localhost:8001
+  - Default login: `admin@kindred.local` / `admin`
+
+### Docker
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+## Configuration
+
+Copy `.env.example` to `.env` to customize:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KINDRED_JWT_SECRET` | *auto-generated* | JWT signing key |
+| `KINDRED_ADMIN_EMAIL` | `admin@kindred.local` | Default admin email |
+| `KINDRED_ADMIN_PASSWORD` | `admin` | Default admin password |
+| `KINDRED_HOST` | `127.0.0.1` | Server bind address |
+| `KINDRED_USER_PORT` | `8000` | User portal port |
+| `KINDRED_ADMIN_PORT` | `8001` | Admin portal port |
+| `KINDRED_CORS_ORIGINS` | `*` | Allowed CORS origins |
+| `KINDRED_RATE_LIMIT` | `60/minute` | General rate limit |
+| `KINDRED_RATE_LIMIT_AUTH` | `10/minute` | Auth endpoint rate limit |
+| `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
 
 ## License
 

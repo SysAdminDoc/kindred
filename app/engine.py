@@ -2,7 +2,7 @@
 Kindred v0.4.0 - Compatibility Matching Engine
 8-dimension scoring: personality, values, communication, financial,
 attachment, tradeoffs, semantic, dealbreaker.
-AI narratives powered by Puter.js on the frontend.
+Match narratives powered by Puter.js on the frontend.
 """
 
 import json
