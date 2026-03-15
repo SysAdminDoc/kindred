@@ -3870,21 +3870,6 @@ async function saveLocationSettings(){
     }catch(e){toast('Error','error');}
 }
 
-// ══════════════════════════════════════════════
-// ─── Override WS message handler to play sound ───
-// ══════════════════════════════════════════════
-const _origConnectWS=connectWS;
-// Patch the ws.onmessage to inject sound — done via onmessage override after connect
-const _wsMessagePatch=()=>{
-    if(ws&&ws.onmessage){
-        const orig=ws.onmessage;
-        ws.onmessage=e=>{
-            try{const msg=JSON.parse(e.data);if(msg.type==='message'||msg.type==='group_message')playNotifSound();}catch(ex){}
-            orig(e);
-        };
-    }
-};
-
 init();
 // Trigger onboarding after init for new users
 if(localStorage.getItem('kindred_token')&&!localStorage.getItem('kindred_onboarded')){
