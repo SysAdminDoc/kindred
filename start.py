@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Kindred v2.5.1 - Turnkey Launcher
 Auto-creates venv, installs deps, and starts both user + admin servers.
