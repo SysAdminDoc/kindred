@@ -7,3 +7,4 @@ kindred.db
 uploads/
 .env
 *.bak
+CLAUDE.md
