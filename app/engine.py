@@ -36,6 +36,131 @@ DEFAULT_WEIGHTS = {
     "dealbreaker": 0.10,
 }
 
+_WEIGHT_ALIASES = {"dealbreakers": "dealbreaker"}
+
+
+def _weight_value(value) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed) or parsed < 0:
+        return None
+    return parsed
+
+
+def _has_weight_signal(weights: dict | None) -> bool:
+    if not weights:
+        return False
+    for key, value in weights.items():
+        canonical = _WEIGHT_ALIASES.get(key, key)
+        if canonical in DEFAULT_WEIGHTS and _weight_value(value) is not None:
+            return True
+    return False
+
+
+def normalize_weights(weights: dict | None = None) -> dict[str, float]:
+    """Return a safe, normalized weight vector for all matching dimensions."""
+    normalized = dict(DEFAULT_WEIGHTS)
+    if weights:
+        for key, value in weights.items():
+            canonical = _WEIGHT_ALIASES.get(key, key)
+            if canonical not in normalized:
+                continue
+            parsed = _weight_value(value)
+            if parsed is not None:
+                normalized[canonical] = parsed
+
+    total = sum(normalized.values())
+    if total <= 0:
+        return dict(DEFAULT_WEIGHTS)
+    return {key: value / total for key, value in normalized.items()}
+
+
+def merge_weight_preferences(
+    manual_weights: dict | None,
+    learned_weights: dict | None,
+    learned_ratio: float = 0.35,
+) -> dict[str, float]:
+    """Blend learned preferences with an explicit manual preference vector.
+
+    A user who has not set manual weights receives the learned vector directly.
+    Once manual weights exist, learning contributes only the configured fraction
+    so the user's stated priorities remain dominant.
+    """
+    manual = normalize_weights(manual_weights)
+    if not _has_weight_signal(learned_weights):
+        return manual
+
+    learned = normalize_weights(learned_weights)
+    if not _has_weight_signal(manual_weights):
+        return learned
+
+    try:
+        ratio = float(learned_ratio)
+    except (TypeError, ValueError):
+        ratio = 0.35
+    ratio = max(0.0, min(1.0, ratio))
+    blended = {
+        key: (manual[key] * (1.0 - ratio)) + (learned[key] * ratio)
+        for key in DEFAULT_WEIGHTS
+    }
+    return normalize_weights(blended)
+
+
+def learn_weight_preferences(
+    current_weights: dict | None,
+    breakdown: dict | None,
+    outcome: float,
+    learning_rate: float = 0.08,
+) -> dict[str, float]:
+    """Apply one conservative outcome-learning step to a weight vector.
+
+    Compatibility breakdowns are percentages. Positive outcomes increase the
+    weight of dimensions that scored above the pair's mean; negative outcomes
+    shift weight toward dimensions that scored below it. A small floor keeps
+    any dimension from disappearing after a few noisy dates.
+    """
+    current = normalize_weights(current_weights)
+    if not breakdown:
+        return current
+
+    try:
+        signal = float(outcome) - 0.5
+        rate = float(learning_rate)
+    except (TypeError, ValueError):
+        return current
+    if not math.isfinite(signal) or not math.isfinite(rate) or rate <= 0:
+        return current
+    signal = max(-0.5, min(0.5, signal))
+    rate = min(rate, 0.5)
+
+    scores = {}
+    for key in DEFAULT_WEIGHTS:
+        raw = breakdown.get(key)
+        if raw is None and key == "dealbreaker":
+            raw = breakdown.get("dealbreakers")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(value):
+            continue
+        # The public compatibility response uses 0-100, while accepting 0-1
+        # here makes the helper convenient for internal callers and tests.
+        normalized = value if 0.0 <= value <= 1.0 else value / 100.0
+        scores[key] = max(0.0, min(1.0, normalized))
+
+    if len(scores) < 2:
+        return current
+
+    mean_score = sum(scores.values()) / len(scores)
+    updated = dict(current)
+    for key, score in scores.items():
+        delta = rate * signal * (score - mean_score)
+        updated[key] = max(0.02, updated[key] + delta)
+    return normalize_weights(updated)
+
 
 def get_model():
     global _model, _loaded_model_name
@@ -390,6 +515,7 @@ def generate_coaching_tips(profile_a: dict, profile_b: dict, compatibility: dict
 
 def compute_compatibility(profile_a: dict, profile_b: dict,
                           custom_weights: dict | None = None) -> dict:
+    weights = normalize_weights(custom_weights)
     conflicts = check_hard_dealbreakers(profile_a, profile_b)
     if conflicts:
         return {
@@ -397,17 +523,8 @@ def compute_compatibility(profile_a: dict, profile_b: dict,
             "dealbreaker_conflict": True,
             "conflicts": conflicts,
             "breakdown": {k: 0.0 for k in DEFAULT_WEIGHTS},
-            "weights": custom_weights or DEFAULT_WEIGHTS,
+            "weights": weights,
         }
-
-    weights = dict(DEFAULT_WEIGHTS)
-    if custom_weights:
-        for k, v in custom_weights.items():
-            if k in weights:
-                weights[k] = v
-        total_w = sum(weights.values())
-        if total_w > 0:
-            weights = {k: v / total_w for k, v in weights.items()}
 
     p_score = personality_compatibility(
         profile_a.get("big_five", {}), profile_b.get("big_five", {}))

@@ -62,6 +62,7 @@ def init_db():
             embedding BLOB,
             photo TEXT,
             weight_prefs TEXT,
+            learned_weight_prefs TEXT,
             privacy TEXT,
             invite_code TEXT,
             communication_style TEXT,
@@ -883,6 +884,24 @@ def init_db():
             UNIQUE(date_schedule_id, profile_id)
         );
 
+        CREATE TABLE IF NOT EXISTS weight_learning_events (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            partner_id TEXT NOT NULL,
+            date_schedule_id TEXT NOT NULL,
+            outcome REAL NOT NULL,
+            breakdown TEXT NOT NULL,
+            previous_weights TEXT NOT NULL,
+            updated_weights TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (partner_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (date_schedule_id) REFERENCES date_schedules(id) ON DELETE CASCADE,
+            UNIQUE(date_schedule_id, profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_weight_learning_profile
+            ON weight_learning_events(profile_id, created_at);
+
         CREATE TABLE IF NOT EXISTS announcements (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -1233,6 +1252,7 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN ip_fingerprint TEXT",
         "ALTER TABLE profiles ADD COLUMN big_five_raw TEXT",
         "ALTER TABLE profiles ADD COLUMN country TEXT",
+        "ALTER TABLE profiles ADD COLUMN learned_weight_prefs TEXT",
     ]
     for sql in migrations:
         try:
@@ -1308,7 +1328,7 @@ def save_profile(data: dict) -> str:
 
 
 def update_profile_field(profile_id: str, field: str, value) -> bool:
-    allowed = {"photo", "weight_prefs", "privacy", "name", "age",
+    allowed = {"photo", "weight_prefs", "learned_weight_prefs", "privacy", "name", "age",
                "dating_energy", "verified", "last_active", "daily_views", "daily_view_date",
                "location", "headline", "about_me", "who_id_like_to_meet", "interests",
                "heroes", "mood", "music_embeds", "video_embeds", "profile_song", "profile_views",
@@ -1316,7 +1336,7 @@ def update_profile_field(profile_id: str, field: str, value) -> bool:
     if field not in allowed:
         return False
     conn = get_db()
-    if field in ("weight_prefs", "privacy"):
+    if field in ("weight_prefs", "learned_weight_prefs", "privacy"):
         value = json.dumps(value)
     conn.execute(f"UPDATE profiles SET {field} = ? WHERE id = ?", (value, profile_id))
     conn.commit()
@@ -1381,6 +1401,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "embedding": row["embedding"],
         "photo": row["photo"],
         "weight_prefs": _json(row["weight_prefs"], {}),
+        "learned_weight_prefs": _json(_col("learned_weight_prefs"), {}),
         "privacy": _json(row["privacy"], {}),
         "invite_code": row["invite_code"],
         "communication_style": _json(_col("communication_style"), {}),
@@ -4194,6 +4215,8 @@ def delete_account(user_id: str) -> bool:
                 ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),
                 ("date_schedules", "profile_a"), ("date_schedules", "profile_b"),
                 ("date_feedback", "profile_id"), ("date_feedback", "partner_id"),
+                ("weight_learning_events", "profile_id"),
+                ("weight_learning_events", "partner_id"),
                 ("endorsements", "endorser_id"), ("endorsements", "endorsed_id"),
                 ("profile_reveal_stages", "viewer_id"), ("profile_reveal_stages", "target_id"),
                 ("availability_status", "profile_id"),
@@ -5173,6 +5196,74 @@ def submit_date_feedback(date_schedule_id: str, profile_id: str, partner_id: str
           notes))
     conn.commit()
     return fid
+
+
+def save_weight_learning(
+    profile_id: str,
+    partner_id: str,
+    date_schedule_id: str,
+    outcome: float,
+    breakdown: dict,
+    previous_weights: dict,
+    updated_weights: dict,
+) -> bool:
+    """Atomically persist learned weights and their supporting feedback event."""
+    conn = get_db()
+    event_id = uuid.uuid4().hex
+    try:
+        with conn:
+            changed = conn.execute(
+                "UPDATE profiles SET learned_weight_prefs=? WHERE id=?",
+                (json.dumps(updated_weights), profile_id),
+            ).rowcount
+            if changed != 1:
+                return False
+            conn.execute("""
+                INSERT INTO weight_learning_events
+                    (id, profile_id, partner_id, date_schedule_id, outcome,
+                     breakdown, previous_weights, updated_weights)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                event_id,
+                profile_id,
+                partner_id,
+                date_schedule_id,
+                float(outcome),
+                json.dumps(breakdown),
+                json.dumps(previous_weights),
+                json.dumps(updated_weights),
+            ))
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def get_weight_learning_events(profile_id: str, limit: int = 50) -> list[dict]:
+    """Return recent private learning events for one profile."""
+    try:
+        safe_limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        safe_limit = 50
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT id, partner_id, date_schedule_id, outcome, breakdown,
+               previous_weights, updated_weights, created_at
+        FROM weight_learning_events
+        WHERE profile_id=?
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (profile_id, safe_limit)).fetchall()
+
+    events = []
+    for row in rows:
+        event = dict(row)
+        for field in ("breakdown", "previous_weights", "updated_weights"):
+            try:
+                event[field] = json.loads(event[field])
+            except (TypeError, json.JSONDecodeError):
+                event[field] = {}
+        events.append(event)
+    return events
 
 
 def get_date_feedback(date_schedule_id: str) -> list[dict]:

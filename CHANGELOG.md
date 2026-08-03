@@ -9,6 +9,7 @@ All notable changes to kindred will be documented in this file.
 - Added: Adaptive 2PL IRT question selection over a 1,015-item Big Five bank with incremental SPA batches
 - Added: Dimension-aware active-learning questionnaire endpoint for next-prompt selection
 - Added: Cohort-backed country calibration with raw-score retention and private country fields
+- Added: Private post-date feedback learning with persisted weight events and manual-weight blending
 - v2.5.1 — Comprehensive audit: 41 bug fixes
 - v2.5.0 — Phase 8: Premium & integrations
 - v2.4.0 — Phase 7: Admin & operations

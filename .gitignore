@@ -6,6 +6,7 @@ kindred.db
 *.db-shm
 uploads/
 .env
+.jwt_secret
 *.bak
 CLAUDE.md
 

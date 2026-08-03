@@ -53,6 +53,45 @@ class EmbeddingModelTests(unittest.TestCase):
         long = [1.0, 0.0, 0.0]
         self.assertEqual(engine.semantic_compatibility(short, long), 0.5)
 
+    def test_positive_outcome_increases_weight_of_high_scoring_dimension(self):
+        breakdown = {
+            "personality": 90,
+            "values": 50,
+            "communication": 50,
+            "financial": 50,
+            "attachment": 50,
+            "tradeoffs": 50,
+            "semantic": 50,
+            "dealbreakers": 50,
+        }
+        learned = engine.learn_weight_preferences({}, breakdown, 1.0)
+
+        self.assertGreater(learned["personality"], engine.DEFAULT_WEIGHTS["personality"])
+        self.assertAlmostEqual(sum(learned.values()), 1.0)
+
+    def test_negative_outcome_decreases_weight_of_high_scoring_dimension(self):
+        breakdown = {
+            "personality": 90,
+            "values": 50,
+            "communication": 50,
+            "financial": 50,
+            "attachment": 50,
+            "tradeoffs": 50,
+            "semantic": 50,
+            "dealbreakers": 50,
+        }
+        learned = engine.learn_weight_preferences({}, breakdown, 0.0)
+
+        self.assertLess(learned["personality"], engine.DEFAULT_WEIGHTS["personality"])
+
+    def test_manual_weights_remain_dominant_when_blended_with_learning(self):
+        merged = engine.merge_weight_preferences(
+            {"personality": 1.0}, {"values": 1.0}
+        )
+
+        self.assertGreater(merged["personality"], merged["values"])
+        self.assertAlmostEqual(sum(merged.values()), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

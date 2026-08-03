@@ -37,6 +37,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - sentence-transformers embeddings for semantic similarity (MPNet by default, MiniLM fallback)
 - Match narratives, icebreakers, and coaching tips
 - Customizable dimension weights per user
+- Private post-date outcome learning adapts match weights while preserving manual priorities
 - Photo reveal at compatibility threshold
 - Daily curated Top Picks suggestions
 - Super Like with instant notification

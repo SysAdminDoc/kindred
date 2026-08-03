@@ -122,6 +122,7 @@ from app.database import (
     set_availability, get_availability, get_available_profiles,
     generate_starters, get_starters, mark_starter_used,
     submit_date_feedback, get_date_feedback, get_feedback_stats,
+    save_weight_learning, get_weight_learning_events,
     get_unread_counts,
     get_active_announcements,
     get_dealbreaker_comparison,
@@ -164,7 +165,7 @@ from app.questions import (
 from app.engine import (
     generate_embedding, find_matches, compute_compatibility,
     generate_narrative, generate_icebreakers, generate_coaching_tips,
-    DEFAULT_WEIGHTS,
+    DEFAULT_WEIGHTS, merge_weight_preferences, learn_weight_preferences,
 )
 
 logger = setup_logging()
@@ -984,7 +985,7 @@ def read_profile(profile_id: str):
         raise HTTPException(status_code=404, detail="Profile not found")
     result = {
         k: v for k, v in profile.items()
-        if k not in {"embedding", "big_five_raw", "country"}
+        if k not in {"embedding", "big_five_raw", "country", "learned_weight_prefs"}
     }
     return result
 
@@ -1057,6 +1058,12 @@ def _generate_thumbnail(filepath: Path, profile_id: str, size: tuple = (200, 200
 # Matching
 # ---------------------------------------------------------------------------
 
+def _effective_profile_weights(profile: dict) -> dict[str, float]:
+    return merge_weight_preferences(
+        profile.get("weight_prefs"),
+        profile.get("learned_weight_prefs"),
+    )
+
 @app.get("/api/matches/expiring")
 def expiring_matches(user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
@@ -1075,10 +1082,13 @@ def get_matches(profile_id: str, top_n: int = 20):
     if len(all_profiles) < 2:
         return {"matches": [], "message": "Need at least 2 profiles to match"}
 
-    custom_weights = target.get("weight_prefs") or None
+    custom_weights = _effective_profile_weights(target)
     matches = find_matches(profile_id, all_profiles, top_n, custom_weights)
 
     for m in matches:
+        # Manual and learned preferences are private; only expose scores and
+        # dimension breakdowns to public match consumers.
+        m["compatibility"].pop("weights", None)
         if m["compatibility"]["total"] < PHOTO_REVEAL_THRESHOLD:
             m["photo"] = None
             m["photo_locked"] = True
@@ -1095,7 +1105,10 @@ def compare_profiles(id_a: str, id_b: str):
     if profile_a is None or profile_b is None:
         raise HTTPException(status_code=404, detail="One or both profiles not found")
 
-    result = compute_compatibility(profile_a, profile_b)
+    result = compute_compatibility(
+        profile_a, profile_b, _effective_profile_weights(profile_a)
+    )
+    result.pop("weights", None)
     result["profiles"] = {
         "a": {"id": id_a, "name": profile_a["name"]},
         "b": {"id": id_b, "name": profile_b["name"]},
@@ -1133,6 +1146,21 @@ def update_weights(profile_id: str, body: WeightUpdate, user: dict = Depends(req
         raise HTTPException(status_code=404, detail="Profile not found")
     update_profile_field(profile_id, "weight_prefs", body.weights)
     return {"message": "Weights updated", "weights": body.weights}
+
+
+@app.get("/api/profile/{profile_id}/weight-learning")
+def get_weight_learning(profile_id: str, limit: int = 50,
+                        user: dict = Depends(require_user)):
+    if user.get("profile_id") != profile_id:
+        raise HTTPException(status_code=403, detail="Can only view your own learned weights")
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {
+        "learned_weights": profile.get("learned_weight_prefs") or {},
+        "effective_weights": _effective_profile_weights(profile),
+        "events": get_weight_learning_events(profile_id, limit),
+    }
 
 
 @app.put("/api/profile/{profile_id}/privacy")
@@ -2206,7 +2234,7 @@ def daily_suggestions(user: dict = Depends(require_user)):
     all_profiles = get_all_profiles()
     if len(all_profiles) < 2:
         return {"suggestions": []}
-    custom_weights = target.get("weight_prefs") or None
+    custom_weights = _effective_profile_weights(target)
     matches = find_matches(profile_id, all_profiles, DAILY_SUGGESTION_COUNT, custom_weights)
     suggestions = [{"suggested_id": m["id"], "score": m["compatibility"]["total"]} for m in matches]
     save_daily_suggestions(profile_id, suggestions)
@@ -3339,15 +3367,62 @@ async def post_date_feedback(fb: DateFeedbackSubmit, user: dict = Depends(requir
     pid = user.get("profile_id")
     if not pid:
         raise HTTPException(400, "No profile")
+
+    schedule = get_date_schedule(fb.date_schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Date schedule not found")
+    participants = {schedule.get("profile_a"), schedule.get("profile_b")}
+    if len(participants) != 2 or participants != {pid, fb.partner_id}:
+        raise HTTPException(status_code=403, detail="Feedback must be about your scheduled date")
+    if any(item.get("profile_id") == pid for item in get_date_feedback(fb.date_schedule_id)):
+        raise HTTPException(status_code=409, detail="Feedback already submitted for this date")
+
+    rater = get_profile(pid)
+    partner = get_profile(fb.partner_id)
+    if not rater or not partner:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
     fid = submit_date_feedback(
         fb.date_schedule_id, pid, fb.partner_id,
         fb.felt_safe, fb.had_fun, fb.accurate_match,
         fb.would_meet_again, fb.notes
     )
-    return {"id": fid}
+
+    signals = [fb.felt_safe, fb.had_fun, fb.accurate_match]
+    if fb.would_meet_again is not None:
+        signals.append(fb.would_meet_again)
+    outcome = sum(1.0 for signal in signals if signal) / len(signals)
+    compatibility = compute_compatibility(rater, partner)
+    previous_weights = rater.get("learned_weight_prefs") or {}
+    updated_weights = learn_weight_preferences(
+        previous_weights, compatibility.get("breakdown", {}), outcome
+    )
+    learning_applied = save_weight_learning(
+        pid,
+        fb.partner_id,
+        fb.date_schedule_id,
+        outcome,
+        compatibility.get("breakdown", {}),
+        previous_weights,
+        updated_weights,
+    )
+    return {
+        "id": fid,
+        "weight_learning": {
+            "applied": learning_applied,
+            "outcome": round(outcome, 4),
+            "weights": updated_weights if learning_applied else previous_weights,
+        },
+    }
 
 @app.get("/api/date-feedback/{date_schedule_id}")
 async def get_feedback_for_date(date_schedule_id: str, user: dict = Depends(require_user)):
+    pid = user.get("profile_id")
+    schedule = get_date_schedule(date_schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Date schedule not found")
+    if pid not in {schedule.get("profile_a"), schedule.get("profile_b")}:
+        raise HTTPException(status_code=403, detail="Not a participant in this date")
     return get_date_feedback(date_schedule_id)
 
 @app.get("/api/feedback-stats/{profile_id}")
@@ -3878,7 +3953,9 @@ async def recalculate_compatibility(user=Depends(require_user)):
     results = []
     for other in candidates:
         try:
-            result = compute_compatibility(user_profile, other)
+            result = compute_compatibility(
+                user_profile, other, _effective_profile_weights(user_profile)
+            )
             new_score = result.get("total", 0)
             log_compatibility_recalc(
                 user["id"],
