@@ -3,6 +3,7 @@ Kindred v2.5.1 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
+import asyncio
 import hashlib
 import json as json_stdlib
 import math
@@ -246,37 +247,110 @@ def validate_file_magic(content: bytes, ext: str) -> bool:
 
 # WebSocket connection manager
 class ConnectionManager:
+    PRESENCE_TTL_SECONDS = 90
+
     def __init__(self):
         self.active: dict[str, list[WebSocket]] = defaultdict(list)
+        self._presence_ids: dict[int, str] = {}
+        self._worker_id = secrets.token_urlsafe(8)
+        self._subscriber_task: asyncio.Task | None = None
+        self._subscriber_stop: asyncio.Event | None = None
+
+    async def start(self):
+        """Start the cross-process event subscriber when Redis is available."""
+        if self._subscriber_task or not redis_sessions.enabled:
+            return
+        self._subscriber_stop = asyncio.Event()
+        self._subscriber_task = asyncio.create_task(
+            redis_sessions.listen_websocket_events(
+                self._handle_remote_event,
+                self._subscriber_stop,
+            ),
+            name="kindred-websocket-subscriber",
+        )
+
+    async def stop(self):
+        """Stop the subscriber cleanly when an ASGI worker exits."""
+        if self._subscriber_stop:
+            self._subscriber_stop.set()
+        task = self._subscriber_task
+        self._subscriber_task = None
+        self._subscriber_stop = None
+        if not task:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            log.warning("WebSocket subscriber stopped with an error: %s", exc)
 
     async def connect(self, profile_id: str, ws: WebSocket):
         await ws.accept()
         self.active[profile_id].append(ws)
+        presence_id = f"{self._worker_id}:{secrets.token_urlsafe(8)}"
+        self._presence_ids[id(ws)] = presence_id
+        if redis_sessions.enabled:
+            redis_sessions.add_websocket_presence(
+                profile_id,
+                presence_id,
+                self.PRESENCE_TTL_SECONDS,
+            )
 
     def disconnect(self, profile_id: str, ws: WebSocket):
         if profile_id in self.active:
             self.active[profile_id] = [w for w in self.active[profile_id] if w is not ws]
             if not self.active[profile_id]:
                 del self.active[profile_id]
+        presence_id = self._presence_ids.pop(id(ws), None)
+        if presence_id and redis_sessions.enabled:
+            redis_sessions.remove_websocket_presence(profile_id, presence_id)
 
-    async def send_to(self, profile_id: str, data: dict):
-        import json as _json
-        for ws in self.active.get(profile_id, []):
+    def touch(self, profile_id: str, ws: WebSocket):
+        presence_id = self._presence_ids.get(id(ws))
+        if presence_id and redis_sessions.enabled:
+            redis_sessions.refresh_websocket_presence(
+                profile_id,
+                presence_id,
+                self.PRESENCE_TTL_SECONDS,
+            )
+
+    async def _send_local(self, profile_id: str, data: dict):
+        for ws in self.active.get(profile_id, [])[:]:
             try:
-                await ws.send_text(_json.dumps(data))
+                await ws.send_text(json_stdlib.dumps(data))
             except Exception:
                 self.disconnect(profile_id, ws)
 
+    async def _handle_remote_event(self, profile_id: str, data: dict):
+        await self._send_local(profile_id, data)
+
+    async def _publish(self, profile_id: str, data: dict) -> bool:
+        if not redis_sessions.enabled:
+            return False
+        return await asyncio.to_thread(
+            redis_sessions.publish_websocket,
+            profile_id,
+            data,
+        )
+
+    async def send_to(self, profile_id: str, data: dict):
+        if await self._publish(profile_id, data):
+            return
+        await self._send_local(profile_id, data)
+
     def is_online(self, profile_id: str) -> bool:
-        return bool(self.active.get(profile_id))
+        return profile_id in self.online_profiles({profile_id})
+
+    def online_profiles(self, profile_ids: set[str]) -> set[str]:
+        if redis_sessions.enabled:
+            return redis_sessions.websocket_online_profiles(profile_ids)
+        return {profile_id for profile_id in profile_ids if self.active.get(profile_id)}
 
     async def send_notification_to_profile(self, profile_id: str, notification: dict):
         """Send a real-time notification to a profile's WebSocket connections."""
-        for ws in self.active.get(profile_id, [])[:]:
-            try:
-                await ws.send_json({"type": "notification", "data": notification})
-            except Exception:
-                pass
+        await self.send_to(profile_id, {"type": "notification", "data": notification})
 
 
 ws_manager = ConnectionManager()
@@ -570,7 +644,7 @@ class ReadReceiptsUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 @app.on_event("startup")
-def startup():
+async def startup():
     app.state.redis_session_backend = redis_sessions.initialize()
     app.state.rate_limit_backend = "redis" if redis_sessions.enabled else "memory"
     init_db()
@@ -581,6 +655,12 @@ def startup():
     cleanup_expired_stories()
     reveal_blind_dates()
     cleanup_expired_undo_blocks()
+    await ws_manager.start()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await ws_manager.stop()
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -2576,6 +2656,7 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str, token: str =
 
             elif msg_type == "heartbeat":
                 update_last_seen(profile_id)
+                ws_manager.touch(profile_id, websocket)
 
     except WebSocketDisconnect:
         ws_manager.disconnect(profile_id, websocket)
@@ -2588,7 +2669,7 @@ def ws_online_users(user: dict = Depends(require_user)):
         return {"online": []}
     friends = get_friends(profile_id)
     friend_ids = {f["id"] for f in friends}
-    online = [pid for pid in ws_manager.active if pid in friend_ids]
+    online = sorted(ws_manager.online_profiles(friend_ids))
     return {"online": online}
 
 
@@ -2609,6 +2690,8 @@ def health_check():
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),
         "rate_limit_backend": app.state.rate_limit_backend,
+        "worker_role": os.getenv("KINDRED_WORKER_ROLE", "user-api"),
+        "websocket_transport": "redis" if redis_sessions.enabled else "local",
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
         "pid": os.getpid(),
     }

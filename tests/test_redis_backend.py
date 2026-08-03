@@ -11,6 +11,7 @@ class FakeRedis:
         self.hashes = {}
         self.sets = {}
         self.expirations = {}
+        self.published = []
 
     def ping(self):
         return True
@@ -41,6 +42,10 @@ class FakeRedis:
 
     def get(self, name):
         return self.values.get(name)
+
+    def publish(self, channel, message):
+        self.published.append((channel, message))
+        return 1
 
     def delete(self, *names):
         removed = 0
@@ -106,6 +111,23 @@ class RedisSessionStoreTests(unittest.TestCase):
 
         self.assertEqual(store.backend_name, "sqlite")
         self.assertEqual(store.rate_limit_storage_uri, "memory://")
+
+    def test_websocket_events_and_presence_use_shared_keys(self):
+        client = FakeRedis()
+        store = RedisSessionStore(
+            "redis://test",
+            required=True,
+            prefix="test",
+            client_factory=lambda _: client,
+        )
+
+        self.assertTrue(store.publish_websocket("profile-1", {"type": "typing"}))
+        self.assertEqual(len(client.published), 1)
+        self.assertTrue(store.add_websocket_presence("profile-1", "worker-1:connection-1"))
+        self.assertEqual(store.websocket_online_profiles({"profile-1", "profile-2"}), {"profile-1"})
+        self.assertTrue(store.refresh_websocket_presence("profile-1", "worker-1:connection-1"))
+        self.assertTrue(store.remove_websocket_presence("profile-1", "worker-1:connection-1"))
+        self.assertEqual(store.websocket_online_profiles({"profile-1"}), set())
 
 
 if __name__ == "__main__":

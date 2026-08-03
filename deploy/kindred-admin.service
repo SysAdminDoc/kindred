@@ -8,6 +8,8 @@ User=kindred
 Group=kindred
 WorkingDirectory=/opt/kindred
 EnvironmentFile=/opt/kindred/.env
+Environment=KINDRED_WORKER_ROLE=admin-api
+Environment=KINDRED_REDIS_REQUIRED=true
 ExecStart=/opt/kindred/.venv/bin/uvicorn app.admin_app:admin_app --host 127.0.0.1 --port 8001
 Restart=always
 RestartSec=5

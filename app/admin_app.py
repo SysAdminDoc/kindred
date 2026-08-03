@@ -403,6 +403,7 @@ def health_check():
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),
+        "worker_role": os.getenv("KINDRED_WORKER_ROLE", "admin-api"),
         "pid": os.getpid(),
     }
 

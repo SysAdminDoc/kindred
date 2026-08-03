@@ -1,22 +1,84 @@
+x-kindred-common: &kindred-common
+  build: ..
+  restart: unless-stopped
+  env_file:
+    - ../.env
+  environment: &kindred-environment
+    KINDRED_HOST: 0.0.0.0
+    KINDRED_REDIS_URL: redis://kindred-redis:6379/0
+    KINDRED_REDIS_REQUIRED: "true"
+  volumes:
+    - ../kindred.db:/app/kindred.db
+    - ../uploads:/app/uploads
+    - ../backups:/app/backups
+    - ../.jwt_secret:/app/.jwt_secret
+
 services:
-  kindred:
-    build: ..
-    container_name: kindred-app
+  kindred-redis:
+    image: redis:7-alpine
+    container_name: kindred-redis
     restart: unless-stopped
-    env_file:
-      - ../.env
-    environment:
-      - KINDRED_HOST=0.0.0.0
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - ../kindred.db:/app/kindred.db
-      - ../uploads:/app/uploads
-      - ../backups:/app/backups
-      - ../.jwt_secret:/app/.jwt_secret
-    ports:
-      - "127.0.0.1:8000:8000"
-      - "127.0.0.1:8001:8001"
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kindred-user:
+    <<: *kindred-common
+    container_name: kindred-user
+    environment:
+      <<: *kindred-environment
+      KINDRED_WORKER_ROLE: user-api
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "${KINDRED_USER_WORKERS:-2}"]
+    expose:
+      - "8000"
+    depends_on:
+      kindred-redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  kindred-admin:
+    <<: *kindred-common
+    container_name: kindred-admin
+    environment:
+      <<: *kindred-environment
+      KINDRED_WORKER_ROLE: admin-api
+    command: ["uvicorn", "app.admin_app:admin_app", "--host", "0.0.0.0", "--port", "8001", "--workers", "${KINDRED_ADMIN_WORKERS:-1}"]
+    expose:
+      - "8001"
+    depends_on:
+      kindred-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  kindred-ws:
+    <<: *kindred-common
+    container_name: kindred-ws
+    environment:
+      <<: *kindred-environment
+      KINDRED_WORKER_ROLE: websocket
+    command: ["uvicorn", "app.ws_app:ws_app", "--host", "0.0.0.0", "--port", "8002", "--workers", "${KINDRED_WS_WORKERS:-2}"]
+    expose:
+      - "8002"
+    depends_on:
+      kindred-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/api/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -35,9 +97,14 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      kindred:
+      kindred-user:
+        condition: service_healthy
+      kindred-admin:
+        condition: service_healthy
+      kindred-ws:
         condition: service_healthy
 
 volumes:
   caddy_data:
   caddy_config:
+  redis_data:

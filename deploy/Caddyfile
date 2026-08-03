@@ -31,11 +31,12 @@ YOUR_DOMAIN {
 
     # WebSocket upgrade support
     @websocket {
+        path /ws/*
         header Connection *Upgrade*
         header Upgrade websocket
     }
     handle @websocket {
-        reverse_proxy localhost:8000
+        reverse_proxy localhost:8002
     }
 
     # Everything else -> user server

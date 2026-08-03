@@ -12,6 +12,7 @@ All notable changes to kindred will be documented in this file.
 - Added: Private post-date feedback learning with persisted weight events and manual-weight blending
 - Added: Safe SQLite-to-PostgreSQL migration utility with schema, data, and row-count verification
 - Added: Optional Redis-backed rate limits and refresh sessions with fail-closed production mode
+- Added: Separate user API, admin API, and WebSocket worker processes behind the Caddy gateway with Redis pub/sub presence
 - v2.5.1 — Comprehensive audit: 41 bug fixes
 - v2.5.0 — Phase 8: Premium & integrations
 - v2.4.0 — Phase 7: Admin & operations

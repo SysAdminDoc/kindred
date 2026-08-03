@@ -12,6 +12,6 @@ COPY . .
 # Create upload directory
 RUN mkdir -p uploads
 
-EXPOSE 8000 8001
+EXPOSE 8000 8001 8002
 
 CMD ["python", "start.py"]

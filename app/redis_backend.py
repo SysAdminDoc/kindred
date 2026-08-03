@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 from app.config import REDIS_KEY_PREFIX, REDIS_REQUIRED, REDIS_URL
 
@@ -111,6 +113,145 @@ class RedisSessionStore:
 
     def _user_key(self, user_id: str) -> str:
         return f"{self.prefix}:user-sessions:{user_id}"
+
+    def _websocket_channel(self) -> str:
+        return f"{self.prefix}:websocket-events"
+
+    def _websocket_presence_index(self, profile_id: str) -> str:
+        return f"{self.prefix}:websocket-presence:{profile_id}"
+
+    def _websocket_presence_key(self, profile_id: str, connection_id: str) -> str:
+        return f"{self.prefix}:websocket-presence:{profile_id}:{connection_id}"
+
+    def publish_websocket(self, profile_id: str, data: dict[str, Any]) -> bool:
+        """Publish a message for every WebSocket worker to fan out locally."""
+        if not self.enabled:
+            return False
+        event = json.dumps(
+            {"profile_id": profile_id, "data": data},
+            separators=(",", ":"),
+        )
+        try:
+            self._client.publish(self._websocket_channel(), event)
+        except Exception as exc:
+            logger.warning("Redis WebSocket publish failed: %s", exc)
+            return False
+        return True
+
+    def add_websocket_presence(
+        self,
+        profile_id: str,
+        connection_id: str,
+        ttl_seconds: int = 90,
+    ) -> bool:
+        """Register one connection with a short-lived distributed presence key."""
+        if not self.enabled:
+            return False
+        key = self._websocket_presence_key(profile_id, connection_id)
+        index = self._websocket_presence_index(profile_id)
+        try:
+            self._client.set(key, "1", ex=max(1, ttl_seconds))
+            self._client.sadd(index, key)
+        except Exception as exc:
+            logger.warning("Redis WebSocket presence registration failed: %s", exc)
+            return False
+        return True
+
+    def refresh_websocket_presence(
+        self,
+        profile_id: str,
+        connection_id: str,
+        ttl_seconds: int = 90,
+    ) -> bool:
+        """Extend a live connection's presence lease."""
+        if not self.enabled:
+            return False
+        key = self._websocket_presence_key(profile_id, connection_id)
+        try:
+            return bool(self._client.expire(key, max(1, ttl_seconds)))
+        except Exception as exc:
+            logger.warning("Redis WebSocket presence refresh failed: %s", exc)
+            return False
+
+    def remove_websocket_presence(self, profile_id: str, connection_id: str) -> bool:
+        """Remove a connection and its presence index entry."""
+        if not self.enabled:
+            return False
+        key = self._websocket_presence_key(profile_id, connection_id)
+        try:
+            self._client.delete(key)
+            self._client.srem(self._websocket_presence_index(profile_id), key)
+        except Exception as exc:
+            logger.warning("Redis WebSocket presence removal failed: %s", exc)
+            return False
+        return True
+
+    def websocket_online_profiles(self, profile_ids: Iterable[str]) -> set[str]:
+        """Return profiles with at least one non-expired distributed connection."""
+        if not self.enabled:
+            return set()
+        online: set[str] = set()
+        for profile_id in profile_ids:
+            index = self._websocket_presence_index(profile_id)
+            try:
+                members = self._client.smembers(index)
+                for key in members:
+                    if self._client.exists(key):
+                        online.add(profile_id)
+                    else:
+                        self._client.srem(index, key)
+            except Exception as exc:
+                logger.warning("Redis WebSocket presence lookup failed: %s", exc)
+                break
+        return online
+
+    async def listen_websocket_events(
+        self,
+        handler: Callable[[str, dict[str, Any]], Awaitable[None]],
+        stop_event: Any,
+    ) -> None:
+        """Listen for WebSocket events until the owning ASGI worker shuts down."""
+        if not self.enabled:
+            return
+        import redis.asyncio as redis_asyncio
+
+        client = redis_asyncio.Redis.from_url(
+            self.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
+        pubsub = client.pubsub()
+        try:
+            await pubsub.subscribe(self._websocket_channel())
+            while not stop_event.is_set():
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True,
+                    timeout=1.0,
+                )
+                if not message or message.get("type") != "message":
+                    continue
+                try:
+                    event = json.loads(message.get("data", "{}"))
+                    profile_id = event.get("profile_id")
+                    data = event.get("data")
+                    if profile_id and isinstance(data, dict):
+                        await handler(str(profile_id), data)
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    logger.warning("Ignoring malformed Redis WebSocket event: %s", exc)
+        finally:
+            try:
+                await pubsub.unsubscribe(self._websocket_channel())
+            except Exception:
+                pass
+            try:
+                await pubsub.aclose()
+            except Exception:
+                pass
+            try:
+                await client.aclose()
+            except Exception:
+                pass
 
     def _ttl(self, expires_at: str) -> int:
         try:

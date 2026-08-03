@@ -21,11 +21,12 @@ YOUR_DOMAIN {
     }
 
     @websocket {
+        path /ws/*
         header Connection *Upgrade*
         header Upgrade websocket
     }
     handle @websocket {
-        reverse_proxy kindred-app:8000
+        reverse_proxy kindred-ws:8002
     }
 
     handle {

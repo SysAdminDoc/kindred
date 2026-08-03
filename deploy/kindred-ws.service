@@ -1,7 +1,6 @@
 [Unit]
-Description=Kindred User Server (port 8000)
+Description=Kindred WebSocket Server (port 8002)
 After=network.target
-Wants=kindred-admin.service kindred-ws.service
 
 [Service]
 Type=simple
@@ -9,14 +8,14 @@ User=kindred
 Group=kindred
 WorkingDirectory=/opt/kindred
 EnvironmentFile=/opt/kindred/.env
-Environment=KINDRED_WORKER_ROLE=user-api
+Environment=KINDRED_WORKER_ROLE=websocket
 Environment=KINDRED_REDIS_REQUIRED=true
-ExecStart=/opt/kindred/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+ExecStart=/opt/kindred/.venv/bin/uvicorn app.ws_app:ws_app --host 127.0.0.1 --port 8002 --workers 2
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=kindred-user
+SyslogIdentifier=kindred-ws
 
 # Security hardening
 NoNewPrivileges=yes
