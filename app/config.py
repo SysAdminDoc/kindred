@@ -67,6 +67,10 @@ REFRESH_TOKEN_DAYS = int(os.getenv("KINDRED_REFRESH_TOKEN_DAYS", "30"))
 
 # --- Background tasks ---
 EMBEDDING_WORKERS = int(os.getenv("KINDRED_EMBEDDING_WORKERS", "2"))
+EMBEDDING_MODEL = os.getenv("KINDRED_EMBEDDING_MODEL", "all-mpnet-base-v2")
+EMBEDDING_FALLBACK_MODEL = os.getenv(
+    "KINDRED_EMBEDDING_FALLBACK_MODEL", "all-MiniLM-L6-v2"
+)
 
 # --- Web Push (VAPID) ---
 VAPID_PUBLIC_KEY = os.getenv("KINDRED_VAPID_PUBLIC_KEY", "")

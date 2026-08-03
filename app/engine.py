@@ -5,16 +5,24 @@ attachment, tradeoffs, semantic, dealbreaker.
 Match narratives powered by Puter.js on the frontend.
 """
 
-import json
+import logging
 import math
+
 import numpy as np
 
+from app.config import EMBEDDING_FALLBACK_MODEL, EMBEDDING_MODEL
 from app.questions import (
-    TRADEOFF_QUESTIONS, VALUES_QUESTIONS, COMMUNICATION_QUESTIONS,
-    FINANCIAL_QUESTIONS, ENERGY_QUESTIONS, check_hard_dealbreakers,
+    COMMUNICATION_QUESTIONS,
+    ENERGY_QUESTIONS,
+    FINANCIAL_QUESTIONS,
+    TRADEOFF_QUESTIONS,
+    VALUES_QUESTIONS,
+    check_hard_dealbreakers,
 )
 
 _model = None
+_loaded_model_name = None
+logger = logging.getLogger(__name__)
 
 # Default weights (can be overridden per-user)
 DEFAULT_WEIGHTS = {
@@ -30,11 +38,39 @@ DEFAULT_WEIGHTS = {
 
 
 def get_model():
-    global _model
+    global _model, _loaded_model_name
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        candidates = list(dict.fromkeys(
+            model_name for model_name in (EMBEDDING_MODEL, EMBEDDING_FALLBACK_MODEL)
+            if model_name
+        ))
+        failures = []
+        for model_name in candidates:
+            try:
+                _model = SentenceTransformer(model_name)
+                _loaded_model_name = model_name
+                if model_name != EMBEDDING_MODEL:
+                    logger.warning(
+                        "Embedding model %s failed; using fallback model %s",
+                        EMBEDDING_MODEL,
+                        model_name,
+                    )
+                return _model
+            except Exception as exc:
+                failures.append((model_name, exc))
+                logger.warning("Unable to load embedding model %s: %s", model_name, exc)
+
+        attempted = ", ".join(candidates) or "no configured models"
+        cause = failures[-1][1] if failures else None
+        raise RuntimeError(f"Unable to load an embedding model ({attempted})") from cause
     return _model
+
+
+def get_loaded_model_name() -> str | None:
+    """Return the model selected for this process, if embeddings have loaded."""
+    return _loaded_model_name
 
 
 def generate_embedding(text: str) -> np.ndarray:
@@ -219,8 +255,21 @@ def attachment_compatibility(a: dict[str, float], b: dict[str, float]) -> float:
 def semantic_compatibility(emb_a, emb_b) -> float:
     if emb_a is None or emb_b is None:
         return 0.5
-    a_vec = np.frombuffer(emb_a, dtype=np.float32) if isinstance(emb_a, bytes) else np.array(emb_a, dtype=np.float32)
-    b_vec = np.frombuffer(emb_b, dtype=np.float32) if isinstance(emb_b, bytes) else np.array(emb_b, dtype=np.float32)
+    a_vec = (
+        np.frombuffer(emb_a, dtype=np.float32)
+        if isinstance(emb_a, bytes)
+        else np.array(emb_a, dtype=np.float32)
+    )
+    b_vec = (
+        np.frombuffer(emb_b, dtype=np.float32)
+        if isinstance(emb_b, bytes)
+        else np.array(emb_b, dtype=np.float32)
+    )
+    if a_vec.shape != b_vec.shape:
+        # Existing profiles can still contain MiniLM vectors after a model
+        # change. Treat the semantic dimension as unknown until both profiles
+        # have been recomputed instead of allowing np.dot to crash matching.
+        return 0.5
     raw = cosine_similarity(a_vec, b_vec)
     return max(0.0, min(1.0, (raw - 0.2) / 0.6))
 

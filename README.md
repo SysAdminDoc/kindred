@@ -31,7 +31,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 **Matching Engine**
 - 8-dimension compatibility scoring (personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker)
 - Compatibility radar chart (canvas spider chart for 8 dimensions)
-- sentence-transformers embeddings for semantic similarity
+- sentence-transformers embeddings for semantic similarity (MPNet by default, MiniLM fallback)
 - Match narratives, icebreakers, and coaching tips
 - Customizable dimension weights per user
 - Photo reveal at compatibility threshold
@@ -192,7 +192,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 |-------|-----------|
 | Backend | Python 3.12+, FastAPI, Uvicorn |
 | Database | SQLite (WAL mode, thread-local pooling) |
-| Embeddings | sentence-transformers (all-MiniLM-L6-v2) |
+| Embeddings | sentence-transformers (all-mpnet-base-v2, MiniLM fallback) |
 | Narratives | Puter.js (client-side) |
 | Frontend | Vanilla JS single-file SPA |
 | Auth | JWT (pyjwt + passlib/bcrypt), 2FA TOTP, WebSocket JWT |
@@ -269,6 +269,8 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_RATE_LIMIT` | `60/minute` | General rate limit |
 | `KINDRED_RATE_LIMIT_AUTH` | `10/minute` | Auth endpoint rate limit |
 | `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
+| `KINDRED_EMBEDDING_MODEL` | `all-mpnet-base-v2` | Preferred semantic embedding model |
+| `KINDRED_EMBEDDING_FALLBACK_MODEL` | `all-MiniLM-L6-v2` | Fallback when the preferred model cannot load |
 
 ## License
 
