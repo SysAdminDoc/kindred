@@ -1,7 +1,6 @@
 [Unit]
-Description=Kindred User Server (port 8000)
+Description=Kindred Background Job Workers
 After=network.target
-Wants=kindred-admin.service kindred-ws.service kindred-worker.service
 
 [Service]
 Type=simple
@@ -9,14 +8,15 @@ User=kindred
 Group=kindred
 WorkingDirectory=/opt/kindred
 EnvironmentFile=/opt/kindred/.env
-Environment=KINDRED_WORKER_ROLE=user-api
-Environment=KINDRED_REDIS_REQUIRED=true
-ExecStart=/opt/kindred/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+Environment=KINDRED_WORKER_ROLE=jobs
+Environment=KINDRED_QUEUE_ENABLED=true
+Environment=KINDRED_QUEUE_REQUIRED=true
+ExecStart=/opt/kindred/.venv/bin/dramatiq --processes 2 --threads 2 app.tasks
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=kindred-user
+SyslogIdentifier=kindred-worker
 
 # Security hardening
 NoNewPrivileges=yes

@@ -1344,6 +1344,17 @@ def update_profile_field(profile_id: str, field: str, value) -> bool:
     return True
 
 
+def update_profile_embedding(profile_id: str, embedding: bytes) -> bool:
+    """Persist an asynchronously generated embedding for one profile."""
+    conn = get_db()
+    cursor = conn.execute(
+        "UPDATE profiles SET embedding = ? WHERE id = ?",
+        (embedding, profile_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 def get_profile(profile_id: str) -> dict | None:
     conn = get_db()
     row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
@@ -3202,8 +3213,14 @@ def verify_email_token(token: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def submit_photo_for_moderation(profile_id: str, filename: str) -> str:
-    mod_id = uuid.uuid4().hex
     conn = get_db()
+    existing = conn.execute(
+        "SELECT id FROM photo_moderation WHERE profile_id = ? AND photo_filename = ? AND status = 'pending' LIMIT 1",
+        (profile_id, filename),
+    ).fetchone()
+    if existing:
+        return existing["id"]
+    mod_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO photo_moderation (id, profile_id, photo_filename) VALUES (?, ?, ?)",
         (mod_id, profile_id, filename),

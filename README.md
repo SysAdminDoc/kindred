@@ -202,6 +202,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 | Frontend | Vanilla JS single-file SPA |
 | Auth | JWT (pyjwt + passlib/bcrypt), 2FA TOTP, WebSocket JWT |
 | Security | CORS (locked to localhost), slowapi rate limiting, magic byte validation, XSS escaping |
+| Jobs | Dramatiq workers over Redis (production), inline fallback (development) |
 | Theme | Catppuccin Mocha (dark) / Latte (light) |
 | Deploy | Docker, docker-compose, Caddy |
 
@@ -215,6 +216,8 @@ kindred/
     main.py             # User API server (120+ endpoints)
     admin_app.py        # Admin API server
     ws_app.py           # Dedicated WebSocket worker entrypoint
+    job_queue.py        # Dramatiq broker and queue submission policy
+    tasks.py            # Embedding and photo-moderation actors
     database.py         # SQLite CRUD (70+ tables)
     engine.py           # 8-dimension matching engine
     questions.py        # Questionnaire definitions
@@ -272,8 +275,10 @@ docker compose -f deploy/docker-compose.prod.yml up --build -d
 The production gateway sends user traffic to the user API workers on port
 8000, admin traffic to the admin workers on port 8001, and `/ws/*` upgrades to
 dedicated WebSocket workers on port 8002. Redis supplies shared rate limits,
-refresh sessions, WebSocket pub/sub, and connection presence; the production
-stack starts a persistent Redis service and requires it for every worker.
+refresh sessions, WebSocket pub/sub, connection presence, and the Dramatiq job
+broker; the production stack starts a persistent Redis service and requires it
+for every worker. The separate job worker handles profile embeddings and photo
+moderation queue records.
 
 ### PostgreSQL migration
 
@@ -314,6 +319,10 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_USER_WORKERS` | `2` | User API worker count in the production Compose stack |
 | `KINDRED_ADMIN_WORKERS` | `1` | Admin API worker count in the production Compose stack |
 | `KINDRED_WS_WORKERS` | `2` | Dedicated WebSocket worker count in the production Compose stack |
+| `KINDRED_QUEUE_ENABLED` | `false` | Enable Dramatiq embedding and moderation jobs |
+| `KINDRED_QUEUE_REQUIRED` | `false` | Fail startup instead of falling back to inline jobs |
+| `KINDRED_QUEUE_PROCESSES` | `2` | Dramatiq worker process count in the production Compose stack |
+| `KINDRED_QUEUE_THREADS` | `2` | Dramatiq threads per worker process in the production Compose stack |
 | `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
 | `KINDRED_EMBEDDING_MODEL` | `all-mpnet-base-v2` | Preferred semantic embedding model |
 | `KINDRED_EMBEDDING_FALLBACK_MODEL` | `all-MiniLM-L6-v2` | Fallback when the preferred model cannot load |
@@ -323,7 +332,14 @@ For a multi-worker production deployment, set `KINDRED_REDIS_URL` and
 uses Redis pub/sub and short-lived presence leases to keep notifications and
 online status correct across processes. Leaving the requirement disabled
 intentionally keeps local development on SQLite sessions, in-memory rate
-limiting, and process-local WebSocket delivery.
+limiting, process-local WebSocket delivery, and inline embedding/moderation
+work. Production should keep both queue flags enabled and run the supplied
+`kindred-worker` systemd service or Compose service.
+
+For a bare-metal systemd deployment, install `deploy/kindred-ws.service` and
+`deploy/kindred-worker.service` alongside the existing user/admin units and
+enable all four services. The supplied Caddyfile expects the WebSocket worker
+on localhost:8002.
 
 ## License
 

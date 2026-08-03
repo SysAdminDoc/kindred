@@ -7,6 +7,8 @@ x-kindred-common: &kindred-common
     KINDRED_HOST: 0.0.0.0
     KINDRED_REDIS_URL: redis://kindred-redis:6379/0
     KINDRED_REDIS_REQUIRED: "true"
+    KINDRED_QUEUE_ENABLED: "true"
+    KINDRED_QUEUE_REQUIRED: "true"
   volumes:
     - ../kindred.db:/app/kindred.db
     - ../uploads:/app/uploads
@@ -83,6 +85,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  kindred-worker:
+    <<: *kindred-common
+    container_name: kindred-worker
+    environment:
+      <<: *kindred-environment
+      KINDRED_WORKER_ROLE: jobs
+    command: ["dramatiq", "--processes", "${KINDRED_QUEUE_PROCESSES:-2}", "--threads", "${KINDRED_QUEUE_THREADS:-2}", "app.tasks"]
+    depends_on:
+      kindred-redis:
+        condition: service_healthy
 
   caddy:
     image: caddy:2-alpine

@@ -43,10 +43,11 @@ from app.config import (
 )
 from app.logging_config import setup_logging, get_logger
 from app.content_filter import check_content, filter_message
+from app.job_queue import QueueConfigurationError, job_queue
 from app.redis_backend import redis_sessions
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
-    update_profile_field, send_message, get_conversation, get_conversations_for,
+    update_profile_field, update_profile_embedding, send_message, get_conversation, get_conversations_for,
     get_conversation_count, get_last_message_sender,
     mark_messages_read, use_invite,
     create_date_plan, update_date_plan, get_date_plans, get_date_plans_between,
@@ -647,6 +648,7 @@ class ReadReceiptsUpdate(BaseModel):
 async def startup():
     app.state.redis_session_backend = redis_sessions.initialize()
     app.state.rate_limit_backend = "redis" if redis_sessions.enabled else "memory"
+    app.state.job_queue_backend = job_queue.initialize()
     init_db()
     from app.i18n import init_i18n
     init_i18n()
@@ -1067,10 +1069,19 @@ def create_profile(submission: ProfileSubmission,
     }
 
     profile_text = build_profile_text(profile_data)
-    embedding = generate_embedding(profile_text)
-    profile_data["embedding"] = embedding.tobytes()
-
     profile_id = save_profile(profile_data)
+
+    try:
+        embedding_job_id = job_queue.enqueue_profile_embedding(profile_id)
+    except QueueConfigurationError as exc:
+        log.error("Embedding queue unavailable for %s; using inline fallback: %s", profile_id, exc)
+        embedding_job_id = None
+    if embedding_job_id:
+        embedding_status = "queued"
+    else:
+        embedding = generate_embedding(profile_text)
+        update_profile_embedding(profile_id, embedding.tobytes())
+        embedding_status = "ready-fallback" if job_queue.required else "ready"
 
     if submission.invite_code:
         use_invite(submission.invite_code, profile_id)
@@ -1084,6 +1095,7 @@ def create_profile(submission: ProfileSubmission,
         "id": profile_id,
         "big_five": big_five,
         "attachment": attachment,
+        "embedding_status": embedding_status,
         "message": "Profile created successfully",
     }
 
@@ -1164,8 +1176,17 @@ async def upload_photo(profile_id: str, file: UploadFile = File(...),
 
     _generate_thumbnail(filepath, profile_id)
     update_profile_field(profile_id, "photo", filename)
-    submit_photo_for_moderation(profile_id, filename)
-    return {"photo": filename}
+    try:
+        moderation_job_id = job_queue.enqueue_photo_moderation(profile_id, filename)
+    except QueueConfigurationError as exc:
+        log.error("Moderation queue unavailable for %s; using inline fallback: %s", filename, exc)
+        moderation_job_id = None
+    if moderation_job_id:
+        moderation_status = "queued"
+    else:
+        submit_photo_for_moderation(profile_id, filename)
+        moderation_status = "pending-fallback" if job_queue.required else "pending"
+    return {"photo": filename, "moderation_status": moderation_status}
 
 
 def _generate_thumbnail(filepath: Path, profile_id: str, size: tuple = (200, 200)):
@@ -1834,8 +1855,17 @@ async def upload_gallery_photo(profile_id: str, file: UploadFile = File(...),
     photo_id = add_photo(profile_id, filename, caption, is_primary)
     if is_primary:
         update_profile_field(profile_id, "photo", filename)
-    submit_photo_for_moderation(profile_id, filename)
-    return {"id": photo_id, "filename": filename}
+    try:
+        moderation_job_id = job_queue.enqueue_photo_moderation(profile_id, filename)
+    except QueueConfigurationError as exc:
+        log.error("Moderation queue unavailable for %s; using inline fallback: %s", filename, exc)
+        moderation_job_id = None
+    if moderation_job_id:
+        moderation_status = "queued"
+    else:
+        submit_photo_for_moderation(profile_id, filename)
+        moderation_status = "pending-fallback" if job_queue.required else "pending"
+    return {"id": photo_id, "filename": filename, "moderation_status": moderation_status}
 
 
 @app.get("/api/profile/{profile_id}/photos")
@@ -2689,6 +2719,7 @@ def health_check():
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),
+        "queue": job_queue.health(),
         "rate_limit_backend": app.state.rate_limit_backend,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "user-api"),
         "websocket_transport": "redis" if redis_sessions.enabled else "local",

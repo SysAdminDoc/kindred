@@ -60,6 +60,15 @@ class WeightLearningPersistenceTests(unittest.TestCase):
         self.assertEqual(events[0]["outcome"], 0.75)
         self.assertEqual(events[0]["breakdown"], breakdown)
 
+    def test_embedding_update_and_moderation_submission_are_idempotent(self):
+        self.assertTrue(database.update_profile_embedding("rater", b"embedding"))
+        self.assertEqual(database.get_profile("rater")["embedding"], b"embedding")
+
+        first = database.submit_photo_for_moderation("rater", "rater.jpg")
+        second = database.submit_photo_for_moderation("rater", "rater.jpg")
+        self.assertEqual(first, second)
+        self.assertEqual(len(database.get_pending_photo_moderations()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

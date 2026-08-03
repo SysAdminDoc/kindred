@@ -50,6 +50,13 @@ REDIS_URL = os.getenv("KINDRED_REDIS_URL", "").strip()
 REDIS_REQUIRED = os.getenv("KINDRED_REDIS_REQUIRED", "false").lower() == "true"
 REDIS_KEY_PREFIX = os.getenv("KINDRED_REDIS_KEY_PREFIX", "kindred")
 
+# --- Background jobs ---
+QUEUE_ENABLED = os.getenv("KINDRED_QUEUE_ENABLED", "false").lower() == "true"
+QUEUE_REQUIRED = os.getenv("KINDRED_QUEUE_REQUIRED", "false").lower() == "true"
+QUEUE_NAMESPACE = os.getenv("KINDRED_QUEUE_NAMESPACE", f"{REDIS_KEY_PREFIX}:jobs")
+QUEUE_PROCESSES = int(os.getenv("KINDRED_QUEUE_PROCESSES", "2"))
+QUEUE_THREADS = int(os.getenv("KINDRED_QUEUE_THREADS", "2"))
+
 # --- Photo reveal ---
 PHOTO_REVEAL_THRESHOLD = float(os.getenv("KINDRED_PHOTO_REVEAL_THRESHOLD", "60.0"))
 

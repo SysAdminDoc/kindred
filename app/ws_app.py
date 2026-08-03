@@ -8,6 +8,7 @@ import sys
 from fastapi import FastAPI
 
 from app.database import init_db
+from app.job_queue import job_queue
 from app.main import websocket_endpoint, ws_manager
 from app.redis_backend import redis_sessions
 
@@ -36,6 +37,7 @@ def health_check():
         "python": sys.version,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "websocket"),
         "redis": redis_sessions.health(),
+        "queue": job_queue.health(),
         "websocket_transport": "redis" if redis_sessions.enabled else "local",
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
         "pid": os.getpid(),

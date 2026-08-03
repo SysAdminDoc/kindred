@@ -24,6 +24,7 @@ from app.config import (
     BCRYPT_ROUNDS, DB_PATH, BACKUP_INTERVAL_HOURS, BACKUP_KEEP_COUNT,
     DEFAULT_LOCALE, VACUUM_INTERVAL_HOURS,
 )
+from app.job_queue import job_queue
 from app.database import (
     init_db, get_profile, get_all_profiles, delete_profile,
     get_conversation_count,
@@ -138,6 +139,7 @@ class AdminLogin(BaseModel):
 @admin_app.on_event("startup")
 def startup():
     redis_sessions.initialize()
+    job_queue.initialize()
     init_db()
     # Create default admin if none exists
     from app.database import get_db
@@ -403,6 +405,7 @@ def health_check():
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),
+        "queue": job_queue.health(),
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "admin-api"),
         "pid": os.getpid(),
     }

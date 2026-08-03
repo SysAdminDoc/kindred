@@ -9,6 +9,8 @@ python-dotenv==1.0.1
 slowapi==0.1.9
 # Shared production rate-limit and refresh-session backend (SQLite remains the default).
 redis>=5.2,<7
+# Distributed embedding and photo-moderation workers over the shared Redis broker.
+dramatiq[redis]>=2.2,<3
 Pillow>=10.0.0
 # Used only by the explicit SQLite-to-PostgreSQL migration command; SQLite remains the default.
 psycopg[binary]>=3.2,<4

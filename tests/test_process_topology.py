@@ -28,7 +28,9 @@ class ProcessTopologyTests(unittest.TestCase):
         self.assertIn("kindred-user:", compose_text)
         self.assertIn("kindred-admin:", compose_text)
         self.assertIn("kindred-ws:", compose_text)
+        self.assertIn("kindred-worker:", compose_text)
         self.assertIn("app.ws_app:ws_app", compose_text)
+        self.assertIn("app.tasks", compose_text)
         self.assertIn("kindred-redis:", compose_text)
 
 
