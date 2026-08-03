@@ -835,6 +835,107 @@ def score_big_five(answers: dict[str, int], scenario_answers: dict[str, int] | N
     }
 
 
+REGIONAL_NORM_VERSION = 1
+REGIONAL_NORM_MIN_SAMPLE = 20
+_GLOBAL_TRAIT_MEAN = 0.5
+_GLOBAL_TRAIT_STD = 0.2
+_COUNTRY_ALIASES = {
+    "UNITED STATES": "US",
+    "USA": "US",
+    "UNITED KINGDOM": "GB",
+    "UK": "GB",
+    "GREAT BRITAIN": "GB",
+    "CANADA": "CA",
+    "AUSTRALIA": "AU",
+}
+
+
+def normalize_country_code(country: str | None) -> str:
+    """Normalize a user-supplied country label for cohort grouping."""
+    if not isinstance(country, str):
+        return ""
+    normalized = " ".join(country.strip().upper().split())
+    return _COUNTRY_ALIASES.get(normalized, normalized)
+
+
+def build_regional_norm_table(
+    profiles: list[dict] | None = None,
+    min_sample: int = REGIONAL_NORM_MIN_SAMPLE,
+) -> dict[str, dict]:
+    """Build versioned, local-cohort Big Five norms from retained raw scores."""
+    cohorts: dict[str, dict[str, list[float]]] = {}
+    for profile in profiles or []:
+        if not isinstance(profile, dict):
+            continue
+        country = normalize_country_code(profile.get("country"))
+        raw_scores = profile.get("big_five_raw") or profile.get("big_five") or {}
+        if not country or not isinstance(raw_scores, dict):
+            continue
+        country_scores = cohorts.setdefault(country, {})
+        for trait, value in raw_scores.items():
+            try:
+                score = float(value)
+            except (TypeError, ValueError):
+                continue
+            if 0.0 <= score <= 1.0:
+                country_scores.setdefault(trait, []).append(score)
+
+    table = {}
+    for country, trait_scores in cohorts.items():
+        means = {}
+        stds = {}
+        sample_sizes = {}
+        for trait, scores in trait_scores.items():
+            if not scores:
+                continue
+            mean = sum(scores) / len(scores)
+            variance = sum((score - mean) ** 2 for score in scores) / len(scores)
+            means[trait] = round(mean, 4)
+            # A floor prevents a tiny local spread from producing extreme z-scores.
+            stds[trait] = round(max(math.sqrt(variance), 0.15), 4)
+            sample_sizes[trait] = len(scores)
+        table[country] = {
+            "version": REGIONAL_NORM_VERSION,
+            "source": "local-cohort",
+            "sample_size": max(sample_sizes.values(), default=0),
+            "min_sample": min_sample,
+            "means": means,
+            "stds": stds,
+            "sample_sizes": sample_sizes,
+        }
+    return table
+
+
+def calibrate_big_five(
+    raw_scores: dict[str, float],
+    country: str | None = None,
+    regional_norms: dict[str, dict] | None = None,
+    min_sample: int = REGIONAL_NORM_MIN_SAMPLE,
+) -> dict[str, float]:
+    """Center a score against a sufficiently large country cohort.
+
+    Scores remain unchanged when country data is missing or under-sampled.
+    """
+    if not isinstance(raw_scores, dict):
+        return {}
+    country_code = normalize_country_code(country)
+    entry = (regional_norms or {}).get(country_code)
+    calibrated = {}
+    for trait, value in raw_scores.items():
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not entry or entry.get("sample_sizes", {}).get(trait, 0) < min_sample:
+            calibrated[trait] = round(score, 4)
+            continue
+        mean = float(entry.get("means", {}).get(trait, _GLOBAL_TRAIT_MEAN))
+        std = max(float(entry.get("stds", {}).get(trait, _GLOBAL_TRAIT_STD)), 0.15)
+        centered = _GLOBAL_TRAIT_MEAN + ((score - mean) / std) * _GLOBAL_TRAIT_STD
+        calibrated[trait] = round(max(0.01, min(0.99, centered)), 4)
+    return calibrated
+
+
 def classify_attachment(answers: dict[str, int],
                         scenario_answers: dict[str, int] | None = None) -> dict[str, float]:
     """Classify attachment style from Likert items + scenario signals."""

@@ -3,6 +3,8 @@ import unittest
 from app.questions import (
     BIG_FIVE_ITEMS,
     IRT_ITEM_PARAMS,
+    build_regional_norm_table,
+    calibrate_big_five,
     irt_item_information,
     score_big_five,
     select_adaptive_big_five_items,
@@ -46,6 +48,26 @@ class AdaptiveQuestionTests(unittest.TestCase):
         self.assertNotEqual(next_question["dimension"], "personality")
         self.assertGreater(next_question["expected_information_gain"], 0)
         self.assertIn("field", next_question)
+
+    def test_regional_calibration_requires_a_cohort_and_centers_scores(self):
+        profiles = [
+            {
+                "country": "USA",
+                "big_five_raw": {"openness": 0.7},
+            }
+            for _ in range(20)
+        ]
+        norms = build_regional_norm_table(profiles)
+        calibrated = calibrate_big_five(
+            {"openness": 0.5}, "US", norms
+        )
+
+        self.assertEqual(norms["US"]["sample_size"], 20)
+        self.assertLess(calibrated["openness"], 0.5)
+        self.assertEqual(
+            calibrate_big_five({"openness": 0.5}, "CA", norms)["openness"],
+            0.5,
+        )
 
 
 if __name__ == "__main__":

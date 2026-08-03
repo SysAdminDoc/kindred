@@ -49,6 +49,7 @@ def init_db():
             gender TEXT,
             seeking TEXT,
             big_five TEXT,
+            big_five_raw TEXT,
             attachment TEXT,
             values_data TEXT,
             tradeoffs TEXT,
@@ -68,6 +69,7 @@ def init_db():
             dating_energy TEXT,
             dating_pace TEXT,
             relationship_intent TEXT,
+            country TEXT,
             verified INTEGER DEFAULT 0,
             trust_score REAL DEFAULT 1.0,
             last_active TEXT DEFAULT (datetime('now')),
@@ -1229,6 +1231,8 @@ def _migrate(conn):
         # v2.5.1
         "ALTER TABLE users ADD COLUMN shadow_banned INTEGER DEFAULT 0",
         "ALTER TABLE profiles ADD COLUMN ip_fingerprint TEXT",
+        "ALTER TABLE profiles ADD COLUMN big_five_raw TEXT",
+        "ALTER TABLE profiles ADD COLUMN country TEXT",
     ]
     for sql in migrations:
         try:
@@ -1252,8 +1256,8 @@ def save_profile(data: dict) -> str:
          scenario_answers, behavioral_answers, embedding, photo,
          weight_prefs, privacy, invite_code,
          communication_style, financial_values, dating_energy, dating_pace,
-         relationship_intent)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         relationship_intent, country, big_five_raw)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
          name=excluded.name, age=excluded.age, gender=excluded.gender,
          seeking=excluded.seeking, big_five=excluded.big_five,
@@ -1267,7 +1271,8 @@ def save_profile(data: dict) -> str:
          communication_style=excluded.communication_style,
          financial_values=excluded.financial_values,
          dating_energy=excluded.dating_energy, dating_pace=excluded.dating_pace,
-         relationship_intent=excluded.relationship_intent
+         relationship_intent=excluded.relationship_intent,
+         country=excluded.country, big_five_raw=excluded.big_five_raw
     """, (
         profile_id,
         data.get("name", "Anonymous"),
@@ -1294,6 +1299,8 @@ def save_profile(data: dict) -> str:
         data.get("dating_energy"),
         data.get("dating_pace"),
         data.get("relationship_intent"),
+        data.get("country"),
+        json.dumps(data.get("big_five_raw", data.get("big_five", {}))),
     ))
     conn.commit()
 
@@ -1361,6 +1368,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "gender": row["gender"],
         "seeking": row["seeking"],
         "big_five": _json(row["big_five"], {}),
+        "big_five_raw": _json(_col("big_five_raw"), {}),
         "attachment": _json(row["attachment"], {}),
         "values": _json(row["values_data"], {}),
         "tradeoffs": _json(row["tradeoffs"], {}),
@@ -1380,6 +1388,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "dating_energy": _col("dating_energy"),
         "dating_pace": _col("dating_pace"),
         "relationship_intent": _col("relationship_intent"),
+        "country": _col("country"),
         "verified": _col("verified", 0),
         "trust_score": _col("trust_score", 1.0),
         "last_active": _col("last_active"),

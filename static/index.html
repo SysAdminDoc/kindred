@@ -1331,7 +1331,7 @@ function wsSendTyping(to){
 }
 
 // ─── Form data ───
-let F={name:'',age:'',gender:'',seeking:'',big_five_answers:{},attachment_answers:{},values:{},love_language:'',dealbreakers:[],open_ended:{},scenario_answers:{},tradeoffs:{},behavioral_answers:{},self_disclosure:{},communication_style:{},financial_values:{},dating_energy:'',dating_pace:'',relationship_intent:'',weight_prefs:{},invite_code:''};
+let F={name:'',age:'',gender:'',seeking:'',country:'',big_five_answers:{},attachment_answers:{},values:{},love_language:'',dealbreakers:[],open_ended:{},scenario_answers:{},tradeoffs:{},behavioral_answers:{},self_disclosure:{},communication_style:{},financial_values:{},dating_energy:'',dating_pace:'',relationship_intent:'',weight_prefs:{},invite_code:''};
 
 // ─── Question flow state ───
 let questions=[], qi=0;
@@ -1360,6 +1360,7 @@ function buildQuestions(Q){
     qs.push({id:'_age',cat:'Basics',type:'number',text:'How old are you?',hint:'Must be 18+',field:'age',min:18,max:99});
     qs.push({id:'_gender',cat:'Basics',type:'choice',text:'I am a...',options:['Man','Woman'],field:'gender'});
     qs.push({id:'_seeking',cat:'Basics',type:'choice',text:'Looking for a...',options:['Man','Woman'],field:'seeking'});
+    qs.push({id:'_country',cat:'Basics',type:'text',text:'Which country do you live in?',hint:'Optional ISO code or country name for private matching calibration',field:'country',placeholder:'US',optional:true});
     qs.push({id:'_invite',cat:'Basics',type:'text',text:'Do you have an invite code?',hint:'Leave blank if you don\'t have one',field:'invite_code',placeholder:'Enter invite code',optional:true});
 
     // Self-disclosure
@@ -1443,6 +1444,7 @@ function getAnswer(q){
     if(q.field==='age') return F.age;
     if(q.field==='gender') return F.gender;
     if(q.field==='seeking') return F.seeking;
+    if(q.field==='country') return F.country;
     if(q.field==='invite_code') return F.invite_code;
     if(q.field==='love_language') return F.love_language;
     if(q.field==='dealbreakers') return F.dealbreakers;
@@ -1462,6 +1464,7 @@ function setAnswer(q,val){
     if(q.field==='age'){F.age=parseInt(val)||'';return;}
     if(q.field==='gender'){F.gender=val;return;}
     if(q.field==='seeking'){F.seeking=val;return;}
+    if(q.field==='country'){F.country=val;return;}
     if(q.field==='invite_code'){F.invite_code=val;return;}
     if(q.field==='love_language'){F.love_language=val;return;}
     if(q.field==='dating_energy'){F.dating_energy=val;return;}
@@ -1891,7 +1894,7 @@ async function submitProfile(){
 }
 
 function resetForm(){
-    F={name:'',age:'',gender:'',seeking:'',big_five_answers:{},attachment_answers:{},values:{},love_language:'',dealbreakers:[],open_ended:{},scenario_answers:{},tradeoffs:{},behavioral_answers:{},self_disclosure:{},communication_style:{},financial_values:{},dating_energy:'',dating_pace:'',relationship_intent:'',weight_prefs:{},invite_code:''};
+    F={name:'',age:'',gender:'',seeking:'',country:'',big_five_answers:{},attachment_answers:{},values:{},love_language:'',dealbreakers:[],open_ended:{},scenario_answers:{},tradeoffs:{},behavioral_answers:{},self_disclosure:{},communication_style:{},financial_values:{},dating_energy:'',dating_pace:'',relationship_intent:'',weight_prefs:{},invite_code:''};
 }
 
 async function uploadPhoto(id,file){

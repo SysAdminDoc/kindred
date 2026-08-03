@@ -159,6 +159,7 @@ from app.questions import (
     score_big_five, classify_attachment, build_profile_text,
     select_adaptive_big_five_items, irt_item_information,
     select_next_adaptive_question,
+    build_regional_norm_table, calibrate_big_five,
 )
 from app.engine import (
     generate_embedding, find_matches, compute_compatibility,
@@ -351,6 +352,7 @@ class ProfileSubmission(BaseModel):
     age: int
     gender: str
     seeking: str
+    country: str = ""
     big_five_answers: dict[str, int] = {}
     attachment_answers: dict[str, int] = {}
     values: dict[str, str | int] = {}
@@ -898,10 +900,15 @@ def get_next_question(answers: str = "", asked: str = ""):
 @app.post("/api/profile")
 def create_profile(submission: ProfileSubmission,
                    user: dict | None = Depends(get_current_user)):
-    big_five = score_big_five(
+    raw_big_five = score_big_five(
         submission.big_five_answers,
         submission.scenario_answers or None,
         submission.behavioral_answers or None,
+    )
+    big_five = calibrate_big_five(
+        raw_big_five,
+        submission.country,
+        build_regional_norm_table(get_all_profiles()),
     )
     attachment = classify_attachment(
         submission.attachment_answers,
@@ -914,6 +921,8 @@ def create_profile(submission: ProfileSubmission,
         "gender": submission.gender,
         "seeking": submission.seeking,
         "big_five": big_five,
+        "big_five_raw": raw_big_five,
+        "country": submission.country,
         "attachment": attachment,
         "values": submission.values,
         "tradeoffs": submission.tradeoffs,
@@ -973,7 +982,10 @@ def read_profile(profile_id: str):
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
-    result = {k: v for k, v in profile.items() if k != "embedding"}
+    result = {
+        k: v for k, v in profile.items()
+        if k not in {"embedding", "big_five_raw", "country"}
+    }
     return result
 
 
