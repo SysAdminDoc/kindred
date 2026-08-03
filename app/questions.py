@@ -5,6 +5,8 @@ behavioral items, self-disclosure, communication style, financial values,
 and dating energy/intent questions for comprehensive compatibility matching.
 """
 
+import math
+
 # ---------------------------------------------------------------------------
 # Big Five (BFI-2-XS inspired, 15 items, 3 per trait)
 # Each item: (id, text, trait, reverse_scored)
@@ -32,6 +34,217 @@ BIG_FIVE_ITEMS = [
     ("n2", "I worry a lot about things that might go wrong.", "stability", True),
     ("n3", "My mood shifts frequently throughout the day.", "stability", True),
 ]
+
+# The original onboarding items remain the stable, hand-written core. The
+# larger bank below is generated from reviewed stems and contexts so new
+# clients can sample adaptively without shipping a thousand lines of nearly
+# identical literals.
+BIG_FIVE_CORE_ITEMS = tuple(BIG_FIVE_ITEMS)
+
+_IRT_BANK_SPEC = {
+    "openness": {
+        "contexts": (
+            "travel and culture", "music and art", "food and cooking",
+            "science and technology", "history and current events",
+            "different ways of living", "creative projects", "new hobbies",
+            "unfamiliar viewpoints", "books and stories", "local traditions",
+            "language and communication", "design and architecture",
+            "nature and the environment", "philosophy and meaning",
+            "new work methods", "community ideas", "relationships and identity",
+            "questions without clear answers", "unexpected experiences",
+        ),
+        "stems": (
+            ("I enjoy exploring unfamiliar {context}.", False),
+            ("I like learning how other people approach {context}.", False),
+            ("I seek out conversations about {context}.", False),
+            ("I get excited by a new perspective on {context}.", False),
+            ("I connect ideas from {context} in unexpected ways.", False),
+            ("I prefer familiar opinions about {context}.", True),
+            ("I avoid changing my view on {context}.", True),
+            ("I rarely wonder why people experience {context} differently.", True),
+            ("New approaches to {context} usually feel unnecessary to me.", True),
+            ("I would rather repeat a familiar approach to {context} than experiment.", True),
+        ),
+    },
+    "conscientiousness": {
+        "contexts": (
+            "appointments", "household chores", "work deadlines", "travel plans",
+            "monthly finances", "health routines", "shared commitments",
+            "long-term projects", "daily errands", "important conversations",
+            "digital files", "event planning", "learning goals", "meal planning",
+            "follow-up messages", "renewals and paperwork", "personal budgets",
+            "morning routines", "group responsibilities", "future plans",
+        ),
+        "stems": (
+            ("I make a plan before handling {context}.", False),
+            ("I keep track of details in {context}.", False),
+            ("I follow through on {context} even when I am tired.", False),
+            ("I set reminders for {context} when they matter.", False),
+            ("I usually finish {context} earlier than necessary.", False),
+            ("I often leave {context} until the last minute.", True),
+            ("I lose track of {context} easily.", True),
+            ("I make promises about {context} before checking my schedule.", True),
+            ("I put off organizing {context} until it becomes urgent.", True),
+            ("I rarely prepare for {context} in advance.", True),
+        ),
+    },
+    "extraversion": {
+        "contexts": (
+            "neighborhood gatherings", "work events", "group trips", "parties",
+            "new classes", "community projects", "team meetings", "busy cafes",
+            "family celebrations", "online communities", "concerts", "sports events",
+            "shared meals", "volunteer activities", "networking conversations",
+            "public celebrations", "weekend plans", "introductions", "group chats",
+            "unfamiliar social settings",
+        ),
+        "stems": (
+            ("I feel energized by social {context}.", False),
+            ("I am comfortable starting a conversation during {context}.", False),
+            ("I look forward to meeting people through {context}.", False),
+            ("I tend to make {context} more lively.", False),
+            ("I often suggest {context} when making plans.", False),
+            ("I prefer to stay on the edge of {context}.", True),
+            ("I feel drained after most {context}.", True),
+            ("I avoid speaking first during {context}.", True),
+            ("I would rather skip {context} than make small talk.", True),
+            ("I need a long time alone after {context}.", True),
+        ),
+    },
+    "agreeableness": {
+        "contexts": (
+            "disagreements", "shared decisions", "busy days", "family tension",
+            "friendship changes", "group projects", "different priorities",
+            "difficult feedback", "misunderstandings", "plans that change",
+            "household negotiations", "competing needs", "honest conversations",
+            "supporting a partner", "community disagreements", "apologies",
+            "workplace conflict", "boundary discussions", "unexpected requests",
+            "repairing trust",
+        ),
+        "stems": (
+            ("I try to understand another person's view during {context}.", False),
+            ("I look for a fair solution in {context}.", False),
+            ("I notice when someone needs support during {context}.", False),
+            ("I can disagree without making {context} personal.", False),
+            ("I am willing to compromise during {context}.", False),
+            ("I assume people are being difficult during {context}.", True),
+            ("I focus on winning rather than understanding in {context}.", True),
+            ("I find it hard to forgive after {context}.", True),
+            ("I dismiss other people's concerns during {context}.", True),
+            ("I would rather withdraw than cooperate during {context}.", True),
+        ),
+    },
+    "stability": {
+        "contexts": (
+            "uncertain plans", "unexpected news", "busy weeks", "relationship change",
+            "financial pressure", "health concerns", "public mistakes", "long waits",
+            "conflicting messages", "new responsibilities", "last-minute changes",
+            "difficult decisions", "work pressure", "unfamiliar places", "bad weather",
+            "social tension", "unresolved questions", "major transitions",
+            "disappointing results", "quiet evenings",
+        ),
+        "stems": (
+            ("I can stay calm when {context} becomes uncertain.", False),
+            ("I recover quickly after {context}.", False),
+            ("I can think clearly during {context}.", False),
+            ("I keep small setbacks in perspective during {context}.", False),
+            ("I trust myself to handle {context}.", False),
+            ("I worry about everything that could go wrong with {context}.", True),
+            ("I replay {context} in my head for a long time.", True),
+            ("I feel overwhelmed quickly by {context}.", True),
+            ("I expect {context} to turn out badly.", True),
+            ("I have trouble relaxing after {context}.", True),
+        ),
+    },
+}
+
+IRT_ITEM_PARAMS = {
+    item[0]: {
+        "trait": item[2],
+        "discrimination": 1.15,
+        "difficulty": 0.0,
+    }
+    for item in BIG_FIVE_CORE_ITEMS
+}
+
+
+def _build_irt_item_bank() -> list[tuple[str, str, str, bool]]:
+    items = []
+    for trait, spec in _IRT_BANK_SPEC.items():
+        trait_code = trait[:3]
+        for stem_index, (stem, reverse) in enumerate(spec["stems"]):
+            for context_index, context in enumerate(spec["contexts"]):
+                item_id = f"irt_{trait_code}_{stem_index + 1:02d}_{context_index + 1:02d}"
+                discrimination = 0.8 + ((stem_index * 11 + context_index * 7) % 15) / 10
+                difficulty = ((context_index % 10) - 4.5) / 2
+                difficulty += ((stem_index % 4) - 1.5) * 0.25
+                IRT_ITEM_PARAMS[item_id] = {
+                    "trait": trait,
+                    "discrimination": round(discrimination, 2),
+                    "difficulty": round(difficulty, 2),
+                }
+                items.append((item_id, stem.format(context=context), trait, reverse))
+    return items
+
+
+BIG_FIVE_ITEMS = list(BIG_FIVE_CORE_ITEMS) + _build_irt_item_bank()
+_BIG_FIVE_BY_ID = {item[0]: item for item in BIG_FIVE_ITEMS}
+
+
+def _logistic(value: float) -> float:
+    value = max(-60.0, min(60.0, value))
+    return 1.0 / (1.0 + math.exp(-value))
+
+
+def irt_item_information(item_id: str, ability: float = 0.0) -> float:
+    """Return Fisher information for a 2PL item at a trait ability estimate."""
+    params = IRT_ITEM_PARAMS.get(item_id)
+    if not params:
+        return 0.0
+    discrimination = params["discrimination"]
+    probability = _logistic(discrimination * (ability - params["difficulty"]))
+    return discrimination ** 2 * probability * (1.0 - probability)
+
+
+def estimate_trait_abilities(answers: dict[str, int] | None = None) -> dict[str, float]:
+    """Estimate each Big Five ability on the IRT theta scale from answers."""
+    trait_values: dict[str, list[float]] = {}
+    for item_id, answer in (answers or {}).items():
+        item = _BIG_FIVE_BY_ID.get(str(item_id))
+        if not item:
+            continue
+        try:
+            value = float(answer)
+        except (TypeError, ValueError):
+            continue
+        if not 1.0 <= value <= 5.0:
+            continue
+        normalized = (value - 3.0) / 2.0
+        if item[3]:
+            normalized *= -1.0
+        trait_values.setdefault(item[2], []).append(normalized * 3.0)
+    return {
+        trait: round(max(-3.0, min(3.0, sum(values) / len(values))), 4)
+        for trait, values in trait_values.items()
+        if values
+    }
+
+
+def select_adaptive_big_five_items(
+    excluded_ids: set[str] | None = None,
+    answers: dict[str, int] | None = None,
+    limit: int = 24,
+) -> list[tuple[str, str, str, bool]]:
+    """Select unanswered items with the highest expected information."""
+    excluded = {str(item_id) for item_id in (excluded_ids or set())}
+    abilities = estimate_trait_abilities(answers)
+    ranked = []
+    for item in BIG_FIVE_ITEMS:
+        if item[0] in excluded:
+            continue
+        theta = abilities.get(item[2], 0.0)
+        ranked.append((irt_item_information(item[0], theta), item))
+    ranked.sort(key=lambda entry: (-entry[0], entry[1][0]))
+    return [item for _, item in ranked[:max(0, int(limit))]]
 
 # ---------------------------------------------------------------------------
 # Scenario-Based Questions (reveal behavior, not self-perception)

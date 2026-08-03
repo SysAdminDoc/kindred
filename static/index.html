@@ -1335,6 +1335,7 @@ let F={name:'',age:'',gender:'',seeking:'',big_five_answers:{},attachment_answer
 
 // ─── Question flow state ───
 let questions=[], qi=0;
+let adaptiveLoadPromise=null;
 
 const TABS_LOGGEDOUT=[
     {id:'welcome',label:'Welcome'},
@@ -1744,6 +1745,32 @@ async function loadProgress(){
     return false;
 }
 
+async function loadMoreBigFiveQuestions(){
+    if(!Q.questionnaire_meta?.big_five_has_more)return;
+    if(adaptiveLoadPromise)return adaptiveLoadPromise;
+    adaptiveLoadPromise=(async()=>{
+        const currentId=questions[qi]?.id;
+        const excluded=(Q.big_five||[]).map(item=>item.id).join(',');
+        const answers=encodeURIComponent(JSON.stringify(F.big_five_answers||{}));
+        const url=API+'/api/questionnaire?exclude_big_five='+encodeURIComponent(excluded)+'&big_five_answers='+answers;
+        try{
+            const r=await authFetch(url);
+            if(!r.ok)return;
+            const d=await r.json();
+            const existing=new Set((Q.big_five||[]).map(item=>item.id));
+            const additions=(d.big_five||[]).filter(item=>!existing.has(item.id));
+            Q.questionnaire_meta=d.questionnaire_meta||Q.questionnaire_meta;
+            if(!additions.length)return;
+            Q.big_five=[...(Q.big_five||[]),...additions];
+            questions=buildQuestions(Q);
+            const restoredIndex=questions.findIndex(item=>item.id===currentId);
+            if(restoredIndex>=0)qi=restoredIndex;
+        }catch(e){}
+        finally{adaptiveLoadPromise=null;}
+    })();
+    return adaptiveLoadPromise;
+}
+
 function renderQuestionBody(q){
     let h=`<div class="q-text">${q.text}</div>`;
     if(q.hint) h+=`<div class="q-hint">${q.hint}</div>`;
@@ -1828,7 +1855,14 @@ function renderReview(){
     return h;
 }
 
-function nextQ(){ if(qi<questions.length-1){ qi++; saveProgress(); renderQuestion(); }}
+async function nextQ(){
+    const current=questions[qi];
+    const following=questions[qi+1];
+    if(current?.field==='big_five_answers'&&(!following||following.field!=='big_five_answers')){
+        await loadMoreBigFiveQuestions();
+    }
+    if(qi<questions.length-1){ qi++; saveProgress(); renderQuestion(); }
+}
 function prevQ(){ if(qi>0){ qi--; renderQuestion(); }}
 function jumpTo(idx){ qi=idx; renderQuestion(); }
 

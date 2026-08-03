@@ -157,6 +157,7 @@ from app.questions import (
     SELF_DISCLOSURE, COMMUNICATION_QUESTIONS, FINANCIAL_QUESTIONS,
     ENERGY_QUESTIONS,
     score_big_five, classify_attachment, build_profile_text,
+    select_adaptive_big_five_items, irt_item_information,
 )
 from app.engine import (
     generate_embedding, find_matches, compute_compatibility,
@@ -811,9 +812,48 @@ def update_notif_prefs(body: NotifPrefsUpdate, user: dict = Depends(require_user
 # ---------------------------------------------------------------------------
 
 @app.get("/api/questionnaire")
-def get_questionnaire():
+def get_questionnaire(
+    exclude_big_five: str = "",
+    big_five_answers: str = "",
+    big_five_limit: int = 24,
+):
+    excluded_ids = {item_id for item_id in exclude_big_five.split(",") if item_id}
+    try:
+        answers = json_stdlib.loads(big_five_answers) if big_five_answers else {}
+    except (TypeError, ValueError):
+        answers = {}
+    if not isinstance(answers, dict):
+        answers = {}
+
+    selected_big_five = select_adaptive_big_five_items(
+        excluded_ids=excluded_ids,
+        answers=answers,
+        limit=max(1, min(big_five_limit, 100)),
+    )
+    all_big_five_ids = {item[0] for item in BIG_FIVE_ITEMS}
+    served_ids = (excluded_ids & all_big_five_ids) | {
+        item[0] for item in selected_big_five
+    }
+
     return {
-        "big_five": [{"id": i[0], "text": i[1], "trait": i[2]} for i in BIG_FIVE_ITEMS],
+        "big_five": [
+            {
+                "id": item[0],
+                "text": item[1],
+                "trait": item[2],
+                "irt_information": round(
+                    irt_item_information(item[0]), 4
+                ),
+            }
+            for item in selected_big_five
+        ],
+        "questionnaire_meta": {
+            "big_five_bank_size": len(BIG_FIVE_ITEMS),
+            "big_five_batch_size": len(selected_big_five),
+            "big_five_served": len(served_ids),
+            "big_five_has_more": len(served_ids) < len(BIG_FIVE_ITEMS),
+            "big_five_irt_model": "2PL",
+        },
         "scenarios": [
             {"id": s["id"], "text": s["text"],
              "options": [o["label"] for o in s["options"]]}
