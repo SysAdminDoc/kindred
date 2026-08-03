@@ -31,6 +31,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 **Matching Engine**
 - 8-dimension compatibility scoring (personality, values, communication, financial, attachment, tradeoffs, semantic, dealbreaker)
 - Adaptive IRT questionnaire with a 1000+ item bank and high-information sequencing
+- Active-learning `/api/questionnaire/next` endpoint balances information gain across compatibility dimensions
 - Compatibility radar chart (canvas spider chart for 8 dimensions)
 - sentence-transformers embeddings for semantic similarity (MPNet by default, MiniLM fallback)
 - Match narratives, icebreakers, and coaching tips

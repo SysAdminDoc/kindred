@@ -6,6 +6,7 @@ from app.questions import (
     irt_item_information,
     score_big_five,
     select_adaptive_big_five_items,
+    select_next_adaptive_question,
 )
 
 
@@ -31,6 +32,20 @@ class AdaptiveQuestionTests(unittest.TestCase):
         scores = score_big_five({item_id: 5})
         self.assertIn(trait, scores)
         self.assertGreater(scores[trait], 0.5)
+
+    def test_active_selector_shifts_to_undercovered_dimensions(self):
+        personality_answers = {
+            item[0]: 3 for item in BIG_FIVE_ITEMS[:8]
+        }
+        next_question = select_next_adaptive_question(
+            answers={"big_five_answers": personality_answers},
+            asked_ids=set(personality_answers),
+        )
+
+        self.assertIsNotNone(next_question)
+        self.assertNotEqual(next_question["dimension"], "personality")
+        self.assertGreater(next_question["expected_information_gain"], 0)
+        self.assertIn("field", next_question)
 
 
 if __name__ == "__main__":

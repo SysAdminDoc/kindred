@@ -158,6 +158,7 @@ from app.questions import (
     ENERGY_QUESTIONS,
     score_big_five, classify_attachment, build_profile_text,
     select_adaptive_big_five_items, irt_item_information,
+    select_next_adaptive_question,
 )
 from app.engine import (
     generate_embedding, find_matches, compute_compatibility,
@@ -871,6 +872,23 @@ def get_questionnaire(
         "financial": FINANCIAL_QUESTIONS,
         "energy": ENERGY_QUESTIONS,
         "default_weights": DEFAULT_WEIGHTS,
+    }
+
+
+@app.get("/api/questionnaire/next")
+def get_next_question(answers: str = "", asked: str = ""):
+    try:
+        answer_data = json_stdlib.loads(answers) if answers else {}
+    except (TypeError, ValueError):
+        answer_data = {}
+    if not isinstance(answer_data, dict):
+        answer_data = {}
+
+    asked_ids = {item_id for item_id in asked.split(",") if item_id}
+    question = select_next_adaptive_question(answer_data, asked_ids)
+    return {
+        "question": question,
+        "complete": question is None,
     }
 
 # ---------------------------------------------------------------------------

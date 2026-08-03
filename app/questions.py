@@ -616,6 +616,175 @@ OPEN_ENDED_PROMPTS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Active-learning question selection
+# ---------------------------------------------------------------------------
+
+_ADAPTIVE_SPECS = None
+
+
+def _adaptive_question_specs() -> list[dict]:
+    """Build the normalized question view used by adaptive clients."""
+    global _ADAPTIVE_SPECS
+    if _ADAPTIVE_SPECS is not None:
+        return _ADAPTIVE_SPECS
+
+    specs = []
+
+    def add(question: dict, dimension: str, field: str, key=None, kind="choice", trait=None):
+        specs.append({
+            "id": question["id"],
+            "dimension": dimension,
+            "field": field,
+            "key": key,
+            "kind": kind,
+            "trait": trait,
+            "question": question,
+        })
+
+    for item_id, text, trait, _reverse in BIG_FIVE_ITEMS:
+        add(
+            {"id": item_id, "text": text, "type": "likert", "trait": trait},
+            "personality", "big_five_answers", item_id, "irt", trait,
+        )
+
+    for scenario in SCENARIO_QUESTIONS:
+        add(
+            {
+                "id": scenario["id"],
+                "text": scenario["text"],
+                "type": "scenario",
+                "options": [option["label"] for option in scenario["options"]],
+            },
+            "personality", "scenario_answers", scenario["id"],
+        )
+
+    for behavioral in BEHAVIORAL_QUESTIONS:
+        add(
+            {key: value for key, value in behavioral.items() if key != "trait_map"},
+            "personality", "behavioral_answers", behavioral["id"],
+        )
+
+    for value_question in VALUES_QUESTIONS:
+        add(
+            dict(value_question), "values", "values", value_question["id"],
+        )
+
+    for tradeoff in TRADEOFF_QUESTIONS:
+        add(dict(tradeoff), "tradeoffs", "tradeoffs", tradeoff["id"])
+
+    for disclosure in SELF_DISCLOSURE:
+        add(dict(disclosure), "dealbreaker", "self_disclosure", disclosure["id"])
+
+    for attachment_id, text, style, _reverse in ATTACHMENT_ITEMS:
+        add(
+            {"id": attachment_id, "text": text, "type": "likert", "trait": style},
+            "attachment", "attachment_answers", attachment_id,
+        )
+
+    for communication in COMMUNICATION_QUESTIONS:
+        add(dict(communication), "communication", "communication_style", communication["id"])
+
+    for financial in FINANCIAL_QUESTIONS:
+        add(dict(financial), "financial", "financial_values", financial["id"])
+
+    energy_fields = {
+        "dating_energy": "dating_energy",
+        "dating_pace": "dating_pace",
+        "relationship_intent": "relationship_intent",
+    }
+    for energy in ENERGY_QUESTIONS:
+        add(
+            dict(energy), "values", energy_fields[energy["id"]],
+            kind="choice",
+        )
+
+    for prompt in OPEN_ENDED_PROMPTS:
+        add(
+            {**prompt, "type": "textarea"}, "semantic", "open_ended", prompt["id"],
+        )
+
+    _ADAPTIVE_SPECS = specs
+    return specs
+
+
+def _adaptive_answer(spec: dict, answers: dict) -> object:
+    field = spec["field"]
+    if spec["key"] is None:
+        return answers.get(field)
+    values = answers.get(field, {})
+    if not isinstance(values, dict):
+        return None
+    return values.get(spec["key"])
+
+
+def _adaptive_base_information(spec: dict, abilities: dict[str, float]) -> float:
+    if spec["kind"] == "irt":
+        return irt_item_information(spec["id"], abilities.get(spec["trait"], 0.0))
+
+    question = spec["question"]
+    options = question.get("options") or question.get("labels") or []
+    if len(options) >= 2:
+        return 1.0 + math.log2(len(options))
+    return 0.75
+
+
+def select_next_adaptive_question(
+    answers: dict | None = None,
+    asked_ids: set[str] | None = None,
+) -> dict | None:
+    """Return the unanswered prompt with the highest expected information gain."""
+    answers = answers if isinstance(answers, dict) else {}
+    asked = {str(item_id) for item_id in (asked_ids or set())}
+    abilities = estimate_trait_abilities(answers.get("big_five_answers", {}))
+    specs = _adaptive_question_specs()
+    dimension_totals: dict[str, int] = {}
+    dimension_answered: dict[str, int] = {}
+
+    for spec in specs:
+        dimension = spec["dimension"]
+        dimension_totals[dimension] = dimension_totals.get(dimension, 0) + 1
+        if _adaptive_answer(spec, answers) not in (None, "", []):
+            dimension_answered[dimension] = dimension_answered.get(dimension, 0) + 1
+
+    # A small target per dimension prevents the 1,000-item personality bank
+    # from crowding out lower-volume dimensions during the early interview.
+    targets = {
+        "personality": 8,
+        "values": 5,
+        "communication": 3,
+        "financial": 3,
+        "attachment": 3,
+        "tradeoffs": 3,
+        "dealbreaker": 4,
+        "semantic": 2,
+    }
+    ranked = []
+    for spec in specs:
+        if spec["id"] in asked or _adaptive_answer(spec, answers) not in (None, "", []):
+            continue
+        dimension = spec["dimension"]
+        base_information = _adaptive_base_information(spec, abilities)
+        target = targets.get(dimension, min(dimension_totals[dimension], 4))
+        coverage = min(1.0, dimension_answered.get(dimension, 0) / target)
+        coverage_factor = max(0.15, 1.0 - coverage)
+        gain = base_information * coverage_factor
+        ranked.append((gain, base_information, spec))
+
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: (-item[0], -item[1], item[2]["id"]))
+    gain, base_information, selected = ranked[0]
+    question = dict(selected["question"])
+    question.update({
+        "dimension": selected["dimension"],
+        "expected_information_gain": round(gain, 4),
+        "item_information": round(base_information, 4),
+        "field": selected["field"],
+        "key": selected["key"],
+    })
+    return question
+
+# ---------------------------------------------------------------------------
 # Scoring Functions
 # ---------------------------------------------------------------------------
 
