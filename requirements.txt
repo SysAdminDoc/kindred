@@ -8,3 +8,5 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.1
 slowapi==0.1.9
 Pillow>=10.0.0
+# Used only by the explicit SQLite-to-PostgreSQL migration command; SQLite remains the default.
+psycopg[binary]>=3.2,<4

@@ -195,7 +195,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.12+, FastAPI, Uvicorn |
-| Database | SQLite (WAL mode, thread-local pooling) |
+| Database | SQLite (WAL mode, thread-local pooling); PostgreSQL migration utility |
 | Embeddings | sentence-transformers (all-mpnet-base-v2, MiniLM fallback) |
 | Narratives | Puter.js (client-side) |
 | Frontend | Vanilla JS single-file SPA |
@@ -256,6 +256,24 @@ The launcher auto-creates a virtual environment, installs dependencies, and star
 cp .env.example .env
 docker compose up --build
 ```
+
+### PostgreSQL migration
+
+SQLite remains the local-development default. To migrate an existing database
+into an empty PostgreSQL database, install the normal requirements and run the
+explicit bridge command:
+
+```bash
+python -m app.postgres_migration --sqlite ./kindred.db --dry-run --json
+export KINDRED_POSTGRES_DSN='postgresql://kindred:password@localhost/kindred'
+python -m app.postgres_migration --sqlite ./kindred.db --postgres-dsn "$KINDRED_POSTGRES_DSN"
+```
+
+The command refuses a non-empty target, creates PostgreSQL-compatible tables,
+constraints, indexes, and identity sequences, streams rows in batches, and
+verifies per-table row counts before committing. It never drops or overwrites
+the SQLite source. The application continues using SQLite until a separately
+planned PostgreSQL runtime cutover is performed.
 
 ## Configuration
 
