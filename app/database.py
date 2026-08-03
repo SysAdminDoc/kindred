@@ -1005,10 +1005,39 @@ def init_db():
             profile_id TEXT NOT NULL,
             photo_filename TEXT NOT NULL,
             phash TEXT NOT NULL,
+            dhash TEXT NOT NULL DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_photo_hashes_hash ON photo_hashes(phash);
+
+        CREATE TABLE IF NOT EXISTS known_abuse_photo_hashes (
+            id TEXT PRIMARY KEY,
+            phash TEXT NOT NULL,
+            dhash TEXT NOT NULL,
+            source TEXT NOT NULL,
+            external_ref TEXT,
+            active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source, external_ref, phash, dhash)
+        );
+        CREATE INDEX IF NOT EXISTS idx_known_abuse_photo_hashes_active
+            ON known_abuse_photo_hashes(active);
+
+        CREATE TABLE IF NOT EXISTS photo_safety_events (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            photo_filename TEXT NOT NULL,
+            phash TEXT NOT NULL,
+            dhash TEXT NOT NULL,
+            local_match_count INTEGER DEFAULT 0,
+            external_status TEXT DEFAULT 'disabled',
+            reason TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_photo_safety_events_created
+            ON photo_safety_events(created_at DESC);
 
         CREATE TABLE IF NOT EXISTS saved_searches (
             id TEXT PRIMARY KEY,
@@ -1253,6 +1282,7 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN big_five_raw TEXT",
         "ALTER TABLE profiles ADD COLUMN country TEXT",
         "ALTER TABLE profiles ADD COLUMN learned_weight_prefs TEXT",
+        "ALTER TABLE photo_hashes ADD COLUMN dhash TEXT DEFAULT ''",
     ]
     for sql in migrations:
         try:
@@ -4272,6 +4302,7 @@ def delete_account(user_id: str) -> bool:
                 ("game_turns", "profile_id"), ("shared_playlists", "profile_a"),
                 ("shared_playlists", "profile_b"), ("playlist_songs", "added_by"),
                 ("event_photos", "profile_id"), ("profile_badges", "profile_id"),
+                ("photo_safety_events", "profile_id"),
                 ("story_reactions", "profile_id"), ("pinned_messages", "pinned_by"),
                 ("passed_profiles", "profile_id"), ("passed_profiles", "passed_id"),
                 ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),
@@ -6220,34 +6251,159 @@ def check_suspension_expired() -> int:
 # Photo Hashes
 # ---------------------------------------------------------------------------
 
-def save_photo_hash(profile_id: str, photo_filename: str, phash: str) -> str:
+def save_photo_hash(
+    profile_id: str,
+    photo_filename: str,
+    phash: str,
+    dhash: str = "",
+) -> str:
     conn = get_db()
+    conn.execute(
+        "DELETE FROM photo_hashes WHERE profile_id=? AND photo_filename=?",
+        (profile_id, photo_filename),
+    )
     hash_id = uuid.uuid4().hex
     conn.execute(
-        "INSERT INTO photo_hashes (id, profile_id, photo_filename, phash) VALUES (?, ?, ?, ?)",
-        (hash_id, profile_id, photo_filename, phash)
+        "INSERT INTO photo_hashes (id, profile_id, photo_filename, phash, dhash) VALUES (?, ?, ?, ?, ?)",
+        (hash_id, profile_id, photo_filename, phash, dhash),
     )
     conn.commit()
     return hash_id
 
 
-def find_similar_photos(phash: str, max_distance: int = 5) -> list[dict]:
-    """Find photos with similar perceptual hash. Returns matches within hamming distance."""
+def find_similar_photos(
+    phash: str,
+    max_distance: int = 5,
+    dhash: str = "",
+    dhash_max_distance: int = 8,
+) -> list[dict]:
+    """Find stored profile photos within pHash and optional dHash thresholds."""
     conn = get_db()
     rows = conn.execute("SELECT * FROM photo_hashes").fetchall()
     results = []
     for r in rows:
-        dist = _hamming_distance(phash, r["phash"])
-        if dist <= max_distance:
-            results.append({**dict(r), "distance": dist})
+        phash_distance = _hamming_distance(phash, r["phash"])
+        stored_dhash = r["dhash"] or ""
+        dhash_distance = _hamming_distance(dhash, stored_dhash) if dhash and stored_dhash else None
+        if phash_distance <= max_distance and (
+            dhash_distance is None or dhash_distance <= dhash_max_distance
+        ):
+            results.append({
+                **dict(r),
+                "distance": phash_distance,
+                "phash_distance": phash_distance,
+                "dhash_distance": dhash_distance,
+            })
     return sorted(results, key=lambda x: x["distance"])
+
+
+def add_known_abuse_photo_hash(
+    phash: str,
+    dhash: str,
+    source: str,
+    external_ref: str = "",
+) -> str:
+    conn = get_db()
+    existing = conn.execute(
+        """SELECT id FROM known_abuse_photo_hashes
+           WHERE source=? AND COALESCE(external_ref, '')=? AND phash=? AND dhash=? LIMIT 1""",
+        (source, external_ref, phash, dhash),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE known_abuse_photo_hashes SET active=1 WHERE id=?",
+            (existing["id"],),
+        )
+        conn.commit()
+        return existing["id"]
+    hash_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO known_abuse_photo_hashes
+           (id, phash, dhash, source, external_ref, active)
+           VALUES (?, ?, ?, ?, ?, 1)""",
+        (hash_id, phash, dhash, source, external_ref or None),
+    )
+    conn.commit()
+    return hash_id
+
+
+def find_known_abuse_photo_matches(
+    phash: str,
+    dhash: str,
+    phash_max_distance: int = 5,
+    dhash_max_distance: int = 8,
+) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM known_abuse_photo_hashes WHERE active=1"
+    ).fetchall()
+    results = []
+    for row in rows:
+        phash_distance = _hamming_distance(phash, row["phash"])
+        dhash_distance = _hamming_distance(dhash, row["dhash"])
+        if phash_distance <= phash_max_distance and dhash_distance <= dhash_max_distance:
+            results.append({
+                **dict(row),
+                "phash_distance": phash_distance,
+                "dhash_distance": dhash_distance,
+            })
+    return sorted(
+        results,
+        key=lambda item: (item["phash_distance"] + item["dhash_distance"]),
+    )
+
+
+def record_photo_safety_event(
+    profile_id: str,
+    photo_filename: str,
+    phash: str,
+    dhash: str,
+    local_match_count: int,
+    external_status: str,
+    reason: str,
+) -> str:
+    conn = get_db()
+    event_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO photo_safety_events
+           (id, profile_id, photo_filename, phash, dhash, local_match_count,
+            external_status, reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            event_id,
+            profile_id,
+            photo_filename,
+            phash,
+            dhash,
+            local_match_count,
+            external_status,
+            reason,
+        ),
+    )
+    conn.commit()
+    return event_id
+
+
+def get_photo_safety_events(limit: int = 100) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT pse.*, p.name AS profile_name
+           FROM photo_safety_events pse
+           LEFT JOIN profiles p ON p.id=pse.profile_id
+           ORDER BY pse.created_at DESC LIMIT ?""",
+        (min(max(limit, 1), 500),),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _hamming_distance(h1: str, h2: str) -> int:
     """Compute hamming distance between two hex hash strings."""
     if len(h1) != len(h2):
         return 999
-    return bin(int(h1, 16) ^ int(h2, 16)).count('1')
+    try:
+        return bin(int(h1, 16) ^ int(h2, 16)).count("1")
+    except ValueError:
+        return 999
 
 
 # ---------------------------------------------------------------------------

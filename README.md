@@ -117,6 +117,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Account deletion (GDPR-compliant full data removal)
 - Data export (GDPR-compliant download your data)
 - Selfie verification with admin review
+- Upload-time pHash + dHash matching against an operator-managed known-abuse hash corpus
 - Automated content filtering (profanity censoring, spam blocking)
 - Photo moderation queue with admin review
 - Profile blocking with undo grace period
@@ -153,6 +154,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Session management (view/revoke all user sessions)
 - User management, group/event moderation
 - Verification and photo moderation review queues
+- Photo-safety event review API and hash-corpus import command
 - Safety report triage with escalation queue and status filtering
 - Suspension management (suspend/unsuspend with audit trail)
 - Appeal review queue (uphold/overturn suspension appeals)
@@ -219,6 +221,10 @@ kindred/
     ws_app.py           # Dedicated WebSocket worker entrypoint
     job_queue.py        # Dramatiq broker and queue submission policy
     tasks.py            # Embedding and photo-moderation actors
+    object_storage.py   # Local/S3-compatible media storage
+    object_storage_migration.py # Legacy uploads/ migration command
+    photo_safety.py     # pHash/dHash upload screening and optional external hook
+    photo_safety_corpus.py # Hash-only corpus importer
     database.py         # SQLite CRUD (70+ tables)
     engine.py           # 8-dimension matching engine
     questions.py        # Questionnaire definitions
@@ -334,6 +340,14 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_OBJECT_STORAGE_PUBLIC_URL` | empty | Optional public/CDN base URL; empty keeps media private behind `/uploads/` |
 | `KINDRED_OBJECT_STORAGE_REQUIRED` | `false` | Fail startup instead of serving new media from an unavailable or missing remote backend |
 | `KINDRED_OBJECT_STORAGE_ADDRESSING_STYLE` | `auto` (`path` with an endpoint) | S3 addressing mode; `path` is recommended for MinIO and many S3-compatible services |
+| `KINDRED_PHOTO_HASH_ENABLED` | `true` | Enable local pHash + dHash matching against the known-abuse corpus |
+| `KINDRED_PHOTO_HASH_MAX_DISTANCE` | `5` | Maximum pHash Hamming distance for a local corpus match |
+| `KINDRED_PHOTO_DHASH_MAX_DISTANCE` | `8` | Maximum dHash Hamming distance for a local corpus match |
+| `KINDRED_PHOTO_SAFETY_REQUIRED` | `false` | Reject uploads if the enabled safety scan cannot complete |
+| `KINDRED_PHOTODNA_ENABLED` | `false` | Enable the operator-provided PhotoDNA hash webhook adapter |
+| `KINDRED_PHOTODNA_HOOK_URL` | empty | Provider-specific hash adapter URL, required when the hook is enabled |
+| `KINDRED_PHOTODNA_API_KEY` | empty | Optional subscription key passed to the configured adapter |
+| `KINDRED_PHOTODNA_TIMEOUT_SECONDS` | `3` | External hash adapter timeout |
 | `KINDRED_EMBEDDING_MODEL` | `all-mpnet-base-v2` | Preferred semantic embedding model |
 | `KINDRED_EMBEDDING_FALLBACK_MODEL` | `all-MiniLM-L6-v2` | Fallback when the preferred model cannot load |
 
@@ -354,6 +368,12 @@ Set `KINDRED_OBJECT_STORAGE_REQUIRED=true` in production so a missing bucket or
 unavailable endpoint fails startup instead of silently writing new media to
 local disk. The production environment template enables this fail-closed mode;
 replace its example endpoint and credentials before launch.
+
+The local safety corpus stores only 64-bit pHash/dHash pairs and metadata. Import
+an operator-approved JSON corpus with
+`python -m app.photo_safety_corpus corpus.json --source operator --dry-run`,
+then rerun without `--dry-run`. Blocked upload metadata is visible to admins at
+`/api/admin/photo-safety/events`.
 
 To migrate an existing local upload directory, first configure the remote
 backend and run `python -m app.object_storage_migration --dry-run`, then rerun

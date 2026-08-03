@@ -105,6 +105,18 @@ VAPID_PUBLIC_KEY = os.getenv("KINDRED_VAPID_PUBLIC_KEY", "")
 VAPID_PRIVATE_KEY = os.getenv("KINDRED_VAPID_PRIVATE_KEY", "")
 VAPID_CONTACT = os.getenv("KINDRED_VAPID_CONTACT", "mailto:admin@kindred.app")
 
+# --- Photo safety ---
+PHOTO_HASH_ENABLED = os.getenv("KINDRED_PHOTO_HASH_ENABLED", "true").lower() == "true"
+PHOTO_HASH_MAX_DISTANCE = int(os.getenv("KINDRED_PHOTO_HASH_MAX_DISTANCE", "5"))
+PHOTO_DHASH_MAX_DISTANCE = int(os.getenv("KINDRED_PHOTO_DHASH_MAX_DISTANCE", "8"))
+PHOTO_SAFETY_REQUIRED = os.getenv(
+    "KINDRED_PHOTO_SAFETY_REQUIRED", "false"
+).lower() == "true"
+PHOTODNA_ENABLED = os.getenv("KINDRED_PHOTODNA_ENABLED", "false").lower() == "true"
+PHOTODNA_HOOK_URL = os.getenv("KINDRED_PHOTODNA_HOOK_URL", "").strip()
+PHOTODNA_API_KEY = os.getenv("KINDRED_PHOTODNA_API_KEY", "").strip()
+PHOTODNA_TIMEOUT_SECONDS = float(os.getenv("KINDRED_PHOTODNA_TIMEOUT_SECONDS", "3"))
+
 # --- Content Filtering ---
 CONTENT_FILTER_ENABLED = os.getenv("KINDRED_CONTENT_FILTER", "true").lower() == "true"
 
@@ -154,4 +166,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10

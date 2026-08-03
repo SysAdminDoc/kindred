@@ -41,7 +41,7 @@ class PostgresMigrationSnapshotTests(unittest.TestCase):
 
         snapshot = inspect_sqlite(self.db_path)
         tables = {table.name: table for table in snapshot.tables}
-        self.assertEqual(snapshot.schema_version, 9)
+        self.assertEqual(snapshot.schema_version, 10)
         self.assertIn("weight_learning_events", tables)
         self.assertEqual(tables["profiles"].row_count, 1)
         self.assertEqual(tables["profiles"].columns[16].sqlite_type, "BLOB")

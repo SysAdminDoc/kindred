@@ -52,6 +52,12 @@ from app.object_storage import (
     ObjectStorageError,
     object_storage,
 )
+from app.photo_safety import (
+    ExternalScanResult,
+    PhotoSafetyError,
+    PhotoSafetyResult,
+    photo_safety,
+)
 from app.redis_backend import redis_sessions
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
@@ -260,6 +266,47 @@ def _store_media(filename: str, content: bytes, content_type: str | None = None)
     except ObjectStorageError as exc:
         log.error("Media storage failed for %s: %s", filename, exc)
         raise HTTPException(status_code=503, detail="Media storage unavailable") from exc
+
+
+def _check_photo_safety(
+    profile_id: str,
+    filename: str,
+    content: bytes,
+) -> PhotoSafetyResult:
+    try:
+        result = photo_safety.scan(
+            content,
+            profile_id=profile_id,
+            filename=filename,
+        )
+    except PhotoSafetyError as exc:
+        if photo_safety.safety_required:
+            log.error("Photo safety scan failed for %s: %s", filename, exc)
+            raise HTTPException(status_code=503, detail="Photo safety service unavailable") from exc
+        log.warning("Photo safety scan skipped for %s: %s", filename, exc)
+        return PhotoSafetyResult(
+            hashes=None,
+            local_matches=(),
+            external=ExternalScanResult(
+                status="unavailable" if photo_safety.external_hook.enabled else "disabled"
+            ),
+            blocked=False,
+        )
+    if result.blocked:
+        if result.reason == "photodna_unavailable":
+            raise HTTPException(status_code=503, detail="Photo safety service unavailable")
+        raise HTTPException(status_code=400, detail="Photo rejected by trust and safety controls")
+    return result
+
+
+def _record_photo_hash(profile_id: str, filename: str, result: PhotoSafetyResult) -> None:
+    if result.hashes:
+        save_photo_hash(
+            profile_id,
+            filename,
+            result.hashes.phash,
+            result.hashes.dhash,
+        )
 
 
 def _delete_media(filename: str) -> None:
@@ -678,6 +725,7 @@ async def startup():
     app.state.rate_limit_backend = "redis" if redis_sessions.enabled else "memory"
     app.state.job_queue_backend = job_queue.initialize()
     app.state.object_storage_backend = object_storage.initialize()
+    app.state.photo_safety_backend = photo_safety.initialize()
     init_db()
     from app.i18n import init_i18n
     init_i18n()
@@ -1200,7 +1248,9 @@ async def upload_photo(profile_id: str, file: UploadFile = File(...),
 
     # Generate thumbnail
     filename = f"{profile_id}{ext}"
+    photo_scan = _check_photo_safety(profile_id, filename, content)
     _store_media(filename, content)
+    _record_photo_hash(profile_id, filename, photo_scan)
     _generate_thumbnail(content, filename)
     update_profile_field(profile_id, "photo", filename)
     try:
@@ -1478,7 +1528,9 @@ async def send_photo_message(from_id: str, to_id: str,
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     import uuid as _uuid
     filename = f"msg_{_uuid.uuid4().hex[:8]}{ext}"
+    photo_scan = _check_photo_safety(from_id, filename, content)
     _store_media(filename, content)
+    _record_photo_hash(from_id, filename, photo_scan)
     msg_id = send_message(from_id, to_id, "[Photo]", photo=filename)
     # Notify
     sender = get_profile(from_id)
@@ -1885,7 +1937,9 @@ async def upload_gallery_photo(profile_id: str, file: UploadFile = File(...),
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     import uuid as _uuid
     filename = f"{profile_id}_{_uuid.uuid4().hex[:6]}{ext}"
+    photo_scan = _check_photo_safety(profile_id, filename, content)
     _store_media(filename, content)
+    _record_photo_hash(profile_id, filename, photo_scan)
     _generate_thumbnail(content, filename)
     photo_id = add_photo(profile_id, filename, caption, is_primary)
     if is_primary:
@@ -2198,7 +2252,9 @@ async def upload_selfie(profile_id: str, file: UploadFile = File(...),
     if not validate_file_magic(content, ext):
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     filename = f"verify_{profile_id}_{uuid.uuid4().hex[:6]}{ext}"
+    photo_scan = _check_photo_safety(profile_id, filename, content)
     _store_media(filename, content)
+    _record_photo_hash(profile_id, filename, photo_scan)
     vid = submit_selfie_verification(profile_id, filename)
     return {"id": vid, "status": "pending", "message": "Selfie submitted for verification"}
 
@@ -2762,6 +2818,7 @@ def health_check():
         "redis": redis_sessions.health(),
         "queue": job_queue.health(),
         "object_storage": object_storage.health(),
+        "photo_safety": photo_safety.health(),
         "rate_limit_backend": app.state.rate_limit_backend,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "user-api"),
         "websocket_transport": "redis" if redis_sessions.enabled else "local",
@@ -2912,7 +2969,9 @@ async def post_story(user: dict = Depends(require_user),
         if not validate_file_magic(file_content, ext):
             raise HTTPException(status_code=400, detail="File content doesn't match extension")
         fname = f"story_{uuid.uuid4().hex[:12]}{ext}"
+        photo_scan = _check_photo_safety(profile_id, fname, file_content)
         _store_media(fname, file_content)
+        _record_photo_hash(profile_id, fname, photo_scan)
         photo = fname
         content_type = "photo"
     if not content and not photo:
@@ -3359,6 +3418,8 @@ def remove_song(playlist_id: str, song_id: str, user: dict = Depends(require_use
 async def upload_event_photo(event_id: str, file: UploadFile = File(...),
                               user: dict = Depends(require_user)):
     profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="Profile required")
     content = await file.read()
     if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large")
@@ -3368,7 +3429,9 @@ async def upload_event_photo(event_id: str, file: UploadFile = File(...),
     if not validate_file_magic(content, ext):
         raise HTTPException(status_code=400, detail="Invalid file content")
     filename = f"event_{event_id}_{uuid.uuid4().hex[:8]}{ext}"
+    photo_scan = _check_photo_safety(profile_id, filename, content)
     _store_media(filename, content)
+    _record_photo_hash(profile_id, filename, photo_scan)
     result = add_event_photo(event_id, profile_id, filename)
     return result
 

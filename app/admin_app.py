@@ -33,6 +33,7 @@ from app.object_storage import (
     ObjectStorageError,
     object_storage,
 )
+from app.photo_safety import photo_safety
 from app.database import (
     init_db, get_profile, get_all_profiles, delete_profile, get_profile_media_keys,
     get_conversation_count,
@@ -46,7 +47,7 @@ from app.database import (
     get_all_groups, get_group, get_group_members, delete_group,
     get_all_events, get_event, get_event_rsvps, delete_event,
     get_pending_verifications, review_verification,
-    get_pending_photo_moderations, review_photo_moderation,
+    get_pending_photo_moderations, review_photo_moderation, get_photo_safety_events,
     get_analytics_summary, get_engagement_metrics,
     get_content_filter_logs,
     get_all_active_stories, get_story, delete_story,
@@ -150,6 +151,7 @@ def startup():
     redis_sessions.initialize()
     job_queue.initialize()
     object_storage.initialize()
+    photo_safety.initialize()
     init_db()
     # Create default admin if none exists
     from app.database import get_db
@@ -396,6 +398,11 @@ def reject_photo(mod_id: str, admin: dict = Depends(require_admin)):
     return {"message": "Photo rejected"}
 
 
+@admin_app.get("/api/admin/photo-safety/events")
+def list_photo_safety_events(limit: int = 100, admin: dict = Depends(require_admin)):
+    return {"events": get_photo_safety_events(limit)}
+
+
 # ─── Analytics ───
 @admin_app.get("/api/admin/analytics")
 def admin_analytics(days: int = 30, admin: dict = Depends(require_admin)):
@@ -423,6 +430,7 @@ def health_check():
         "redis": redis_sessions.health(),
         "queue": job_queue.health(),
         "object_storage": object_storage.health(),
+        "photo_safety": photo_safety.health(),
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "admin-api"),
         "pid": os.getpid(),
     }
