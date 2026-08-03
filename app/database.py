@@ -3866,11 +3866,15 @@ def delete_story(story_id: str, profile_id: str) -> bool:
     return cursor.rowcount > 0
 
 
-def cleanup_expired_stories():
-    """Remove expired stories."""
+def cleanup_expired_stories() -> list[str]:
+    """Remove expired stories and return their media keys for storage cleanup."""
     conn = get_db()
+    rows = conn.execute(
+        "SELECT photo FROM stories WHERE expires_at <= datetime('now') AND photo IS NOT NULL"
+    ).fetchall()
     conn.execute("DELETE FROM stories WHERE expires_at <= datetime('now')")
     conn.commit()
+    return [row["photo"] for row in rows if row["photo"]]
 
 
 def get_all_active_stories(limit: int = 100) -> list[dict]:
@@ -4212,6 +4216,31 @@ def search_messages(profile_id: str, query: str, limit: int = 50) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Account Deletion (GDPR)
 # ---------------------------------------------------------------------------
+
+def get_profile_media_keys(profile_id: str) -> list[str]:
+    """Return media keys owned by a profile before its rows are cascaded."""
+    if not profile_id:
+        return []
+    conn = get_db()
+    keys: set[str] = set()
+    queries = [
+        ("SELECT photo FROM profiles WHERE id=?", (profile_id,)),
+        ("SELECT filename FROM photos WHERE profile_id=?", (profile_id,)),
+        ("SELECT filename FROM video_intros WHERE profile_id=?", (profile_id,)),
+        ("SELECT selfie_photo FROM selfie_verifications WHERE profile_id=?", (profile_id,)),
+        ("SELECT filename FROM voice_messages WHERE from_id=? OR to_id=?", (profile_id, profile_id)),
+        ("SELECT photo FROM stories WHERE profile_id=?", (profile_id,)),
+        ("SELECT filename FROM event_photos WHERE profile_id=?", (profile_id,)),
+        ("SELECT photo FROM messages WHERE from_id=? OR to_id=?", (profile_id, profile_id)),
+    ]
+    for query, params in queries:
+        try:
+            rows = conn.execute(query, params).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        keys.update(row[0] for row in rows if row[0])
+    return sorted(keys)
+
 
 def delete_account(user_id: str) -> bool:
     conn = get_db()

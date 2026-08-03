@@ -5,6 +5,7 @@ Compatibility-first dating + social platform.
 
 import asyncio
 import hashlib
+import io
 import json as json_stdlib
 import math
 import secrets
@@ -14,6 +15,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import jwt
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks, Body
@@ -44,6 +46,12 @@ from app.config import (
 from app.logging_config import setup_logging, get_logger
 from app.content_filter import check_content, filter_message
 from app.job_queue import QueueConfigurationError, job_queue
+from app.object_storage import (
+    InvalidObjectKey,
+    ObjectNotFound,
+    ObjectStorageError,
+    object_storage,
+)
 from app.redis_backend import redis_sessions
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
@@ -107,7 +115,7 @@ from app.database import (
     set_incognito_mode, is_incognito,
     get_mutual_friends, get_mutual_friend_count,
     search_messages,
-    delete_account, export_user_data,
+    delete_account, export_user_data, get_profile_media_keys,
     get_expiring_matches,
     create_icebreaker_game, get_icebreaker_game, submit_game_turn, get_games_for_pair,
     create_date_schedule, get_date_schedules, get_date_schedule, update_date_schedule_status,
@@ -244,6 +252,26 @@ def validate_file_magic(content: bytes, ext: str) -> bool:
     if not patterns:
         return True
     return any(content[:len(p)] == p for p in patterns)
+
+
+def _store_media(filename: str, content: bytes, content_type: str | None = None) -> str:
+    try:
+        return object_storage.put_bytes(filename, content, content_type)
+    except ObjectStorageError as exc:
+        log.error("Media storage failed for %s: %s", filename, exc)
+        raise HTTPException(status_code=503, detail="Media storage unavailable") from exc
+
+
+def _delete_media(filename: str) -> None:
+    try:
+        object_storage.delete(filename)
+    except ObjectStorageError as exc:
+        log.warning("Unable to remove media object %s: %s", filename, exc)
+
+
+def _thumbnail_key(filename: str) -> str:
+    path = Path(filename)
+    return f"thumb_{path.stem}{path.suffix.lower()}"
 
 
 # WebSocket connection manager
@@ -649,12 +677,14 @@ async def startup():
     app.state.redis_session_backend = redis_sessions.initialize()
     app.state.rate_limit_backend = "redis" if redis_sessions.enabled else "memory"
     app.state.job_queue_backend = job_queue.initialize()
+    app.state.object_storage_backend = object_storage.initialize()
     init_db()
     from app.i18n import init_i18n
     init_i18n()
     from app.backup import start_backup_scheduler
     start_backup_scheduler()
-    cleanup_expired_stories()
+    for media_key in cleanup_expired_stories():
+        _delete_media(media_key)
     reveal_blind_dates()
     cleanup_expired_undo_blocks()
     await ws_manager.start()
@@ -1170,11 +1200,8 @@ async def upload_photo(profile_id: str, file: UploadFile = File(...),
 
     # Generate thumbnail
     filename = f"{profile_id}{ext}"
-    filepath = UPLOAD_DIR / filename
-    with open(filepath, "wb") as f:
-        f.write(content)
-
-    _generate_thumbnail(filepath, profile_id)
+    _store_media(filename, content)
+    _generate_thumbnail(content, filename)
     update_profile_field(profile_id, "photo", filename)
     try:
         moderation_job_id = job_queue.enqueue_photo_moderation(profile_id, filename)
@@ -1189,15 +1216,27 @@ async def upload_photo(profile_id: str, file: UploadFile = File(...),
     return {"photo": filename, "moderation_status": moderation_status}
 
 
-def _generate_thumbnail(filepath: Path, profile_id: str, size: tuple = (200, 200)):
+def _generate_thumbnail(content: bytes, filename: str, size: tuple = (200, 200)):
     try:
         from PIL import Image
-        img = Image.open(filepath)
-        img.thumbnail(size, Image.LANCZOS)
-        thumb_path = UPLOAD_DIR / f"thumb_{profile_id}{filepath.suffix}"
-        img.save(str(thumb_path), quality=85)
-    except Exception:
-        pass  # Thumbnail generation is best-effort
+        img: Any = Image.open(io.BytesIO(content))
+        resampling = getattr(Image, "Resampling", Image)
+        img.thumbnail(size, resampling.LANCZOS)
+        suffix = Path(filename).suffix.lower()
+        image_format = {
+            ".jpg": "JPEG",
+            ".jpeg": "JPEG",
+            ".png": "PNG",
+            ".webp": "WEBP",
+            ".gif": "GIF",
+        }.get(suffix, "PNG")
+        if image_format == "JPEG" and img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        output = io.BytesIO()
+        img.save(output, format=image_format, quality=85)
+        _store_media(_thumbnail_key(filename), output.getvalue(), f"image/{image_format.lower()}")
+    except Exception as exc:
+        log.warning("Thumbnail generation failed for %s: %s", filename, exc)
 
 # ---------------------------------------------------------------------------
 # Matching
@@ -1439,9 +1478,7 @@ async def send_photo_message(from_id: str, to_id: str,
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     import uuid as _uuid
     filename = f"msg_{_uuid.uuid4().hex[:8]}{ext}"
-    filepath = UPLOAD_DIR / filename
-    with open(filepath, "wb") as f:
-        f.write(content)
+    _store_media(filename, content)
     msg_id = send_message(from_id, to_id, "[Photo]", photo=filename)
     # Notify
     sender = get_profile(from_id)
@@ -1848,10 +1885,8 @@ async def upload_gallery_photo(profile_id: str, file: UploadFile = File(...),
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     import uuid as _uuid
     filename = f"{profile_id}_{_uuid.uuid4().hex[:6]}{ext}"
-    filepath = UPLOAD_DIR / filename
-    with open(filepath, "wb") as f:
-        f.write(content)
-    _generate_thumbnail(filepath, f"{profile_id}_{_uuid.uuid4().hex[:4]}")
+    _store_media(filename, content)
+    _generate_thumbnail(content, filename)
     photo_id = add_photo(profile_id, filename, caption, is_primary)
     if is_primary:
         update_profile_field(profile_id, "photo", filename)
@@ -1879,8 +1914,13 @@ def remove_photo(photo_id: str, profile_id: str = "", user: dict = Depends(requi
         raise HTTPException(status_code=403, detail="Forbidden")
     if not profile_id:
         raise HTTPException(status_code=400, detail="profile_id required")
+    photo = next((item for item in get_photos(profile_id) if item["id"] == photo_id), None)
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
     if not delete_photo(photo_id, profile_id):
         raise HTTPException(status_code=404, detail="Photo not found")
+    _delete_media(photo["filename"])
+    _delete_media(_thumbnail_key(photo["filename"]))
     return {"message": "Photo deleted"}
 
 
@@ -2158,9 +2198,7 @@ async def upload_selfie(profile_id: str, file: UploadFile = File(...),
     if not validate_file_magic(content, ext):
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     filename = f"verify_{profile_id}_{uuid.uuid4().hex[:6]}{ext}"
-    filepath = UPLOAD_DIR / filename
-    with open(filepath, "wb") as f:
-        f.write(content)
+    _store_media(filename, content)
     vid = submit_selfie_verification(profile_id, filename)
     return {"id": vid, "status": "pending", "message": "Selfie submitted for verification"}
 
@@ -2185,6 +2223,7 @@ async def upload_video_intro(profile_id: str, file: UploadFile = File(...),
     profile = get_profile(profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
+    previous_intro = get_video_intro(profile_id)
     ext = Path(file.filename).suffix.lower() if file.filename else ".mp4"
     if ext not in (".mp4", ".webm", ".mov"):
         raise HTTPException(status_code=400, detail="Supported formats: mp4, webm, mov")
@@ -2194,10 +2233,10 @@ async def upload_video_intro(profile_id: str, file: UploadFile = File(...),
     if not validate_file_magic(content, ext):
         raise HTTPException(status_code=400, detail="File content doesn't match extension")
     filename = f"intro_{profile_id}_{uuid.uuid4().hex[:6]}{ext}"
-    filepath = UPLOAD_DIR / filename
-    with open(filepath, "wb") as f:
-        f.write(content)
+    _store_media(filename, content)
     vid = save_video_intro(profile_id, filename)
+    if previous_intro and previous_intro.get("filename") != filename:
+        _delete_media(previous_intro["filename"])
     return {"id": vid, "filename": filename}
 
 
@@ -2213,8 +2252,10 @@ def get_intro(profile_id: str):
 def remove_intro(profile_id: str, user: dict = Depends(require_user)):
     if user.get("profile_id") != profile_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    if not delete_video_intro(profile_id):
+    intro = get_video_intro(profile_id)
+    if not intro or not delete_video_intro(profile_id):
         raise HTTPException(status_code=404, detail="No video intro found")
+    _delete_media(intro["filename"])
     return {"message": "Video intro deleted"}
 
 
@@ -2720,6 +2761,7 @@ def health_check():
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),
         "queue": job_queue.health(),
+        "object_storage": object_storage.health(),
         "rate_limit_backend": app.state.rate_limit_backend,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "user-api"),
         "websocket_transport": "redis" if redis_sessions.enabled else "local",
@@ -2746,7 +2788,7 @@ async def upload_voice_message(to_id: str, file: UploadFile = File(...),
     if not validate_file_magic(content, ".webm"):
         raise HTTPException(status_code=400, detail="Invalid voice file format")
     fname = f"voice_{uuid.uuid4().hex[:12]}.webm"
-    (UPLOAD_DIR / fname).write_bytes(content)
+    _store_media(fname, content, "audio/webm")
     msg_id = save_voice_message(profile_id, to_id, fname, duration_ms=0)
     # Also send as a regular message linking to the voice file
     send_message(profile_id, to_id, f"[voice:{fname}]")
@@ -2870,7 +2912,7 @@ async def post_story(user: dict = Depends(require_user),
         if not validate_file_magic(file_content, ext):
             raise HTTPException(status_code=400, detail="File content doesn't match extension")
         fname = f"story_{uuid.uuid4().hex[:12]}{ext}"
-        (UPLOAD_DIR / fname).write_bytes(file_content)
+        _store_media(fname, file_content)
         photo = fname
         content_type = "photo"
     if not content and not photo:
@@ -2912,8 +2954,11 @@ def read_story(story_id: str, user: dict = Depends(require_user)):
 @app.delete("/api/stories/{story_id}")
 def remove_story(story_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
-    if not profile_id or not delete_story(story_id, profile_id):
+    story = get_story(story_id)
+    if not profile_id or not story or not delete_story(story_id, profile_id):
         raise HTTPException(status_code=404, detail="Story not found")
+    if story.get("photo"):
+        _delete_media(story["photo"])
     return {"message": "Story deleted"}
 
 
@@ -3005,8 +3050,11 @@ def revoke_other_sessions(user: dict = Depends(require_user)):
 def delete_user_account(body: AccountDeleteConfirm, user: dict = Depends(require_user)):
     if body.confirmation != "DELETE":
         raise HTTPException(status_code=400, detail="Type DELETE to confirm")
+    media_keys = get_profile_media_keys(user.get("profile_id", ""))
     if not delete_account(user["id"]):
         raise HTTPException(status_code=500, detail="Failed to delete account")
+    for media_key in media_keys:
+        _delete_media(media_key)
     if redis_sessions.enabled:
         redis_sessions.revoke_all_sessions(user["id"])
     log_analytics_event("account_deleted", user.get("profile_id"))
@@ -3320,7 +3368,7 @@ async def upload_event_photo(event_id: str, file: UploadFile = File(...),
     if not validate_file_magic(content, ext):
         raise HTTPException(status_code=400, detail="Invalid file content")
     filename = f"event_{event_id}_{uuid.uuid4().hex[:8]}{ext}"
-    (UPLOAD_DIR / filename).write_bytes(content)
+    _store_media(filename, content)
     result = add_event_photo(event_id, profile_id, filename)
     return result
 
@@ -3333,7 +3381,10 @@ def list_event_photos(event_id: str, user: dict = Depends(require_user)):
 @app.delete("/api/events/{event_id}/photos/{photo_id}")
 def remove_event_photo(event_id: str, photo_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id", "")
-    delete_event_photo(photo_id, profile_id)
+    photo = next((item for item in get_event_photos(event_id) if item["id"] == photo_id), None)
+    if not photo or not delete_event_photo(photo_id, profile_id):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    _delete_media(photo["filename"])
     return {"message": "Photo removed"}
 
 
@@ -4239,8 +4290,19 @@ async def public_stats(request: Request):
 # Static Files
 # ---------------------------------------------------------------------------
 
-UPLOAD_DIR.mkdir(exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+if object_storage.is_local:
+    UPLOAD_DIR.mkdir(exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+else:
+    @app.api_route("/uploads/{object_key:path}", methods=["GET", "HEAD"])
+    def serve_remote_media(request: Request, object_key: str):
+        try:
+            return object_storage.media_response(request, object_key)
+        except (InvalidObjectKey, ObjectNotFound) as exc:
+            raise HTTPException(status_code=404, detail="Media not found") from exc
+        except ObjectStorageError as exc:
+            raise HTTPException(status_code=503, detail="Media storage unavailable") from exc
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")

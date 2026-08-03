@@ -69,6 +69,19 @@ class WeightLearningPersistenceTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(database.get_pending_photo_moderations()), 1)
 
+    def test_profile_media_keys_cover_gdpr_cleanup_surface(self):
+        database.update_profile_field("rater", "photo", "rater.jpg")
+        database.add_photo("rater", "gallery.jpg")
+        database.save_video_intro("rater", "intro.mp4")
+        database.submit_selfie_verification("rater", "selfie.jpg")
+        database.create_story("rater", "photo", "", photo="story.jpg")
+        database.send_message("rater", "partner", "[Photo]", photo="message.jpg")
+
+        self.assertEqual(
+            database.get_profile_media_keys("rater"),
+            ["gallery.jpg", "intro.mp4", "message.jpg", "rater.jpg", "selfie.jpg", "story.jpg"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

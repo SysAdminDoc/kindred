@@ -127,6 +127,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Rate-limited auth endpoints
 - Shared Redis rate limits and refresh-token sessions when `KINDRED_REDIS_URL` is configured
 - File upload magic byte validation on all upload endpoints
+- S3-compatible object storage for photos, videos, voice messages, selfies, stories, and event media with local development fallback
 - JWT authentication on all user and admin endpoints
 - WebSocket JWT authentication (prevents impersonation)
 - XSS prevention (HTML escaping on all user-rendered content)
@@ -324,6 +325,15 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_QUEUE_PROCESSES` | `2` | Dramatiq worker process count in the production Compose stack |
 | `KINDRED_QUEUE_THREADS` | `2` | Dramatiq threads per worker process in the production Compose stack |
 | `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
+| `KINDRED_OBJECT_STORAGE_ENDPOINT` | empty | S3-compatible endpoint; leave unset for local `uploads/` storage |
+| `KINDRED_OBJECT_STORAGE_BUCKET` | empty | Remote media bucket; supplying it enables S3-compatible storage |
+| `KINDRED_OBJECT_STORAGE_ACCESS_KEY` | empty | S3-compatible access key or IAM-compatible credential |
+| `KINDRED_OBJECT_STORAGE_SECRET_KEY` | empty | S3-compatible secret key |
+| `KINDRED_OBJECT_STORAGE_REGION` | `us-east-1` | S3-compatible signing region |
+| `KINDRED_OBJECT_STORAGE_PREFIX` | `media` | Remote object-key prefix; logical database keys remain unchanged |
+| `KINDRED_OBJECT_STORAGE_PUBLIC_URL` | empty | Optional public/CDN base URL; empty keeps media private behind `/uploads/` |
+| `KINDRED_OBJECT_STORAGE_REQUIRED` | `false` | Fail startup instead of serving new media from an unavailable or missing remote backend |
+| `KINDRED_OBJECT_STORAGE_ADDRESSING_STYLE` | `auto` (`path` with an endpoint) | S3 addressing mode; `path` is recommended for MinIO and many S3-compatible services |
 | `KINDRED_EMBEDDING_MODEL` | `all-mpnet-base-v2` | Preferred semantic embedding model |
 | `KINDRED_EMBEDDING_FALLBACK_MODEL` | `all-MiniLM-L6-v2` | Fallback when the preferred model cannot load |
 
@@ -335,6 +345,20 @@ intentionally keeps local development on SQLite sessions, in-memory rate
 limiting, process-local WebSocket delivery, and inline embedding/moderation
 work. Production should keep both queue flags enabled and run the supplied
 `kindred-worker` systemd service or Compose service.
+
+When object storage is configured, the API stores new media under the
+configured bucket and serves it through the existing `/uploads/{key}` contract;
+the default keeps the bucket private and supports photo, audio, and video byte
+ranges. Existing files in `uploads/` remain readable as a migration fallback.
+Set `KINDRED_OBJECT_STORAGE_REQUIRED=true` in production so a missing bucket or
+unavailable endpoint fails startup instead of silently writing new media to
+local disk. The production environment template enables this fail-closed mode;
+replace its example endpoint and credentials before launch.
+
+To migrate an existing local upload directory, first configure the remote
+backend and run `python -m app.object_storage_migration --dry-run`, then rerun
+without `--dry-run`. The command is repeatable and leaves local files in place
+until the remote bucket has been verified.
 
 For a bare-metal systemd deployment, install `deploy/kindred-ws.service` and
 `deploy/kindred-worker.service` alongside the existing user/admin units and

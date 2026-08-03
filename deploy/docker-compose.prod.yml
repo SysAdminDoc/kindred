@@ -9,6 +9,7 @@ x-kindred-common: &kindred-common
     KINDRED_REDIS_REQUIRED: "true"
     KINDRED_QUEUE_ENABLED: "true"
     KINDRED_QUEUE_REQUIRED: "true"
+    KINDRED_OBJECT_STORAGE_REQUIRED: "true"
   volumes:
     - ../kindred.db:/app/kindred.db
     - ../uploads:/app/uploads

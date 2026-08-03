@@ -14,6 +14,7 @@ All notable changes to kindred will be documented in this file.
 - Added: Optional Redis-backed rate limits and refresh sessions with fail-closed production mode
 - Added: Separate user API, admin API, and WebSocket worker processes behind the Caddy gateway with Redis pub/sub presence
 - Added: Dramatiq Redis workers for asynchronous profile embeddings and photo-moderation queue submission with local inline fallback
+- Added: Optional S3-compatible object storage for all media uploads with private `/uploads/` delivery, video range support, legacy local-file reads, and fail-closed production configuration
 - v2.5.1 — Comprehensive audit: 41 bug fixes
 - v2.5.0 — Phase 8: Premium & integrations
 - v2.4.0 — Phase 7: Admin & operations

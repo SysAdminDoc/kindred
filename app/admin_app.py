@@ -4,6 +4,7 @@ Separate admin experience on port 8001.
 """
 
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 
 import jwt
@@ -14,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from passlib.hash import bcrypt
 from pydantic import BaseModel
+from starlette.requests import Request
 
 import sys
 import os
@@ -25,8 +27,14 @@ from app.config import (
     DEFAULT_LOCALE, VACUUM_INTERVAL_HOURS,
 )
 from app.job_queue import job_queue
+from app.object_storage import (
+    InvalidObjectKey,
+    ObjectNotFound,
+    ObjectStorageError,
+    object_storage,
+)
 from app.database import (
-    init_db, get_profile, get_all_profiles, delete_profile,
+    init_db, get_profile, get_all_profiles, delete_profile, get_profile_media_keys,
     get_conversation_count,
     get_all_invites, create_invite,
     save_feedback, get_stats,
@@ -41,7 +49,7 @@ from app.database import (
     get_pending_photo_moderations, review_photo_moderation,
     get_analytics_summary, get_engagement_metrics,
     get_content_filter_logs,
-    get_all_active_stories, delete_story,
+    get_all_active_stories, get_story, delete_story,
     get_all_sessions, revoke_session, revoke_all_sessions,
     get_session_count, get_location_enabled_count,
     get_super_like_count,
@@ -72,6 +80,7 @@ from app.database import (
 from app.redis_backend import redis_sessions
 
 admin_app = FastAPI(title="Kindred Admin", version="2.5.1")
+log = logging.getLogger("kindred.admin")
 
 admin_app.add_middleware(
     CORSMiddleware,
@@ -140,6 +149,7 @@ class AdminLogin(BaseModel):
 def startup():
     redis_sessions.initialize()
     job_queue.initialize()
+    object_storage.initialize()
     init_db()
     # Create default admin if none exists
     from app.database import get_db
@@ -208,8 +218,14 @@ def read_profile(profile_id: str, admin: dict = Depends(require_admin)):
 
 @admin_app.delete("/api/profile/{profile_id}")
 def remove_profile(profile_id: str, admin: dict = Depends(require_admin)):
+    media_keys = get_profile_media_keys(profile_id)
     if not delete_profile(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
+    for media_key in media_keys:
+        try:
+            object_storage.delete(media_key)
+        except ObjectStorageError as exc:
+            log.warning("Unable to remove profile media %s: %s", media_key, exc)
     return {"message": "Profile deleted"}
 
 
@@ -406,6 +422,7 @@ def health_check():
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),
         "queue": job_queue.health(),
+        "object_storage": object_storage.health(),
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "admin-api"),
         "pid": os.getpid(),
     }
@@ -492,8 +509,14 @@ def admin_list_stories(admin: dict = Depends(require_admin)):
 
 @admin_app.delete("/api/admin/stories/{story_id}")
 def admin_delete_story(story_id: str, admin: dict = Depends(require_admin)):
-    if not delete_story(story_id, admin["id"]):
+    story = get_story(story_id)
+    if not story or not delete_story(story_id, admin["id"]):
         raise HTTPException(status_code=404, detail="Story not found")
+    if story.get("photo"):
+        try:
+            object_storage.delete(story["photo"])
+        except ObjectStorageError as exc:
+            log.warning("Unable to remove story media %s: %s", story["photo"], exc)
     return {"message": "Story removed"}
 
 
@@ -1065,8 +1088,19 @@ async def deactivate_boosts(admin=Depends(require_admin)):
 
 
 # ─── Static Files ───
-UPLOAD_DIR.mkdir(exist_ok=True)
-admin_app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+if object_storage.is_local:
+    UPLOAD_DIR.mkdir(exist_ok=True)
+    admin_app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+else:
+    @admin_app.api_route("/uploads/{object_key:path}", methods=["GET", "HEAD"])
+    def serve_remote_media(request: Request, object_key: str):
+        try:
+            return object_storage.media_response(request, object_key)
+        except (InvalidObjectKey, ObjectNotFound) as exc:
+            raise HTTPException(status_code=404, detail="Media not found") from exc
+        except ObjectStorageError as exc:
+            raise HTTPException(status_code=503, detail="Media storage unavailable") from exc
+
 admin_app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

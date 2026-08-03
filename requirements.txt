@@ -11,6 +11,8 @@ slowapi==0.1.9
 redis>=5.2,<7
 # Distributed embedding and photo-moderation workers over the shared Redis broker.
 dramatiq[redis]>=2.2,<3
+# S3-compatible photo/video storage; local disk remains the default when no bucket is configured.
+boto3>=1.35,<2
 Pillow>=10.0.0
 # Used only by the explicit SQLite-to-PostgreSQL migration command; SQLite remains the default.
 psycopg[binary]>=3.2,<4

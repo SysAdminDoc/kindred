@@ -43,6 +43,24 @@ DB_PATH = Path(os.getenv("KINDRED_DB_PATH", str(Path(__file__).parent.parent / "
 UPLOAD_DIR = Path(os.getenv("KINDRED_UPLOAD_DIR", str(Path(__file__).parent.parent / "uploads")))
 MAX_UPLOAD_MB = int(os.getenv("KINDRED_MAX_UPLOAD_MB", "30"))
 
+# --- Object storage ---
+# Leave the bucket unset for local development.  Supplying any object-storage
+# setting selects the S3-compatible backend; required mode then fails closed
+# instead of silently writing new media to local disk.
+OBJECT_STORAGE_ENDPOINT = os.getenv("KINDRED_OBJECT_STORAGE_ENDPOINT", "").strip()
+OBJECT_STORAGE_BUCKET = os.getenv("KINDRED_OBJECT_STORAGE_BUCKET", "").strip()
+OBJECT_STORAGE_ACCESS_KEY = os.getenv("KINDRED_OBJECT_STORAGE_ACCESS_KEY", "").strip()
+OBJECT_STORAGE_SECRET_KEY = os.getenv("KINDRED_OBJECT_STORAGE_SECRET_KEY", "").strip()
+OBJECT_STORAGE_REGION = os.getenv("KINDRED_OBJECT_STORAGE_REGION", "us-east-1").strip()
+OBJECT_STORAGE_PREFIX = os.getenv("KINDRED_OBJECT_STORAGE_PREFIX", "media").strip()
+OBJECT_STORAGE_PUBLIC_URL = os.getenv("KINDRED_OBJECT_STORAGE_PUBLIC_URL", "").strip()
+OBJECT_STORAGE_REQUIRED = os.getenv(
+    "KINDRED_OBJECT_STORAGE_REQUIRED", "false"
+).lower() == "true"
+OBJECT_STORAGE_ADDRESSING_STYLE = os.getenv(
+    "KINDRED_OBJECT_STORAGE_ADDRESSING_STYLE", ""
+).strip()
+
 # --- Rate Limiting ---
 RATE_LIMIT_DEFAULT = os.getenv("KINDRED_RATE_LIMIT", "60/minute")
 RATE_LIMIT_AUTH = os.getenv("KINDRED_RATE_LIMIT_AUTH", "10/minute")
