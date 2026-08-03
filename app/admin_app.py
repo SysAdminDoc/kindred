@@ -68,6 +68,7 @@ from app.database import (
     get_retention_cohorts, get_funnel_data,
     UPLOAD_DIR,
 )
+from app.redis_backend import redis_sessions
 
 admin_app = FastAPI(title="Kindred Admin", version="2.5.1")
 
@@ -136,6 +137,7 @@ class AdminLogin(BaseModel):
 
 @admin_app.on_event("startup")
 def startup():
+    redis_sessions.initialize()
     init_db()
     # Create default admin if none exists
     from app.database import get_db
@@ -400,6 +402,7 @@ def health_check():
         "version": "2.5.1",
         "python": sys.version,
         "database_size_mb": db_size_mb,
+        "redis": redis_sessions.health(),
         "pid": os.getpid(),
     }
 
@@ -439,11 +442,18 @@ def restore_backup(req: RestoreRequest, admin: dict = Depends(require_admin)):
 # ─── Session Management (admin) ───
 @admin_app.get("/api/admin/sessions")
 def admin_list_sessions(admin: dict = Depends(require_admin)):
-    return {"sessions": get_all_sessions(), "count": get_session_count()}
+    if redis_sessions.enabled:
+        sessions = redis_sessions.list_all_sessions()
+        return {"sessions": sessions, "count": len(sessions), "backend": "redis"}
+    return {"sessions": get_all_sessions(), "count": get_session_count(), "backend": "sqlite"}
 
 
 @admin_app.delete("/api/admin/sessions/{session_id}")
 def admin_revoke_session(session_id: str, admin: dict = Depends(require_admin)):
+    if redis_sessions.enabled:
+        if not redis_sessions.revoke_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"message": "Session revoked"}
     if not revoke_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"message": "Session revoked"}
@@ -463,7 +473,10 @@ def admin_revoke_user_sessions(req: RevokeRequest, admin: dict = Depends(require
         uid = user["id"]
     if not uid:
         raise HTTPException(status_code=400, detail="email or user_id required")
-    revoke_all_sessions(uid)
+    if redis_sessions.enabled:
+        redis_sessions.revoke_all_sessions(uid)
+    else:
+        revoke_all_sessions(uid)
     return {"message": "All sessions revoked for user"}
 
 

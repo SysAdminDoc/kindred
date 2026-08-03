@@ -125,6 +125,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Message cooldown (rate limit for new matches)
 - Link preview scanning (suspicious URL warnings)
 - Rate-limited auth endpoints
+- Shared Redis rate limits and refresh-token sessions when `KINDRED_REDIS_URL` is configured
 - File upload magic byte validation on all upload endpoints
 - JWT authentication on all user and admin endpoints
 - WebSocket JWT authentication (prevents impersonation)
@@ -290,9 +291,16 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_CORS_ORIGINS` | `localhost:8000,8001` | Allowed CORS origins |
 | `KINDRED_RATE_LIMIT` | `60/minute` | General rate limit |
 | `KINDRED_RATE_LIMIT_AUTH` | `10/minute` | Auth endpoint rate limit |
+| `KINDRED_REDIS_URL` | empty | Redis URL for shared rate limits and refresh sessions |
+| `KINDRED_REDIS_REQUIRED` | `false` | Fail startup instead of falling back when Redis is unavailable |
+| `KINDRED_REDIS_KEY_PREFIX` | `kindred` | Prefix for Redis session keys |
 | `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
 | `KINDRED_EMBEDDING_MODEL` | `all-mpnet-base-v2` | Preferred semantic embedding model |
 | `KINDRED_EMBEDDING_FALLBACK_MODEL` | `all-MiniLM-L6-v2` | Fallback when the preferred model cannot load |
+
+For a multi-worker production deployment, set `KINDRED_REDIS_URL` and
+`KINDRED_REDIS_REQUIRED=true`; leaving the requirement disabled intentionally
+keeps local development on SQLite sessions and in-memory rate limiting.
 
 ## License
 

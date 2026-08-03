@@ -46,6 +46,9 @@ MAX_UPLOAD_MB = int(os.getenv("KINDRED_MAX_UPLOAD_MB", "30"))
 # --- Rate Limiting ---
 RATE_LIMIT_DEFAULT = os.getenv("KINDRED_RATE_LIMIT", "60/minute")
 RATE_LIMIT_AUTH = os.getenv("KINDRED_RATE_LIMIT_AUTH", "10/minute")
+REDIS_URL = os.getenv("KINDRED_REDIS_URL", "").strip()
+REDIS_REQUIRED = os.getenv("KINDRED_REDIS_REQUIRED", "false").lower() == "true"
+REDIS_KEY_PREFIX = os.getenv("KINDRED_REDIS_KEY_PREFIX", "kindred")
 
 # --- Photo reveal ---
 PHOTO_REVEAL_THRESHOLD = float(os.getenv("KINDRED_PHOTO_REVEAL_THRESHOLD", "60.0"))

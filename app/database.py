@@ -3991,6 +3991,22 @@ def revoke_session(session_id: str, user_id: str = None) -> bool:
     return cursor.rowcount > 0
 
 
+def revoke_session_by_token(token_hash: str, user_id: str | None = None) -> bool:
+    conn = get_db()
+    if user_id:
+        cursor = conn.execute(
+            "DELETE FROM user_sessions WHERE token_hash=? AND user_id=?",
+            (token_hash, user_id),
+        )
+    else:
+        cursor = conn.execute(
+            "DELETE FROM user_sessions WHERE token_hash=?",
+            (token_hash,),
+        )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 def revoke_all_sessions(user_id: str, except_session_id: str = None):
     conn = get_db()
     if except_session_id:

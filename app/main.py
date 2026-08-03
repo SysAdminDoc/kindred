@@ -42,6 +42,7 @@ from app.config import (
 )
 from app.logging_config import setup_logging, get_logger
 from app.content_filter import check_content, filter_message
+from app.redis_backend import redis_sessions
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
     update_profile_field, send_message, get_conversation, get_conversations_for,
@@ -97,7 +98,8 @@ from app.database import (
     create_story, get_stories_feed, get_story, view_story, delete_story,
     cleanup_expired_stories,
     create_group_poll, get_group_polls, vote_poll, get_poll_user_vote,
-    create_session, get_user_sessions, touch_session, revoke_session, revoke_all_sessions,
+    create_session, get_user_sessions, revoke_session,
+    revoke_session_by_token, revoke_all_sessions,
     save_user_location, get_user_location, get_nearby_profiles,
     save_recovery_codes, use_recovery_code, get_recovery_code_count,
     set_incognito_mode, is_incognito,
@@ -202,8 +204,11 @@ async def request_logging_middleware(request: Request, call_next):
 
 
 # Rate limiting
-limiter = Limiter(key_func=get_remote_address)
+rate_limit_storage = redis_sessions.rate_limit_storage_uri
+limiter = Limiter(key_func=get_remote_address, storage_uri=rate_limit_storage)
 app.state.limiter = limiter
+app.state.redis_session_backend = redis_sessions.backend_name
+app.state.rate_limit_backend = "redis" if rate_limit_storage != "memory://" else "memory"
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -566,6 +571,8 @@ class ReadReceiptsUpdate(BaseModel):
 
 @app.on_event("startup")
 def startup():
+    app.state.redis_session_backend = redis_sessions.initialize()
+    app.state.rate_limit_backend = "redis" if redis_sessions.enabled else "memory"
     init_db()
     from app.i18n import init_i18n
     init_i18n()
@@ -591,7 +598,7 @@ def register(request: Request, body: AuthRegister):
     pw_hash = bcrypt.using(rounds=BCRYPT_ROUNDS).hash(body.password)
     user_id = create_user(body.email, pw_hash, body.display_name)
     token = create_token(user_id)
-    refresh = _create_refresh_token_for_user(user_id)
+    refresh = _create_refresh_token_for_user(user_id, request)
     log.info("User registered: %s", body.email)
     log_analytics_event("signup", user_id)
     return {
@@ -617,7 +624,7 @@ def login(request: Request, body: AuthLogin):
         if not _verify_totp(user["id"], body.totp_code):
             raise HTTPException(status_code=401, detail="Invalid 2FA code")
     token = create_token(user["id"], bool(user["is_admin"]))
-    refresh = _create_refresh_token_for_user(user["id"])
+    refresh = _create_refresh_token_for_user(user["id"], request)
     log.info("User logged in: %s", body.email)
     log_analytics_event("login", user["id"])
     return {
@@ -673,7 +680,7 @@ def change_password(body: PasswordChange, user: dict = Depends(require_user)):
     conn.execute("UPDATE users SET password_hash=? WHERE id=?",
                  (bcrypt.using(rounds=BCRYPT_ROUNDS).hash(body.new_password), user["id"]))
     conn.commit()
-    revoke_all_user_tokens(user["id"])
+    _revoke_all_refresh_sessions(user["id"])
     return {"message": "Password changed successfully"}
 
 
@@ -681,12 +688,49 @@ def change_password(body: PasswordChange, user: dict = Depends(require_user)):
 # Refresh Tokens
 # ---------------------------------------------------------------------------
 
-def _create_refresh_token_for_user(user_id: str) -> str:
+def _session_metadata(request: Request | None) -> tuple[str, str]:
+    if request is None:
+        return "", ""
+    user_agent = (request.headers.get("user-agent") or "")[:200]
+    ip_address = request.client.host[:200] if request.client else ""
+    return user_agent, ip_address
+
+
+def _create_refresh_token_for_user(user_id: str, request: Request | None = None) -> str:
     raw = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
     expires = (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_DAYS)).isoformat()
-    create_refresh_token(user_id, token_hash, expires)
+    device, ip_address = _session_metadata(request)
+    if redis_sessions.enabled:
+        redis_sessions.create_session(
+            user_id, token_hash, expires, device=device, ip_address=ip_address
+        )
+    else:
+        create_refresh_token(user_id, token_hash, expires)
+        create_session(user_id, token_hash, device=device, ip_address=ip_address)
     return raw
+
+
+def _get_refresh_session(token_hash: str) -> dict | None:
+    if redis_sessions.enabled:
+        return redis_sessions.get_refresh_token(token_hash)
+    return get_refresh_token(token_hash)
+
+
+def _revoke_refresh_session(token_hash: str, user_id: str | None = None) -> None:
+    if redis_sessions.enabled:
+        redis_sessions.revoke_refresh_token(token_hash)
+        return
+    revoke_refresh_token(token_hash)
+    revoke_session_by_token(token_hash, user_id)
+
+
+def _revoke_all_refresh_sessions(user_id: str) -> None:
+    if redis_sessions.enabled:
+        redis_sessions.revoke_all_sessions(user_id)
+        return
+    revoke_all_user_tokens(user_id)
+    revoke_all_sessions(user_id)
 
 
 class RefreshTokenRequest(BaseModel):
@@ -697,29 +741,29 @@ class RefreshTokenRequest(BaseModel):
 @limiter.limit(RATE_LIMIT_AUTH)
 def refresh_access_token(request: Request, body: RefreshTokenRequest):
     token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
-    stored = get_refresh_token(token_hash)
+    stored = _get_refresh_session(token_hash)
     if not stored:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     # Rotate: revoke old, issue new
-    revoke_refresh_token(token_hash)
+    _revoke_refresh_session(token_hash, stored.get("user_id"))
     user = get_user_by_id(stored["user_id"])
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     token = create_token(user["id"], bool(user["is_admin"]))
-    new_refresh = _create_refresh_token_for_user(user["id"])
+    new_refresh = _create_refresh_token_for_user(user["id"], request)
     return {"token": token, "refresh_token": new_refresh}
 
 
 @app.post("/api/auth/logout")
 def logout(body: RefreshTokenRequest, user: dict = Depends(require_user)):
     token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
-    revoke_refresh_token(token_hash)
+    _revoke_refresh_session(token_hash, user.get("id"))
     return {"message": "Logged out"}
 
 
 @app.post("/api/auth/logout-all")
 def logout_all(user: dict = Depends(require_user)):
-    revoke_all_user_tokens(user["id"])
+    _revoke_all_refresh_sessions(user["id"])
     return {"message": "All sessions revoked"}
 
 
@@ -2563,6 +2607,8 @@ def health_check():
         "version": "2.5.1",
         "python": sys.version,
         "database_size_mb": db_size_mb,
+        "redis": redis_sessions.health(),
+        "rate_limit_backend": app.state.rate_limit_backend,
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
         "pid": os.getpid(),
     }
@@ -2812,11 +2858,17 @@ def get_incognito(user: dict = Depends(require_user)):
 
 @app.get("/api/sessions")
 def list_sessions(user: dict = Depends(require_user)):
-    return {"sessions": get_user_sessions(user["id"])}
+    if redis_sessions.enabled:
+        return {"sessions": redis_sessions.list_sessions(user["id"]), "backend": "redis"}
+    return {"sessions": get_user_sessions(user["id"]), "backend": "sqlite"}
 
 
 @app.delete("/api/sessions/{session_id}")
 def delete_session(session_id: str, user: dict = Depends(require_user)):
+    if redis_sessions.enabled:
+        if not redis_sessions.revoke_session(session_id, user["id"]):
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"message": "Session revoked"}
     if not revoke_session(session_id, user["id"]):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"message": "Session revoked"}
@@ -2824,8 +2876,11 @@ def delete_session(session_id: str, user: dict = Depends(require_user)):
 
 @app.post("/api/sessions/revoke-all")
 def revoke_other_sessions(user: dict = Depends(require_user)):
+    if redis_sessions.enabled:
+        redis_sessions.revoke_all_sessions(user["id"])
+        return {"message": "All other sessions revoked", "backend": "redis"}
     revoke_all_sessions(user["id"])
-    return {"message": "All other sessions revoked"}
+    return {"message": "All other sessions revoked", "backend": "sqlite"}
 
 
 # ---------------------------------------------------------------------------
@@ -2838,6 +2893,8 @@ def delete_user_account(body: AccountDeleteConfirm, user: dict = Depends(require
         raise HTTPException(status_code=400, detail="Type DELETE to confirm")
     if not delete_account(user["id"]):
         raise HTTPException(status_code=500, detail="Failed to delete account")
+    if redis_sessions.enabled:
+        redis_sessions.revoke_all_sessions(user["id"])
     log_analytics_event("account_deleted", user.get("profile_id"))
     return {"message": "Account deleted"}
 
