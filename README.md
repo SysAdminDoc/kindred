@@ -119,6 +119,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Account deletion (GDPR-compliant full data removal)
 - Data export (GDPR-compliant download your data)
 - CCPA do-not-sell preference (enabled by default; Kindred does not sell personal information)
+- Right-to-explanation responses for match visibility, compatibility scoring, and suspension decisions
 - Selfie verification with admin review and local ML liveness (blink + head turn)
 - Sliding-window direct-message harassment signals with escalating warnings and recipient-side auto-mutes
 - Upload-time pHash + dHash matching against an operator-managed known-abuse hash corpus
@@ -409,6 +410,12 @@ schema field and table. Administrators can inspect coverage at
 `/api/admin/privacy/audit`. Deactivated accounts are hard-deleted after
 `KINDRED_INACTIVE_ACCOUNT_HARD_DELETE_MONTHS`; the scheduled purge also removes
 unlinked OAuth, analytics, request-log, and media records for the account.
+
+Authenticated users can inspect why a profile was shown or hidden by the
+matching policy at `/api/explanations/match/{target_id}` and can inspect their
+own current suspension and appeal state at `/api/explanations/suspension`.
+The equivalent `/api/right-to-explanation/...` paths are provided for clients
+that use the legal terminology directly.
 
 When object storage is configured, the API stores new media under the
 configured bucket and serves it through the existing `/uploads/{key}` contract;

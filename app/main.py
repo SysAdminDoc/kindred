@@ -218,6 +218,7 @@ from app.engine import (
     generate_narrative, generate_icebreakers, generate_coaching_tips,
     DEFAULT_WEIGHTS, merge_weight_preferences, learn_weight_preferences,
 )
+from app.explanations import explain_match_decision, explain_suspension
 
 logger = setup_logging()
 log = get_logger("api")
@@ -1406,6 +1407,16 @@ def _effective_profile_weights(profile: dict) -> dict[str, float]:
         profile.get("learned_weight_prefs"),
     )
 
+
+def _matching_candidates(viewer_id: str, profiles: list[dict]) -> list[dict]:
+    """Apply pair-level safety exclusions before compatibility scoring."""
+    excluded = _cooling_off_profile_ids(viewer_id)
+    return [
+        profile for profile in profiles
+        if profile["id"] not in excluded
+        and not is_blocked_either(viewer_id, profile["id"])
+    ]
+
 @app.get("/api/matches/expiring")
 def expiring_matches(user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
@@ -1425,11 +1436,7 @@ def get_matches(profile_id: str, top_n: int = 20):
     if target is None:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    excluded = _cooling_off_profile_ids(profile_id)
-    all_profiles = [
-        profile for profile in get_all_profiles()
-        if profile["id"] not in excluded
-    ]
+    all_profiles = _matching_candidates(profile_id, get_all_profiles())
     if len(all_profiles) < 2:
         return {"matches": [], "message": "Need at least 2 profiles to match"}
 
@@ -1447,6 +1454,24 @@ def get_matches(profile_id: str, top_n: int = 20):
             m["photo_locked"] = False
 
     return {"matches": matches, "profile_id": profile_id}
+
+
+@app.get("/api/explanations/match/{target_id}")
+@app.get("/api/right-to-explanation/match/{target_id}")
+def match_explanation(target_id: str, user: dict = Depends(require_user)):
+    """Explain the current user's match visibility decision for one profile."""
+    viewer_id = user.get("profile_id")
+    if not viewer_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    viewer = get_profile(viewer_id)
+    target = get_profile(target_id)
+    return explain_match_decision(
+        viewer,
+        target,
+        cooling_off=bool(target and is_report_cooling_off(viewer_id, target_id)),
+        blocked=bool(target and is_blocked_either(viewer_id, target_id)),
+        weights=_effective_profile_weights(viewer) if viewer else None,
+    )
 
 
 @app.get("/api/compatibility/{id_a}/{id_b}")
@@ -2915,10 +2940,14 @@ def daily_suggestions(user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
     if not profile_id:
         return {"suggestions": []}
-    excluded = _cooling_off_profile_ids(profile_id)
+    eligible_ids = {
+        profile["id"] for profile in _matching_candidates(
+            profile_id, get_all_profiles()
+        )
+    }
     existing = [
         suggestion for suggestion in get_daily_suggestions(profile_id)
-        if suggestion.get("suggested_id") not in excluded
+        if suggestion.get("suggested_id") in eligible_ids
     ]
     if existing:
         return {"suggestions": existing}
@@ -2926,10 +2955,7 @@ def daily_suggestions(user: dict = Depends(require_user)):
     target = get_profile(profile_id)
     if not target:
         return {"suggestions": []}
-    all_profiles = [
-        profile for profile in get_all_profiles()
-        if profile["id"] not in excluded
-    ]
+    all_profiles = _matching_candidates(profile_id, get_all_profiles())
     if len(all_profiles) < 2:
         return {"suggestions": []}
     custom_weights = _effective_profile_weights(target)
@@ -2943,7 +2969,7 @@ def daily_suggestions(user: dict = Depends(require_user)):
     return {
         "suggestions": [
             suggestion for suggestion in get_daily_suggestions(profile_id)
-            if suggestion.get("suggested_id") not in excluded
+            if suggestion.get("suggested_id") in eligible_ids
         ]
     }
 
@@ -4638,6 +4664,13 @@ async def submit_user_appeal(req: AppealRequest, user=Depends(require_user)):
 @app.get("/api/my-suspensions")
 async def get_my_suspensions(user=Depends(require_user)):
     return get_user_suspensions(user["id"])
+
+
+@app.get("/api/explanations/suspension")
+@app.get("/api/right-to-explanation/suspension")
+def suspension_explanation(user=Depends(require_user)):
+    """Explain the authenticated user's current suspension decision."""
+    return explain_suspension(user, get_user_suspensions(user["id"]))
 
 
 # ---------------------------------------------------------------------------
