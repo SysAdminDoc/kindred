@@ -16,5 +16,7 @@ boto3>=1.35,<2
 Pillow>=10.0.0
 # Local blink/head-turn selfie liveness; the pinned model asset lives in models/.
 mediapipe==0.10.32
+# Optional ticketed-event PaymentIntent and webhook integration.
+stripe>=14.4,<15
 # Used only by the explicit SQLite-to-PostgreSQL migration command; SQLite remains the default.
 psycopg[binary]>=3.2,<4

@@ -44,6 +44,7 @@ from app.config import (
     UNDO_BLOCK_MINUTES, SAFETY_CHECKIN_DEFAULT_MINUTES,
     HARASSMENT_ENABLED, HARASSMENT_WINDOW_MINUTES, HARASSMENT_WARN_SCORE,
     HARASSMENT_MUTE_SCORE, HARASSMENT_MUTE_MINUTES,
+    STRIPE_ENABLED, STRIPE_PUBLISHABLE_KEY, EVENT_PAYMENT_HOLD_MINUTES,
 )
 from app.logging_config import setup_logging, get_logger
 from app.content_filter import check_content, filter_message
@@ -66,6 +67,11 @@ from app.selfie_liveness import (
     LivenessConfigurationError,
     LivenessResult,
     selfie_liveness,
+)
+from app.payments import (
+    StripePaymentConfigurationError,
+    StripePaymentError,
+    stripe_gateway,
 )
 from app.redis_backend import redis_sessions
 from app.database import (
@@ -93,7 +99,8 @@ from app.database import (
     join_group, leave_group, is_group_member, get_group_members,
     create_group_post, get_group_posts, delete_group_post,
     create_event, get_event, get_all_events, rsvp_event,
-    get_event_rsvps, get_my_events,
+    get_event_rsvps, get_event_rsvp, get_event_attendee_count,
+    get_my_events, update_event_rsvp_payment,
     get_or_create_game, answer_game, get_game_history, get_game_score,
     submit_selfie_verification, get_verification_status,
     save_video_intro, get_video_intro, delete_video_intro,
@@ -2256,6 +2263,8 @@ class EventCreate(BaseModel):
     event_time: str = ""
     group_id: str = ""
     max_attendees: int = 0
+    ticket_price_cents: int = 0
+    ticket_currency: str = "usd"
 
 class EventRSVP(BaseModel):
     status: str = "going"
@@ -2267,10 +2276,23 @@ def create_event_endpoint(body: EventCreate, user: dict = Depends(require_user))
         raise HTTPException(status_code=400, detail="Profile required")
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="Event title required")
+    if body.max_attendees < 0:
+        raise HTTPException(status_code=400, detail="Max attendees cannot be negative")
+    if body.ticket_price_cents < 0:
+        raise HTTPException(status_code=400, detail="Ticket price cannot be negative")
+    ticket_currency = body.ticket_currency.strip().lower()
+    if len(ticket_currency) != 3 or not ticket_currency.isalpha():
+        raise HTTPException(status_code=400, detail="Ticket currency must be a 3-letter code")
+    if body.ticket_price_cents:
+        if body.ticket_price_cents < 50:
+            raise HTTPException(status_code=400, detail="Paid tickets must be at least 50 cents")
+        if not STRIPE_ENABLED or not stripe_gateway.ready:
+            raise HTTPException(status_code=503, detail="Paid events are not configured")
     eid = create_event(
         body.title.strip(), body.description.strip(), user["profile_id"],
         body.location.strip(), body.event_date, body.event_time,
-        body.group_id, body.max_attendees
+        body.group_id, body.max_attendees, body.ticket_price_cents,
+        ticket_currency,
     )
     log_activity(user["profile_id"], "created_event", "event", eid, body.title.strip())
     return {"id": eid, "message": "Event created"}
@@ -2289,12 +2311,31 @@ def my_events(user: dict = Depends(require_user)):
 
 
 @app.get("/api/events/{event_id}")
-def read_event(event_id: str):
+def read_event(event_id: str, user: dict = Depends(require_user)):
     event = get_event(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     rsvps = get_event_rsvps(event_id)
-    return {**event, "rsvps": rsvps, "attendee_count": len([r for r in rsvps if r["status"] == "going"])}
+    my_rsvp = get_event_rsvp(event_id, user.get("profile_id", ""))
+    ticket_price_cents = int(event.get("ticket_price_cents") or 0)
+    return {
+        **event,
+        "rsvps": rsvps,
+        "attendee_count": get_event_attendee_count(event_id),
+        "my_rsvp": {
+            "status": my_rsvp.get("status") if my_rsvp else None,
+            "payment_status": my_rsvp.get("payment_status") if my_rsvp else None,
+        },
+        "ticketing": {
+            "required": ticket_price_cents > 0,
+            "price_cents": ticket_price_cents,
+            "currency": event.get("ticket_currency") or "usd",
+            "publishable_key": (
+                STRIPE_PUBLISHABLE_KEY
+                if ticket_price_cents > 0 and stripe_gateway.ready else None
+            ),
+        },
+    }
 
 
 @app.post("/api/events/{event_id}/rsvp")
@@ -2304,8 +2345,138 @@ def rsvp_event_endpoint(event_id: str, body: EventRSVP,
         raise HTTPException(status_code=400, detail="Profile required")
     if body.status not in ("going", "interested", "not_going"):
         raise HTTPException(status_code=400, detail="Invalid RSVP status")
-    rsvp_event(event_id, user["profile_id"], body.status)
-    return {"message": f"RSVP: {body.status}"}
+    event = get_event(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    profile_id = user["profile_id"]
+    existing = get_event_rsvp(event_id, profile_id)
+    if body.status != "going":
+        if existing and existing.get("payment_status") in ("pending", "paid"):
+            raise HTTPException(
+                status_code=409,
+                detail="Paid tickets cannot be canceled from RSVP; contact the event host",
+            )
+        rsvp_event(event_id, profile_id, body.status)
+        return {"message": f"RSVP: {body.status}", "payment_required": False}
+
+    ticket_price_cents = int(event.get("ticket_price_cents") or 0)
+    ticket_currency = (event.get("ticket_currency") or "usd").lower()
+    if ticket_price_cents <= 0:
+        max_attendees = int(event.get("max_attendees") or 0)
+        current_count = get_event_attendee_count(event_id)
+        existing_is_attendee = bool(
+            existing and existing.get("status") == "going"
+            and existing.get("payment_status") in (None, "not_required", "paid")
+        )
+        if max_attendees and current_count >= max_attendees and not existing_is_attendee:
+            raise HTTPException(status_code=409, detail="Event is at capacity")
+        rsvp_id = rsvp_event(
+            event_id, profile_id, "going", payment_status="not_required",
+            amount_cents=0, currency=ticket_currency,
+        )
+        return {
+            "id": rsvp_id,
+            "message": "RSVP: going",
+            "payment_required": False,
+            "payment_status": "not_required",
+        }
+
+    if not STRIPE_ENABLED or not stripe_gateway.ready:
+        raise HTTPException(status_code=503, detail="Paid event payments are not configured")
+    if ticket_price_cents < 50:
+        raise HTTPException(status_code=400, detail="Paid tickets must be at least 50 cents")
+    if existing and existing.get("status") == "going" and existing.get("payment_status") == "paid":
+        return {
+            "message": "Ticket already paid",
+            "payment_required": False,
+            "payment_status": "paid",
+        }
+
+    current_count = get_event_attendee_count(event_id)
+    existing_is_attendee = bool(
+        existing and existing.get("status") == "going"
+        and existing.get("payment_status") in (None, "not_required", "paid", "pending")
+    )
+    max_attendees = int(event.get("max_attendees") or 0)
+    if max_attendees and current_count >= max_attendees and not existing_is_attendee:
+        raise HTTPException(status_code=409, detail="Event is at capacity")
+
+    idempotency_key = (
+        f"event-rsvp:{event_id}:{profile_id}"
+        if existing and existing.get("payment_status") == "pending"
+        else f"event-rsvp:{event_id}:{profile_id}:attempt:{uuid.uuid4().hex}"
+    )
+    try:
+        intent = stripe_gateway.create_payment_intent(
+            ticket_price_cents,
+            ticket_currency,
+            {"event_id": event_id, "profile_id": profile_id},
+            idempotency_key,
+        )
+    except StripePaymentConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except StripePaymentError as exc:
+        log.warning("Stripe ticket intent failed for event %s: %s", event_id, exc)
+        raise HTTPException(status_code=502, detail="Unable to start ticket payment") from exc
+
+    payment_expires_at = (
+        datetime.now(timezone.utc)
+        + timedelta(minutes=max(1, EVENT_PAYMENT_HOLD_MINUTES))
+    ).isoformat()
+    rsvp_id = rsvp_event(
+        event_id, profile_id, "going", payment_status="pending",
+        payment_intent_id=intent["id"], amount_cents=ticket_price_cents,
+        currency=ticket_currency, payment_expires_at=payment_expires_at,
+    )
+    if intent.get("status") == "succeeded":
+        update_event_rsvp_payment(intent["id"], "paid")
+    return {
+        "id": rsvp_id,
+        "message": "Payment required",
+        "payment_required": True,
+        "payment_status": intent.get("status", "requires_payment_method"),
+        "payment_intent_id": intent["id"],
+        "client_secret": intent["client_secret"],
+        "publishable_key": STRIPE_PUBLISHABLE_KEY,
+        "amount_cents": ticket_price_cents,
+        "currency": ticket_currency,
+    }
+
+
+def _stripe_value(payload: object, key: str, default=None):
+    if isinstance(payload, dict):
+        return payload.get(key, default)
+    return getattr(payload, key, default)
+
+
+@app.post("/api/payments/stripe/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    try:
+        event = stripe_gateway.construct_webhook_event(
+            payload, request.headers.get("Stripe-Signature")
+        )
+    except StripePaymentConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except StripePaymentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    event_type = _stripe_value(event, "type", "")
+    data = _stripe_value(_stripe_value(event, "data", {}), "object", {})
+    payment_intent_id = (
+        _stripe_value(data, "payment_intent")
+        if event_type == "charge.refunded"
+        else _stripe_value(data, "id")
+    )
+    payment_status = {
+        "payment_intent.succeeded": "paid",
+        "payment_intent.payment_failed": "failed",
+        "payment_intent.canceled": "canceled",
+        "charge.refunded": "refunded",
+    }.get(event_type)
+    if payment_status and payment_intent_id:
+        update_event_rsvp_payment(payment_intent_id, payment_status)
+    return {"received": True}
 
 
 # ---------------------------------------------------------------------------
@@ -3064,6 +3235,7 @@ def health_check():
         "object_storage": object_storage.health(),
         "photo_safety": photo_safety.health(),
         "selfie_liveness": selfie_liveness.health(),
+        "stripe": stripe_gateway.health(),
         "rate_limit_backend": app.state.rate_limit_backend,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "user-api"),
         "websocket_transport": "redis" if redis_sessions.enabled else "local",

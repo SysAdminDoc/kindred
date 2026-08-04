@@ -320,6 +320,8 @@ def init_db():
             group_id TEXT,
             max_attendees INTEGER DEFAULT 0,
             photo TEXT,
+            ticket_price_cents INTEGER DEFAULT 0,
+            ticket_currency TEXT DEFAULT 'usd',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (creator_id) REFERENCES profiles(id) ON DELETE CASCADE,
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
@@ -330,6 +332,12 @@ def init_db():
             event_id TEXT NOT NULL,
             profile_id TEXT NOT NULL,
             status TEXT DEFAULT 'going',
+            payment_status TEXT DEFAULT 'not_required',
+            payment_intent_id TEXT,
+            amount_cents INTEGER DEFAULT 0,
+            currency TEXT DEFAULT 'usd',
+            paid_at TIMESTAMP,
+            payment_expires_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
@@ -1333,6 +1341,14 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN big_five_raw TEXT",
         "ALTER TABLE profiles ADD COLUMN country TEXT",
         "ALTER TABLE profiles ADD COLUMN learned_weight_prefs TEXT",
+        "ALTER TABLE events ADD COLUMN ticket_price_cents INTEGER DEFAULT 0",
+        "ALTER TABLE events ADD COLUMN ticket_currency TEXT DEFAULT 'usd'",
+        "ALTER TABLE event_rsvps ADD COLUMN payment_status TEXT DEFAULT 'not_required'",
+        "ALTER TABLE event_rsvps ADD COLUMN payment_intent_id TEXT",
+        "ALTER TABLE event_rsvps ADD COLUMN amount_cents INTEGER DEFAULT 0",
+        "ALTER TABLE event_rsvps ADD COLUMN currency TEXT DEFAULT 'usd'",
+        "ALTER TABLE event_rsvps ADD COLUMN paid_at TIMESTAMP",
+        "ALTER TABLE event_rsvps ADD COLUMN payment_expires_at TIMESTAMP",
         "ALTER TABLE photo_hashes ADD COLUMN dhash TEXT DEFAULT ''",
         "ALTER TABLE selfie_verifications ADD COLUMN liveness_status TEXT DEFAULT 'not_attempted'",
         "ALTER TABLE selfie_verifications ADD COLUMN liveness_score REAL",
@@ -2679,14 +2695,18 @@ def delete_group(group_id: str) -> bool:
 def create_event(title: str, description: str, creator_id: str,
                  location: str = "", event_date: str = "",
                  event_time: str = "", group_id: str = "",
-                 max_attendees: int = 0) -> str:
+                 max_attendees: int = 0, ticket_price_cents: int = 0,
+                 ticket_currency: str = "usd") -> str:
     conn = get_db()
     eid = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO events (id, title, description, creator_id, location,
-           event_date, event_time, group_id, max_attendees) VALUES (?,?,?,?,?,?,?,?,?)""",
+           event_date, event_time, group_id, max_attendees,
+           ticket_price_cents, ticket_currency)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (eid, title, description, creator_id, location or None,
-         event_date or None, event_time or None, group_id or None, max_attendees)
+         event_date or None, event_time or None, group_id or None, max_attendees,
+         ticket_price_cents, ticket_currency)
     )
     # Creator auto-RSVPs
     rid = uuid.uuid4().hex
@@ -2712,6 +2732,10 @@ def get_all_events(limit: int = 50) -> list[dict]:
         """SELECT e.*, COUNT(r.id) as attendee_count, p.name as creator_name
            FROM events e
            LEFT JOIN event_rsvps r ON r.event_id = e.id AND r.status='going'
+             AND (r.payment_status IN ('not_required', 'paid')
+                  OR r.payment_status IS NULL
+                  OR (r.payment_status='pending'
+                      AND (r.payment_expires_at IS NULL OR r.payment_expires_at > datetime('now'))))
            JOIN profiles p ON p.id = e.creator_id
            GROUP BY e.id
            ORDER BY e.event_date ASC, e.created_at DESC LIMIT ?""",
@@ -2721,7 +2745,35 @@ def get_all_events(limit: int = 50) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def rsvp_event(event_id: str, profile_id: str, status: str = "going") -> str:
+def get_event_rsvp(event_id: str, profile_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM event_rsvps WHERE event_id=? AND profile_id=?",
+        (event_id, profile_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_event_attendee_count(event_id: str) -> int:
+    conn = get_db()
+    row = conn.execute(
+        """SELECT COUNT(*) as c FROM event_rsvps
+           WHERE event_id=? AND status='going'
+             AND (payment_status IN ('not_required', 'paid')
+                  OR payment_status IS NULL
+                  OR (payment_status='pending'
+                      AND (payment_expires_at IS NULL OR payment_expires_at > datetime('now'))) )""",
+        (event_id,),
+    ).fetchone()
+    return int(row["c"])
+
+
+def rsvp_event(event_id: str, profile_id: str, status: str = "going",
+               payment_status: str | None = None,
+               payment_intent_id: str | None = None,
+               amount_cents: int | None = None,
+               currency: str | None = None,
+               payment_expires_at: str | None = None) -> str:
     conn = get_db()
     # Upsert
     existing = conn.execute(
@@ -2729,16 +2781,39 @@ def rsvp_event(event_id: str, profile_id: str, status: str = "going") -> str:
         (event_id, profile_id)
     ).fetchone()
     if existing:
+        updates = ["status=?"]
+        params: list[object] = [status]
+        if payment_status is not None:
+            updates.append("payment_status=?")
+            params.append(payment_status)
+        if payment_intent_id is not None:
+            updates.append("payment_intent_id=?")
+            params.append(payment_intent_id)
+        if amount_cents is not None:
+            updates.append("amount_cents=?")
+            params.append(amount_cents)
+        if currency is not None:
+            updates.append("currency=?")
+            params.append(currency)
+        if payment_expires_at is not None:
+            updates.append("payment_expires_at=?")
+            params.append(payment_expires_at)
+        params.append(existing["id"])
         conn.execute(
-            "UPDATE event_rsvps SET status=? WHERE id=?",
-            (status, existing["id"])
+            f"UPDATE event_rsvps SET {', '.join(updates)} WHERE id=?",
+            params,
         )
         rid = existing["id"]
     else:
         rid = uuid.uuid4().hex
         conn.execute(
-            "INSERT INTO event_rsvps (id, event_id, profile_id, status) VALUES (?,?,?,?)",
-            (rid, event_id, profile_id, status)
+            """INSERT INTO event_rsvps
+               (id, event_id, profile_id, status, payment_status,
+                payment_intent_id, amount_cents, currency, payment_expires_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (rid, event_id, profile_id, status, payment_status or "not_required",
+             payment_intent_id, amount_cents or 0, currency or "usd",
+             payment_expires_at)
         )
     conn.commit()
 
@@ -2748,7 +2823,8 @@ def rsvp_event(event_id: str, profile_id: str, status: str = "going") -> str:
 def get_event_rsvps(event_id: str) -> list[dict]:
     conn = get_db()
     rows = conn.execute(
-        """SELECT r.*, p.name, p.photo FROM event_rsvps r
+        """SELECT r.id, r.event_id, r.profile_id, r.status, r.created_at,
+                  p.name, p.photo FROM event_rsvps r
            JOIN profiles p ON p.id = r.profile_id
            WHERE r.event_id=? ORDER BY r.created_at""",
         (event_id,)
@@ -2757,13 +2833,36 @@ def get_event_rsvps(event_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def update_event_rsvp_payment(payment_intent_id: str, payment_status: str,
+                              paid_at: str | None = None) -> bool:
+    if payment_status not in ("pending", "paid", "failed", "canceled", "refunded"):
+        raise ValueError("Invalid event payment status")
+    conn = get_db()
+    if payment_status == "paid" and paid_at is None:
+        from datetime import datetime, timezone
+        paid_at = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        """UPDATE event_rsvps
+           SET payment_status=?, paid_at=?, payment_expires_at=NULL
+           WHERE payment_intent_id=?""",
+        (payment_status, paid_at, payment_intent_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 def get_my_events(profile_id: str) -> list[dict]:
     conn = get_db()
     rows = conn.execute(
-        """SELECT e.*, r.status as my_status, COUNT(r2.id) as attendee_count
+        """SELECT e.*, r.status as my_status, r.payment_status as my_payment_status,
+                  COUNT(r2.id) as attendee_count
            FROM event_rsvps r
            JOIN events e ON e.id = r.event_id
            LEFT JOIN event_rsvps r2 ON r2.event_id = e.id AND r2.status='going'
+             AND (r2.payment_status IN ('not_required', 'paid')
+                  OR r2.payment_status IS NULL
+                  OR (r2.payment_status='pending'
+                      AND (r2.payment_expires_at IS NULL OR r2.payment_expires_at > datetime('now'))))
            WHERE r.profile_id=?
            GROUP BY e.id ORDER BY e.event_date ASC""",
         (profile_id,)

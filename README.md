@@ -66,6 +66,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Profile themes (Cosmic, Forest, Sunset, Ocean, Aurora)
 - Status updates and activity feed
 - Groups and events with RSVP + calendar view + Leaflet map view
+- Optional ticketed event RSVPs with Stripe PaymentIntents, idempotent payment records, and signed webhook confirmation
 - Profile boost (premium visibility boost with countdown timer)
 - Video intros and music preferences with cross-user compatibility scoring
 - "This or That" compatibility games between matched pairs
@@ -357,6 +358,11 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_HARASSMENT_MUTE_SCORE` | `4` | Aggregate score at which the recipient-side auto-mute activates |
 | `KINDRED_HARASSMENT_MUTE_MINUTES` | `60` | Auto-mute duration |
 | `KINDRED_REPORT_COOLING_OFF_DAYS` | `30` | Days a reporter is excluded from seeing a reported profile; `0` is permanent |
+| `KINDRED_STRIPE_ENABLED` | `false` | Enable Stripe PaymentIntent ticketing for paid events |
+| `KINDRED_STRIPE_SECRET_KEY` | empty | Stripe server-side secret key; required when ticketing is enabled |
+| `KINDRED_STRIPE_PUBLISHABLE_KEY` | empty | Stripe browser key returned only for paid event checkout |
+| `KINDRED_STRIPE_WEBHOOK_SECRET` | empty | Stripe webhook signing secret; required to confirm payment status |
+| `KINDRED_EVENT_PAYMENT_HOLD_MINUTES` | `30` | Reservation hold for an unfinished paid RSVP |
 | `KINDRED_SELFIE_LIVENESS_ENABLED` | `true` | Enable local MediaPipe selfie liveness |
 | `KINDRED_SELFIE_LIVENESS_REQUIRED` | `true` | Require a passing blink + head-turn sequence before queueing verification |
 | `KINDRED_SELFIE_LIVENESS_MODEL_PATH` | `models/face_landmarker.task` | Local Face Landmarker model asset |
@@ -410,6 +416,15 @@ availability, and recently-active/new-user discovery. The exclusion lasts
 `KINDRED_REPORT_COOLING_OFF_DAYS` days and is renewed by later reports; set it
 to `0` when the product policy requires a permanent exclusion. Reviewing or
 closing a report does not lift the exclusion automatically.
+
+Event ticketing remains free and local by default. To enable paid events, set
+the Stripe keys and `KINDRED_STRIPE_ENABLED=true`; paid event creation then
+requires a ticket price of at least 50 cents. The RSVP endpoint creates one
+idempotent PaymentIntent per active attempt and returns only its client secret
+to the browser. Stripe webhook signatures are verified before an RSVP changes
+from pending to paid, and unfinished attempts reserve a seat only for the
+configured hold window. The host is automatically marked as attending without
+being charged.
 
 Selfie verification now captures twelve camera frames in the user portal and
 posts them as a short ordered sequence to `/api/verify/selfie/{profile_id}`.

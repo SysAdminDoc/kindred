@@ -19,6 +19,7 @@ All notable changes to kindred will be documented in this file.
 - Added: Local MediaPipe selfie liveness using ordered blink and head-turn evidence, with sequence capture, pinned model validation, and admin review metadata
 - Added: Explainable sliding-window harassment detection for direct messages with escalating warnings, recipient-side auto-mutes, WebSocket enforcement, and admin review data
 - Added: Report-triggered cooling-off exclusions across profile discovery, matching, suggestions, and pair compatibility surfaces
+- Added: Optional ticketed event RSVPs with Stripe PaymentIntents, payment-hold capacity accounting, and signed webhook confirmation
 - v2.5.1 — Comprehensive audit: 41 bug fixes
 - v2.5.0 — Phase 8: Premium & integrations
 - v2.4.0 — Phase 7: Admin & operations

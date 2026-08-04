@@ -15,7 +15,7 @@ YOUR_DOMAIN {
         Referrer-Policy "strict-origin-when-cross-origin"
         X-XSS-Protection "1; mode=block"
         Permissions-Policy "camera=(), microphone=(self), geolocation=(self)"
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.puter.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://basemaps.cartocdn.com https://media.tenor.com; connect-src 'self' wss://YOUR_DOMAIN https://tenor.googleapis.com https://js.puter.com; frame-src https://meet.jit.si; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.puter.com https://js.stripe.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://basemaps.cartocdn.com https://media.tenor.com; connect-src 'self' wss://YOUR_DOMAIN https://tenor.googleapis.com https://js.puter.com https://api.stripe.com; frame-src https://meet.jit.si https://js.stripe.com https://hooks.stripe.com; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:"
         -Server
     }
 

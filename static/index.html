@@ -3720,11 +3720,11 @@ async function loadEvents(){
         const myEl=document.getElementById('my-events');
         const allEl=document.getElementById('all-events');
         if(myEl){
-            if(myD.events.length){myEl.innerHTML='<div class="event-grid">'+myD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; ${e.my_status||'going'}</div></div>`).join('')+'</div>';staggerListItems(myEl);}
+            if(myD.events.length){myEl.innerHTML='<div class="event-grid">'+myD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; ${e.my_status||'going'}${e.ticket_price_cents?` &bull; ${ticketPriceLabel(e.ticket_price_cents,e.ticket_currency)}`:''}</div></div>`).join('')+'</div>';staggerListItems(myEl);}
             else myEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No events yet</div>';
         }
         if(allEl){
-            if(allD.events.length){allEl.innerHTML='<div class="event-grid">'+allD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; by ${escHtml(e.creator_name||'')}</div></div>`).join('')+'</div>';staggerListItems(allEl);}
+            if(allD.events.length){allEl.innerHTML='<div class="event-grid">'+allD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; by ${escHtml(e.creator_name||'')}${e.ticket_price_cents?` &bull; ${ticketPriceLabel(e.ticket_price_cents,e.ticket_currency)}`:''}</div></div>`).join('')+'</div>';staggerListItems(allEl);}
             else allEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No upcoming events. Create the first one!</div>';
         }
         // Cache all events for map view
@@ -3747,14 +3747,17 @@ function showCreateEventForm(){
             <div class="form-group"><label>Time</label><input type="text" id="ce-time" placeholder="e.g., 7:00 PM"></div>
         </div>
         <div class="form-group"><label>Max Attendees (0 = unlimited)</label><input type="number" id="ce-max" value="0" min="0"></div>
+        <div style="display:grid;grid-template-columns:1fr 120px;gap:8px"><div class="form-group"><label>Ticket Price (0 = free)</label><input type="number" id="ce-price" value="0" min="0" step="0.01" placeholder="0.00"></div><div class="form-group"><label>Currency</label><input type="text" id="ce-currency" value="usd" maxlength="3"></div></div>
         <div class="btn-row"><button class="btn btn-secondary" onclick="document.getElementById('create-event-area').innerHTML=''">Cancel</button><button class="btn btn-primary" onclick="submitCreateEvent()">Create Event</button></div></div>`;
 }
 
 async function submitCreateEvent(){
     const title=document.getElementById('ce-title')?.value?.trim();
     if(!title){toast('Event title required','error');return;}
-    const body={title,description:document.getElementById('ce-desc')?.value?.trim()||'',location:document.getElementById('ce-loc')?.value?.trim()||'',event_date:document.getElementById('ce-date')?.value?.trim()||'',event_time:document.getElementById('ce-time')?.value?.trim()||'',max_attendees:parseInt(document.getElementById('ce-max')?.value)||0};
-    await authFetch(API+'/api/events',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
+    const price=Number.parseFloat(document.getElementById('ce-price')?.value)||0;
+    const body={title,description:document.getElementById('ce-desc')?.value?.trim()||'',location:document.getElementById('ce-loc')?.value?.trim()||'',event_date:document.getElementById('ce-date')?.value?.trim()||'',event_time:document.getElementById('ce-time')?.value?.trim()||'',max_attendees:parseInt(document.getElementById('ce-max')?.value)||0,ticket_price_cents:Math.round(price*100),ticket_currency:document.getElementById('ce-currency')?.value?.trim().toLowerCase()||'usd'};
+    const response=await authFetch(API+'/api/events',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
+    if(!response.ok){const detail=await response.json().catch(()=>({}));toast(detail.detail||'Event creation failed','error');return;}
     toast('Event created!','success');
     renderEvents();
 }
@@ -3769,7 +3772,8 @@ async function viewEvent(eid){
         ${e.event_date?`<div style="font-size:14px;color:var(--sapphire);font-weight:600;margin-bottom:4px">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}
         ${e.location?`<div style="font-size:13px;color:var(--overlay0);margin-bottom:8px">${escHtml(e.location)}</div>`:''}
         ${e.description?`<div style="font-size:14px;color:var(--subtext1);line-height:1.6;margin-bottom:12px;white-space:pre-wrap">${escHtml(e.description)}</div>`:''}
-        <div style="font-size:12px;color:var(--overlay0);margin-bottom:16px">${e.attendee_count} attending${e.max_attendees?' / '+e.max_attendees+' max':''}</div>`;
+        <div style="font-size:12px;color:var(--overlay0);margin-bottom:16px">${e.attendee_count} attending${e.max_attendees?' / '+e.max_attendees+' max':''}${e.ticketing?.required?` &bull; ${ticketPriceLabel(e.ticketing.price_cents,e.ticketing.currency)}`:' &bull; Free'}</div>`;
+        if(e.ticketing?.required&&e.my_rsvp?.payment_status&&e.my_rsvp.payment_status!=='paid')html+=`<div style="font-size:12px;color:var(--yellow);margin-bottom:12px">Ticket payment: ${escHtml(e.my_rsvp.payment_status.replace('_',' '))}</div>`;
 
         // RSVP buttons
         const myRSVP=e.rsvps.find(r=>r.profile_id===activeProfile);
@@ -3794,8 +3798,50 @@ async function viewEvent(eid){
 }
 
 async function rsvpAction(eid,status){
-    await authFetch(API+'/api/events/'+eid+'/rsvp',{method:'POST',headers:authHeaders(),body:JSON.stringify({status})});
-    toast('RSVP updated!','success');viewEvent(eid);
+    const response=await authFetch(API+'/api/events/'+eid+'/rsvp',{method:'POST',headers:authHeaders(),body:JSON.stringify({status})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok){toast(data.detail||'RSVP failed','error');return;}
+    if(data.payment_required){
+        const paid=await showTicketPayment(eid,data);
+        if(!paid)return;
+    }else toast('RSVP updated!','success');
+    viewEvent(eid);
+}
+
+function ticketPriceLabel(cents,currency='usd'){
+    try{return new Intl.NumberFormat(undefined,{style:'currency',currency:String(currency).toUpperCase()}).format((Number(cents)||0)/100);}
+    catch(e){return `${(Number(cents)||0)/100} ${String(currency).toUpperCase()}`;}
+}
+
+async function showTicketPayment(eid,data){
+    if(!data.publishable_key||!data.client_secret){toast('Ticket payments are unavailable in this browser','error');return false;}
+    if(typeof Stripe!=='function'){
+        try{await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://js.stripe.com/v3/';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});}
+        catch(e){toast('Unable to load ticket payment controls','error');return false;}
+    }
+    if(typeof Stripe!=='function'){toast('Ticket payments are unavailable in this browser','error');return false;}
+    const stripe=Stripe(data.publishable_key);
+    const elements=stripe.elements({clientSecret:data.client_secret});
+    const modal=document.createElement('div');
+    modal.id='ticket-payment-modal';
+    modal.style='position:fixed;inset:0;background:rgba(17,17,27,.82);display:flex;align-items:center;justify-content:center;z-index:500;padding:16px';
+    modal.innerHTML=`<div class="card" style="width:min(480px,100%);margin:0"><h2>Complete ticket payment</h2><p class="subtitle">${ticketPriceLabel(data.amount_cents,data.currency)} · Your RSVP is held while payment is completed.</p><div id="ticket-payment-element" style="margin:16px 0"></div><div class="btn-row"><button id="ticket-payment-cancel" class="btn btn-secondary">Cancel</button><button id="ticket-payment-submit" class="btn btn-primary">Pay ${ticketPriceLabel(data.amount_cents,data.currency)}</button></div><div id="ticket-payment-error" style="color:var(--red);font-size:12px;margin-top:10px"></div></div>`;
+    document.body.appendChild(modal);
+    const paymentElement=elements.create('payment');
+    paymentElement.mount('#ticket-payment-element');
+    return new Promise(resolve=>{
+        const close=(result)=>{paymentElement.destroy();modal.remove();resolve(result);};
+        document.getElementById('ticket-payment-cancel').onclick=()=>close(false);
+        document.getElementById('ticket-payment-submit').onclick=async()=>{
+            const button=document.getElementById('ticket-payment-submit');button.disabled=true;
+            const errorEl=document.getElementById('ticket-payment-error');
+            const submitted=await elements.submit();
+            if(submitted.error){errorEl.textContent=submitted.error.message||'Check your payment details';button.disabled=false;return;}
+            const result=await stripe.confirmPayment({elements,clientSecret:data.client_secret,confirmParams:{return_url:window.location.href},redirect:'if_required'});
+            if(result.error){errorEl.textContent=result.error.message||'Payment failed';button.disabled=false;return;}
+            toast('Payment submitted; your ticket will be confirmed shortly','success');close(true);
+        };
+    });
 }
 
 // ─── Heartbeat ───
