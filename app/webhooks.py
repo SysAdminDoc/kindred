@@ -1,5 +1,5 @@
 """
-Kindred v2.5.1 - Webhook System
+Kindred v2.5.2 - Webhook System
 Configurable outbound webhooks for platform events.
 """
 

@@ -2,7 +2,7 @@
 
 All notable changes to kindred will be documented in this file.
 
-## [v2.5.1] - %Y->- (HEAD -> master, origin/master)
+## [v2.5.2] - 2026-08-03
 
 - Added: Add production deployment guide and config files
 - Added: Configurable MPNet semantic embeddings with automatic MiniLM fallback and mixed-dimension migration safety

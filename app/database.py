@@ -1,5 +1,5 @@
 """
-Kindred v2.5.1 - Database Layer
+Kindred v2.5.2 - Database Layer
 SQLite storage for users, profiles, messages, invites, feedback,
 date plans, behavioral events, safety reports,
 profile pages (blog, comments, friends), notifications,

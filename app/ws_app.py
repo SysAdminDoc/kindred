@@ -7,6 +7,7 @@ import sys
 
 from fastapi import FastAPI
 
+from app.config import APP_VERSION
 from app.database import init_db
 from app.job_queue import job_queue
 from app.object_storage import object_storage
@@ -17,7 +18,7 @@ from app.main import websocket_endpoint, ws_manager
 from app.redis_backend import redis_sessions
 
 
-ws_app = FastAPI(title="Kindred WebSocket Worker", version="2.5.1")
+ws_app = FastAPI(title="Kindred WebSocket Worker", version=APP_VERSION)
 ws_app.websocket("/ws/{profile_id}")(websocket_endpoint)
 
 
@@ -41,7 +42,7 @@ async def shutdown():
 def health_check():
     return {
         "status": "healthy",
-        "version": "2.5.1",
+        "version": APP_VERSION,
         "python": sys.version,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "websocket"),
         "redis": redis_sessions.health(),

@@ -1,5 +1,5 @@
 """
-Kindred v2.5.1 - Audit Logging
+Kindred v2.5.2 - Audit Logging
 Tracks admin actions for accountability.
 """
 

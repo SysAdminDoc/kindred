@@ -1,6 +1,7 @@
 {
   "name": "Kindred",
   "short_name": "Kindred",
+  "version": "2.5.2",
   "description": "Compatibility-first dating + social platform",
   "start_url": "/",
   "display": "standalone",

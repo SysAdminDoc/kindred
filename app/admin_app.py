@@ -1,5 +1,5 @@
 """
-Kindred v2.5.1 - Admin Server
+Kindred v2.5.2 - Admin Server
 Separate admin experience on port 8001.
 """
 
@@ -24,7 +24,7 @@ from app.config import (
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
     ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS,
     BCRYPT_ROUNDS, DB_PATH, BACKUP_INTERVAL_HOURS, BACKUP_KEEP_COUNT,
-    DEFAULT_LOCALE, VACUUM_INTERVAL_HOURS,
+    DEFAULT_LOCALE, VACUUM_INTERVAL_HOURS, APP_VERSION,
 )
 from app.job_queue import job_queue
 from app.object_storage import (
@@ -89,7 +89,7 @@ from app.database import (
 )
 from app.redis_backend import redis_sessions
 
-admin_app = FastAPI(title="Kindred Admin", version="2.5.1")
+admin_app = FastAPI(title="Kindred Admin", version=APP_VERSION)
 log = logging.getLogger("kindred.admin")
 
 admin_app.add_middleware(
@@ -443,7 +443,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.5.1",
+        "version": APP_VERSION,
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),

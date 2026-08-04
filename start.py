@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Kindred v2.5.1 - Turnkey Launcher
+Kindred v2.5.2 - Turnkey Launcher
 Auto-creates venv, installs deps, and starts both user + admin servers.
 """
 
@@ -8,6 +8,8 @@ import subprocess
 import sys
 import os
 from pathlib import Path
+
+from app.config import APP_VERSION
 
 ROOT = Path(__file__).parent
 VENV = ROOT / ".venv"
@@ -22,7 +24,7 @@ def run(cmd, **kwargs):
 def main():
     print()
     print("=" * 50)
-    print("  Kindred v2.5.1 - Compatibility Engine")
+    print(f"  Kindred v{APP_VERSION} - Compatibility Engine")
     print("=" * 50)
     print()
 

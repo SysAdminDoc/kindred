@@ -1,11 +1,13 @@
 """
-Kindred v2.5.1 - Configuration
+Kindred v2.5.2 - Configuration
 Loads settings from environment variables or .env file.
 """
 
 import os
 import secrets
 from pathlib import Path
+
+APP_VERSION = "2.5.2"
 
 # Load .env file if python-dotenv is available
 try:

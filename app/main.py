@@ -1,5 +1,5 @@
 """
-Kindred v2.5.1 - FastAPI Backend (User Server)
+Kindred v2.5.2 - FastAPI Backend (User Server)
 Compatibility-first dating + social platform.
 """
 
@@ -33,7 +33,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.config import (
-    JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
+    APP_VERSION, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
     CORS_ORIGINS, RATE_LIMIT_DEFAULT, RATE_LIMIT_AUTH,
     PHOTO_REVEAL_THRESHOLD, MAX_UPLOAD_MB,
     BCRYPT_ROUNDS, REFRESH_TOKEN_DAYS,
@@ -223,7 +223,7 @@ from app.explanations import explain_match_decision, explain_suspension
 logger = setup_logging()
 log = get_logger("api")
 
-app = FastAPI(title="Kindred", version="2.5.1")
+app = FastAPI(title="Kindred", version=APP_VERSION)
 
 
 def _cooling_off_profile_ids(profile_id: str) -> set[str]:
@@ -3316,7 +3316,7 @@ def health_check():
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     return {
         "status": "healthy",
-        "version": "2.5.1",
+        "version": APP_VERSION,
         "python": sys.version,
         "database_size_mb": db_size_mb,
         "redis": redis_sessions.health(),
