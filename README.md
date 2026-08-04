@@ -52,7 +52,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 **Social Platform**
 - Video calling via Jitsi Meet (in-app call initiation with WebSocket signaling)
 - Real-time WebSocket messaging with typing indicators and read receipts
-- Voice messages (MediaRecorder API recording + playback)
+- Voice messages (MediaRecorder API recording + playback) with optional server-side transcripts for accessibility
 - Message reactions (emoji) and GIF search (Tenor API)
 - Message editing (5-minute grace period) and soft-delete
 - Message status indicators (sent/delivered/read)
@@ -335,6 +335,11 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_QUEUE_REQUIRED` | `false` | Fail startup instead of falling back to inline jobs |
 | `KINDRED_QUEUE_PROCESSES` | `2` | Dramatiq worker process count in the production Compose stack |
 | `KINDRED_QUEUE_THREADS` | `2` | Dramatiq threads per worker process in the production Compose stack |
+| `KINDRED_TRANSCRIPTION_ENABLED` | `false` | Enable server-side voice transcription |
+| `KINDRED_TRANSCRIPTION_URL` | empty | OpenAI-compatible `/audio/transcriptions` endpoint; required when transcription is enabled |
+| `KINDRED_TRANSCRIPTION_API_KEY` | empty | Optional bearer token for the configured transcription endpoint |
+| `KINDRED_TRANSCRIPTION_MODEL` | `whisper-1` | Model name sent to the transcription endpoint |
+| `KINDRED_TRANSCRIPTION_TIMEOUT_SECONDS` | `120` | Per-audio transcription request timeout |
 | `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
 | `KINDRED_OBJECT_STORAGE_ENDPOINT` | empty | S3-compatible endpoint; leave unset for local `uploads/` storage |
 | `KINDRED_OBJECT_STORAGE_BUCKET` | empty | Remote media bucket; supplying it enables S3-compatible storage |
@@ -386,6 +391,15 @@ intentionally keeps local development on SQLite sessions, in-memory rate
 limiting, process-local WebSocket delivery, and inline embedding/moderation
 work. Production should keep both queue flags enabled and run the supplied
 `kindred-worker` systemd service or Compose service.
+
+Voice notes remain playable when transcription is disabled or temporarily
+unavailable. To add accessible transcripts, set
+`KINDRED_TRANSCRIPTION_ENABLED=true` and point `KINDRED_TRANSCRIPTION_URL` at
+an approved OpenAI-compatible `/audio/transcriptions` service (a local
+Whisper-compatible service works as well). Transcripts are generated in the
+dedicated `kindred-transcription` worker queue when Redis/Dramatiq is enabled;
+local development falls back to inline processing and exposes a pending or
+unavailable state in the conversation UI.
 
 When object storage is configured, the API stores new media under the
 configured bucket and serves it through the existing `/uploads/{key}` contract;

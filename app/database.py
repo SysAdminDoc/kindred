@@ -594,6 +594,12 @@ def init_db():
             to_id TEXT NOT NULL,
             filename TEXT NOT NULL,
             duration_ms INTEGER DEFAULT 0,
+            mime_type TEXT DEFAULT 'audio/webm',
+            transcript TEXT,
+            transcription_status TEXT NOT NULL DEFAULT 'disabled',
+            transcription_provider TEXT,
+            transcription_error TEXT,
+            transcribed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (from_id) REFERENCES profiles(id) ON DELETE CASCADE,
             FOREIGN KEY (to_id) REFERENCES profiles(id) ON DELETE CASCADE
@@ -1377,6 +1383,12 @@ def _migrate(conn):
         "ALTER TABLE selfie_verifications ADD COLUMN liveness_evidence TEXT DEFAULT '{}'",
         "ALTER TABLE selfie_verifications ADD COLUMN liveness_frames INTEGER DEFAULT 1",
         "ALTER TABLE selfie_verifications ADD COLUMN liveness_checked_at TIMESTAMP",
+        "ALTER TABLE voice_messages ADD COLUMN mime_type TEXT DEFAULT 'audio/webm'",
+        "ALTER TABLE voice_messages ADD COLUMN transcript TEXT",
+        "ALTER TABLE voice_messages ADD COLUMN transcription_status TEXT NOT NULL DEFAULT 'disabled'",
+        "ALTER TABLE voice_messages ADD COLUMN transcription_provider TEXT",
+        "ALTER TABLE voice_messages ADD COLUMN transcription_error TEXT",
+        "ALTER TABLE voice_messages ADD COLUMN transcribed_at TIMESTAMP",
     ]
     for sql in migrations:
         try:
@@ -1570,7 +1582,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 def send_message(from_id: str, to_id: str, content: str, photo: str = "") -> str:
     conn = get_db()
     msg_id = uuid.uuid4().hex
-    conn.execute(
+    cursor = conn.execute(
         "INSERT INTO messages (id, from_id, to_id, content, photo) VALUES (?,?,?,?,?)",
         (msg_id, from_id, to_id, content, photo or None)
     )
@@ -4152,15 +4164,70 @@ def has_completed_onboarding(user_id: str) -> bool:
 # Voice Messages
 # ---------------------------------------------------------------------------
 
-def save_voice_message(from_id: str, to_id: str, filename: str, duration_ms: int = 0) -> str:
+def save_voice_message(
+    from_id: str,
+    to_id: str,
+    filename: str,
+    duration_ms: int = 0,
+    mime_type: str = "audio/webm",
+    transcription_status: str = "disabled",
+) -> str:
     conn = get_db()
     msg_id = uuid.uuid4().hex
     conn.execute(
-        "INSERT INTO voice_messages (id, from_id, to_id, filename, duration_ms) VALUES (?,?,?,?,?)",
-        (msg_id, from_id, to_id, filename, duration_ms),
+        """INSERT INTO voice_messages
+           (id, from_id, to_id, filename, duration_ms, mime_type, transcription_status)
+           VALUES (?,?,?,?,?,?,?)""",
+        (
+            msg_id,
+            from_id,
+            to_id,
+            filename,
+            max(0, int(duration_ms or 0)),
+            mime_type or "audio/webm",
+            transcription_status or "disabled",
+        ),
     )
     conn.commit()
     return msg_id
+
+
+def get_voice_message(voice_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM voice_messages WHERE id=?", (voice_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_voice_transcription(
+    voice_id: str,
+    status: str,
+    *,
+    transcript: str | None = None,
+    provider: str | None = None,
+    error: str | None = None,
+) -> bool:
+    conn = get_db()
+    status_value = (status or "failed").strip().lower()[:32]
+    error_value = (error or "").strip()[:500] or None
+    cursor = conn.execute(
+        """UPDATE voice_messages
+           SET transcription_status=?, transcript=?, transcription_provider=?,
+               transcription_error=?,
+               transcribed_at=CASE WHEN ?='transcribed' THEN CURRENT_TIMESTAMP ELSE NULL END
+           WHERE id=?""",
+        (
+            status_value,
+            transcript.strip()[:20_000] if isinstance(transcript, str) else None,
+            provider.strip()[:64] if isinstance(provider, str) and provider else None,
+            error_value,
+            status_value,
+            voice_id,
+        ),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
 
 
 def get_voice_messages(id_a: str, id_b: str, limit: int = 50) -> list[dict]:

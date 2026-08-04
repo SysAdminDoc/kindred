@@ -100,6 +100,20 @@ EMBEDDING_FALLBACK_MODEL = os.getenv(
     "KINDRED_EMBEDDING_FALLBACK_MODEL", "all-MiniLM-L6-v2"
 )
 
+# --- Voice transcription ---
+# The adapter is disabled by default.  When enabled, the URL should point to
+# an OpenAI-compatible /audio/transcriptions endpoint, including a local
+# Whisper-compatible service when self-hosting.
+TRANSCRIPTION_ENABLED = os.getenv(
+    "KINDRED_TRANSCRIPTION_ENABLED", "false"
+).lower() == "true"
+TRANSCRIPTION_URL = os.getenv("KINDRED_TRANSCRIPTION_URL", "").strip()
+TRANSCRIPTION_API_KEY = os.getenv("KINDRED_TRANSCRIPTION_API_KEY", "").strip()
+TRANSCRIPTION_MODEL = os.getenv("KINDRED_TRANSCRIPTION_MODEL", "whisper-1").strip()
+TRANSCRIPTION_TIMEOUT_SECONDS = float(
+    os.getenv("KINDRED_TRANSCRIPTION_TIMEOUT_SECONDS", "120")
+)
+
 # --- Web Push (VAPID) ---
 VAPID_PUBLIC_KEY = os.getenv("KINDRED_VAPID_PUBLIC_KEY", "")
 VAPID_PRIVATE_KEY = os.getenv("KINDRED_VAPID_PRIVATE_KEY", "")
@@ -218,4 +232,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17

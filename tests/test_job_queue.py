@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app.job_queue import JobQueue, job_queue
-from app.tasks import generate_profile_embedding, queue_photo_moderation
+from app.tasks import generate_profile_embedding, queue_photo_moderation, transcribe_voice_message
 
 
 class JobQueueTests(unittest.TestCase):
@@ -18,8 +18,10 @@ class JobQueueTests(unittest.TestCase):
     def test_actors_have_separate_retryable_queues(self):
         self.assertEqual(generate_profile_embedding.queue_name, "kindred-embeddings")
         self.assertEqual(queue_photo_moderation.queue_name, "kindred-moderation")
+        self.assertEqual(transcribe_voice_message.queue_name, "kindred-transcription")
         self.assertEqual(generate_profile_embedding.options["max_retries"], 3)
         self.assertEqual(queue_photo_moderation.options["max_retries"], 3)
+        self.assertEqual(transcribe_voice_message.options["max_retries"], 3)
 
     def test_embedding_actor_is_idempotent_when_profile_is_already_ready(self):
         with patch("app.tasks.init_db"), patch("app.tasks.get_profile", return_value={"embedding": b"ready"}), \

@@ -12,6 +12,7 @@ from app.job_queue import job_queue
 from app.object_storage import object_storage
 from app.photo_safety import photo_safety
 from app.selfie_liveness import selfie_liveness
+from app.transcription import transcription_service
 from app.main import websocket_endpoint, ws_manager
 from app.redis_backend import redis_sessions
 
@@ -26,6 +27,7 @@ async def startup():
     object_storage.initialize()
     photo_safety.initialize()
     selfie_liveness.initialize()
+    transcription_service.initialize()
     init_db()
     await ws_manager.start()
 
@@ -47,6 +49,7 @@ def health_check():
         "object_storage": object_storage.health(),
         "photo_safety": photo_safety.health(),
         "selfie_liveness": selfie_liveness.health(),
+        "transcription": transcription_service.health(),
         "websocket_transport": "redis" if redis_sessions.enabled else "local",
         "active_websockets": sum(len(v) for v in ws_manager.active.values()),
         "pid": os.getpid(),

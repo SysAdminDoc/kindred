@@ -137,6 +137,22 @@ class JobQueue:
             return None
         return message.message_id
 
+    def enqueue_voice_transcription(self, voice_id: str, filename: str) -> str | None:
+        if not self.enabled:
+            return None
+        from app.tasks import transcribe_voice_message
+
+        try:
+            message = transcribe_voice_message.send(voice_id, filename)
+        except Exception as exc:
+            if self.required:
+                raise QueueConfigurationError(
+                    f"Unable to enqueue voice transcription: {exc}"
+                ) from exc
+            logger.warning("Unable to enqueue voice transcription: %s", exc)
+            return None
+        return message.message_id
+
 
 job_queue = JobQueue(
     REDIS_URL,

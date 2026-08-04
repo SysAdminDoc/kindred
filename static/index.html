@@ -599,6 +599,9 @@ textarea::placeholder { color:var(--surface2); }
 .rec-dot { width:8px; height:8px; border-radius:50%; background:var(--red); animation:pulse-red .8s ease-in-out infinite; }
 .voice-msg { display:flex; align-items:center; gap:8px; }
 .voice-msg audio { max-width:180px; height:32px; }
+.voice-transcript { margin-top:5px; font-size:12px; color:var(--subtext0); }
+.voice-transcript summary { cursor:pointer; color:var(--blue); }
+.voice-transcript.pending, .voice-transcript.unavailable { color:var(--overlay0); font-style:italic; }
 
 /* ─── Profile Prompts ─── */
 .prompt-card { background:var(--mantle); border:1px solid var(--surface0); border-radius:10px; padding:14px 16px; margin-bottom:10px; }
@@ -2920,6 +2923,7 @@ async function openChat(meId,themId){
     const app=document.getElementById('app');
     let pr,md,olr;
     try{[pr,md,olr]=await Promise.all([authFetch(API+'/api/profile/'+themId).then(r=>r.json()),authFetch(API+'/api/messages/'+meId+'/'+themId).then(r=>r.json()),authFetch(API+'/api/ws-online').then(r=>r.json())]);}catch(e){toast('Failed to load chat','error');return;}
+    const voiceLookup=await loadVoiceMetadata(themId);
     const isOnline=(olr.online||[]).includes(themId);
     let html=`<div class="card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><button class="btn btn-secondary" onclick="renderInbox()" style="padding:6px 12px">Back</button>${isOnline?'<span class="online-dot"></span>':'<span class="offline-dot"></span>'}<h2 style="margin:0">${escHtml(pr.name)}</h2>`;
     if(md.your_turn) html+='<span class="badge-turn">Your Turn</span>';
@@ -2945,7 +2949,7 @@ async function openChat(meId,themId){
         if(m.deleted)content='<span class="msg-deleted">This message was deleted</span>';
         else if(m.photo)content=`<span class="msg-content"><img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')"></span>`;
         else if(gifMatch)content=`<span class="msg-content"><img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px"></span>`;
-        else if(voiceMatch)content=`<span class="msg-content"><div class="voice-msg">&#127908; <audio controls src="/uploads/${escHtml(voiceMatch[1])}"></audio></div></span>`;
+        else if(voiceMatch)content=renderVoiceContent(voiceMatch[1],voiceLookup);
         else content=`<span class="msg-content">${escHtml(m.content)}</span>`;
         const editedTag=m.edited?'<span class="msg-edited">(edited)</span>':'';
         const reactions=(m.reactions||[]).map(r=>`<span class="reaction-badge" onclick="reactToMessage('${m.id}','${r.reaction}')">${r.reaction}<span class="r-count">${r.count}</span></span>`).join('');
@@ -4363,6 +4367,32 @@ function setNotifSounds(enabled){
 // ══════════════════════════════════════════════
 let _mediaRecorder=null, _audioChunks=[], _recTimerInterval=null, _recStartTime=0;
 
+async function loadVoiceMetadata(partnerId){
+    try{
+        const response=await authFetch(API+'/api/voice-messages/'+encodeURIComponent(partnerId));
+        if(!response.ok)return {};
+        const payload=await response.json();
+        const lookup={};
+        (payload.voice_messages||[]).forEach(message=>{if(message.filename)lookup[message.filename]=message;});
+        return lookup;
+    }catch(e){return {};}
+}
+
+function renderVoiceContent(filename,voiceLookup){
+    const safeFilename=escHtml(filename);
+    const metadata=(voiceLookup||{})[filename]||{};
+    const transcript=typeof metadata.transcript==='string'?metadata.transcript.trim():'';
+    let transcriptHtml='';
+    if(transcript){
+        transcriptHtml=`<details class="voice-transcript"><summary>Transcript</summary><div>${escHtml(transcript)}</div></details>`;
+    }else if(metadata.transcription_status==='queued'||metadata.transcription_status==='processing'){
+        transcriptHtml='<div class="voice-transcript pending" aria-live="polite">Transcript pending…</div>';
+    }else if(metadata.transcription_status==='unavailable'||metadata.transcription_status==='failed'){
+        transcriptHtml='<div class="voice-transcript unavailable">Transcript unavailable</div>';
+    }
+    return `<span class="msg-content"><div class="voice-msg">&#127908; <audio controls src="/uploads/${safeFilename}"></audio></div>${transcriptHtml}</span>`;
+}
+
 function toggleVoiceRecord(meId,themId){
     if(_mediaRecorder&&_mediaRecorder.state==='recording'){
         _mediaRecorder.stop();
@@ -4384,8 +4414,10 @@ async function startVoiceRecord(meId,themId){
             const recInd=document.getElementById('rec-indicator');
             if(recBtn){recBtn.classList.remove('recording');recBtn.innerHTML='&#127908;';}
             if(recInd)recInd.style.display='none';
-            const blob=new Blob(_audioChunks,{type:_mediaRecorder.mimeType||'audio/webm'});
-            sendVoiceMessage(meId,themId,blob);
+            const mimeType=_mediaRecorder.mimeType||'audio/webm';
+            const durationMs=Math.max(0,Date.now()-_recStartTime);
+            const blob=new Blob(_audioChunks,{type:mimeType});
+            sendVoiceMessage(meId,themId,blob,durationMs);
             _mediaRecorder=null;
         };
         _mediaRecorder.start();
@@ -4401,10 +4433,11 @@ async function startVoiceRecord(meId,themId){
     }catch(e){toast('Microphone access denied','error');}
 }
 
-async function sendVoiceMessage(from,to,blob){
-    const fd=new FormData();fd.append('file',blob,'voice.webm');fd.append('from_id',from);fd.append('to_id',to);
+async function sendVoiceMessage(from,to,blob,durationMs=0){
+    const extension=blob.type&&blob.type.includes('ogg')?'ogg':'webm';
+    const fd=new FormData();fd.append('file',blob,'voice.'+extension);fd.append('duration_ms',String(Math.max(0,Math.round(durationMs))));
     try{
-        const r=await authFetch(API+'/api/messages/voice',{method:'POST',body:fd});
+        const r=await authFetch(API+'/api/voice-message/'+encodeURIComponent(to),{method:'POST',body:fd});
         if(r.ok){openChat(from,to);}
         else toast('Failed to send voice message','error');
     }catch(e){toast('Send failed','error');}
@@ -5900,6 +5933,7 @@ async function openChat(meId,themId){
         authFetch(API+'/api/messages/'+meId+'/'+themId).then(r=>r.json()),
         authFetch(API+'/api/ws-online').then(r=>r.json())
     ]);}catch(e){toast('Failed to load chat','error');return;}
+    const voiceLookup=await loadVoiceMetadata(themId);
     const isOnline=(olr.online||[]).includes(themId);
     let html=`<div class="card">`;
 
@@ -5934,7 +5968,7 @@ async function openChat(meId,themId){
         if(m.deleted)content='<span class="msg-deleted">This message was deleted</span>';
         else if(m.photo)content=`<span class="msg-content"><img src="/uploads/${m.photo}" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="openLightbox('/uploads/${m.photo}')"></span>`;
         else if(gifMatch)content=`<span class="msg-content"><img src="${escHtml(gifMatch[1])}" style="max-width:200px;border-radius:8px"></span>`;
-        else if(voiceMatch)content=`<span class="msg-content"><div class="voice-msg">&#127908; <audio controls src="/uploads/${escHtml(voiceMatch[1])}"></audio></div></span>`;
+        else if(voiceMatch)content=renderVoiceContent(voiceMatch[1],voiceLookup);
         else{let t=escHtml(m.content);t=scanLinksInMessage(t);content=`<span class="msg-content">${t}</span>`;}
         // Quote block for replies
         const quoteBlock=(m.reply_to_content||m.reply_to_name)?renderQuoteBlock(m.reply_to_content,m.reply_to_name):'';

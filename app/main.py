@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import jwt
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks, Body
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -74,6 +74,10 @@ from app.payments import (
     StripePaymentConfigurationError,
     StripePaymentError,
     stripe_gateway,
+)
+from app.transcription import (
+    transcribe_and_store,
+    transcription_service,
 )
 from app.redis_backend import redis_sessions
 from app.database import (
@@ -291,6 +295,7 @@ MAGIC_BYTES = {
     ".gif": [b"GIF87a", b"GIF89a"],
     ".mp4": [b"\x00\x00\x00\x18ftyp", b"\x00\x00\x00\x1cftyp", b"\x00\x00\x00\x20ftyp"],
     ".webm": [b"\x1a\x45\xdf\xa3"],
+    ".ogg": [b"OggS"],
     ".mov": [b"\x00\x00\x00\x14ftyp", b"\x00\x00\x00\x08wide"],
 }
 
@@ -807,6 +812,7 @@ async def startup():
     app.state.object_storage_backend = object_storage.initialize()
     app.state.photo_safety_backend = photo_safety.initialize()
     app.state.selfie_liveness_backend = selfie_liveness.initialize()
+    app.state.transcription_backend = transcription_service.initialize()
     init_db()
     from app.i18n import init_i18n
     init_i18n()
@@ -3278,6 +3284,7 @@ def health_check():
         "object_storage": object_storage.health(),
         "photo_safety": photo_safety.health(),
         "selfie_liveness": selfie_liveness.health(),
+        "transcription": transcription_service.health(),
         "stripe": stripe_gateway.health(),
         "rate_limit_backend": app.state.rate_limit_backend,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "user-api"),
@@ -3293,27 +3300,77 @@ def health_check():
 
 @app.post("/api/voice-message/{to_id}")
 async def upload_voice_message(to_id: str, file: UploadFile = File(...),
+                               duration_ms: int = Form(0),
                                user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
     if not profile_id:
         raise HTTPException(status_code=400, detail="No profile linked")
     if is_blocked_either(profile_id, to_id):
         raise HTTPException(status_code=403, detail="Blocked")
+    _ensure_pair_not_cooling_off(profile_id, to_id)
     content = await file.read()
     if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large")
-    if not validate_file_magic(content, ".webm"):
+    content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in {".webm", ".ogg"}:
+        extension = ".ogg" if content_type == "audio/ogg" else ".webm"
+    if not validate_file_magic(content, extension):
         raise HTTPException(status_code=400, detail="Invalid voice file format")
-    fname = f"voice_{uuid.uuid4().hex[:12]}.webm"
-    _store_media(fname, content, "audio/webm")
-    msg_id = save_voice_message(profile_id, to_id, fname, duration_ms=0)
+    if extension == ".ogg":
+        content_type = "audio/ogg"
+    else:
+        content_type = "audio/webm"
+    duration = max(0, min(int(duration_ms or 0), 10 * 60 * 1000))
+    fname = f"voice_{uuid.uuid4().hex[:12]}{extension}"
+    _store_media(fname, content, content_type)
+    transcription_status = (
+        "queued" if transcription_service.ready
+        else "unavailable" if transcription_service.enabled
+        else "disabled"
+    )
+    msg_id = save_voice_message(
+        profile_id,
+        to_id,
+        fname,
+        duration_ms=duration,
+        mime_type=content_type,
+        transcription_status=transcription_status,
+    )
+    transcription_job_id = None
+    if transcription_service.ready:
+        try:
+            transcription_job_id = job_queue.enqueue_voice_transcription(msg_id, fname)
+        except QueueConfigurationError as exc:
+            log.error(
+                "Transcription queue unavailable for %s; using inline fallback: %s",
+                fname,
+                exc,
+            )
+        if transcription_job_id:
+            transcription_status = "queued"
+        else:
+            result = transcribe_and_store(
+                msg_id,
+                content,
+                filename=fname,
+                content_type=content_type,
+            )
+            transcription_status = result.status
     # Also send as a regular message linking to the voice file
     send_message(profile_id, to_id, f"[voice:{fname}]")
     await ws_manager.send_to(to_id, {
         "type": "voice_message", "from": profile_id, "filename": fname, "id": msg_id,
+        "transcription_status": transcription_status,
     })
     log_analytics_event("voice_message_sent", profile_id)
-    return {"id": msg_id, "filename": fname}
+    return {
+        "id": msg_id,
+        "filename": fname,
+        "duration_ms": duration,
+        "transcription_status": transcription_status,
+        "transcription_job_id": transcription_job_id,
+    }
 
 
 @app.get("/api/voice-messages/{partner_id}")
@@ -3321,6 +3378,9 @@ def list_voice_messages(partner_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
     if not profile_id:
         raise HTTPException(status_code=400, detail="No profile linked")
+    if is_blocked_either(profile_id, partner_id):
+        raise HTTPException(status_code=403, detail="Blocked")
+    _ensure_pair_not_cooling_off(profile_id, partner_id)
     return {"voice_messages": get_voice_messages(profile_id, partner_id)}
 
 
