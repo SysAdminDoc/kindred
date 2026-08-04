@@ -117,6 +117,40 @@ PHOTODNA_HOOK_URL = os.getenv("KINDRED_PHOTODNA_HOOK_URL", "").strip()
 PHOTODNA_API_KEY = os.getenv("KINDRED_PHOTODNA_API_KEY", "").strip()
 PHOTODNA_TIMEOUT_SECONDS = float(os.getenv("KINDRED_PHOTODNA_TIMEOUT_SECONDS", "3"))
 
+# --- Selfie liveness ---
+_project_root = Path(__file__).parent.parent
+SELFIE_LIVENESS_ENABLED = os.getenv(
+    "KINDRED_SELFIE_LIVENESS_ENABLED", "true"
+).lower() == "true"
+SELFIE_LIVENESS_REQUIRED = os.getenv(
+    "KINDRED_SELFIE_LIVENESS_REQUIRED", "true"
+).lower() == "true"
+SELFIE_LIVENESS_MODEL_PATH = Path(os.getenv(
+    "KINDRED_SELFIE_LIVENESS_MODEL_PATH",
+    str(_project_root / "models" / "face_landmarker.task"),
+))
+SELFIE_LIVENESS_EXPECTED_SHA256 = os.getenv(
+    "KINDRED_SELFIE_LIVENESS_MODEL_SHA256",
+    "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+).strip().lower()
+SELFIE_LIVENESS_MIN_FRAMES = int(os.getenv("KINDRED_SELFIE_LIVENESS_MIN_FRAMES", "8"))
+SELFIE_LIVENESS_MAX_FRAMES = int(os.getenv("KINDRED_SELFIE_LIVENESS_MAX_FRAMES", "24"))
+SELFIE_LIVENESS_FRAME_INTERVAL_MS = int(
+    os.getenv("KINDRED_SELFIE_LIVENESS_FRAME_INTERVAL_MS", "150")
+)
+SELFIE_LIVENESS_MIN_DURATION_MS = int(
+    os.getenv("KINDRED_SELFIE_LIVENESS_MIN_DURATION_MS", "900")
+)
+SELFIE_LIVENESS_BLINK_CLOSED_EAR = float(
+    os.getenv("KINDRED_SELFIE_LIVENESS_BLINK_CLOSED_EAR", "0.20")
+)
+SELFIE_LIVENESS_BLINK_OPEN_EAR = float(
+    os.getenv("KINDRED_SELFIE_LIVENESS_BLINK_OPEN_EAR", "0.24")
+)
+SELFIE_LIVENESS_HEAD_TURN_DELTA = float(
+    os.getenv("KINDRED_SELFIE_LIVENESS_HEAD_TURN_DELTA", "0.12")
+)
+
 # --- Content Filtering ---
 CONTENT_FILTER_ENABLED = os.getenv("KINDRED_CONTENT_FILTER", "true").lower() == "true"
 
@@ -166,4 +200,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11

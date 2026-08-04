@@ -58,6 +58,12 @@ from app.photo_safety import (
     PhotoSafetyResult,
     photo_safety,
 )
+from app.selfie_liveness import (
+    LivenessAnalysisError,
+    LivenessConfigurationError,
+    LivenessResult,
+    selfie_liveness,
+)
 from app.redis_backend import redis_sessions
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
@@ -726,6 +732,7 @@ async def startup():
     app.state.job_queue_backend = job_queue.initialize()
     app.state.object_storage_backend = object_storage.initialize()
     app.state.photo_safety_backend = photo_safety.initialize()
+    app.state.selfie_liveness_backend = selfie_liveness.initialize()
     init_db()
     from app.i18n import init_i18n
     init_i18n()
@@ -740,6 +747,7 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    selfie_liveness.close()
     await ws_manager.stop()
 
 # ---------------------------------------------------------------------------
@@ -2238,25 +2246,98 @@ def game_history(profile_a: str, profile_b: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/verify/selfie/{profile_id}")
-async def upload_selfie(profile_id: str, file: UploadFile = File(...),
-                        user: dict = Depends(require_user)):
+async def upload_selfie(
+    profile_id: str,
+    file: UploadFile | None = File(None),
+    frames: list[UploadFile] | None = File(None),
+    user: dict = Depends(require_user),
+):
     if user.get("profile_id") != profile_id:
         raise HTTPException(status_code=403, detail="Can only verify your own profile")
     profile = get_profile(profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
-    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
-        raise HTTPException(status_code=400, detail="Invalid image format")
-    content = await file.read()
-    if not validate_file_magic(content, ext):
-        raise HTTPException(status_code=400, detail="File content doesn't match extension")
+    submitted_frames = list(frames or [])
+    if file is not None:
+        if submitted_frames:
+            raise HTTPException(status_code=400, detail="Send either file or frames, not both")
+        submitted_frames = [file]
+    if not submitted_frames:
+        raise HTTPException(status_code=400, detail="At least one selfie image is required")
+    if len(submitted_frames) > selfie_liveness.max_frames:
+        raise HTTPException(status_code=400, detail="Too many liveness frames")
+
+    frame_contents: list[bytes] = []
+    frame_extensions: list[str] = []
+    frame_types: list[str] = []
+    for upload in submitted_frames:
+        ext = Path(upload.filename).suffix.lower() if upload.filename else ".jpg"
+        if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+            raise HTTPException(status_code=400, detail="Invalid image format")
+        content = await upload.read()
+        if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+            raise HTTPException(status_code=400, detail=f"Image too large (max {MAX_UPLOAD_MB}MB)")
+        if not validate_file_magic(content, ext):
+            raise HTTPException(status_code=400, detail="File content doesn't match extension")
+        frame_contents.append(content)
+        frame_extensions.append(ext)
+        frame_types.append(upload.content_type or "image/jpeg")
+
+    photo_scans: list[PhotoSafetyResult] = []
+    for index, content in enumerate(frame_contents):
+        frame_name = f"verify_frame_{profile_id}_{uuid.uuid4().hex[:8]}_{index}{frame_extensions[index]}"
+        scan = _check_photo_safety(profile_id, frame_name, content)
+        _record_photo_hash(profile_id, frame_name, scan)
+        photo_scans.append(scan)
+
+    if selfie_liveness.enabled and len(frame_contents) == 1 and selfie_liveness.required:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Capture at least {selfie_liveness.min_frames} frames while blinking and turning your head",
+        )
+
+    if selfie_liveness.enabled and len(frame_contents) > 1:
+        try:
+            liveness = selfie_liveness.analyze(frame_contents)
+        except LivenessConfigurationError as exc:
+            if selfie_liveness.required:
+                log.error("Selfie liveness is unavailable: %s", exc)
+                raise HTTPException(status_code=503, detail="Selfie liveness is unavailable") from exc
+            liveness = LivenessResult.unavailable("unavailable")
+        except LivenessAnalysisError as exc:
+            log.warning("Selfie liveness analysis failed: %s", exc)
+            if selfie_liveness.required:
+                raise HTTPException(status_code=400, detail="Selfie liveness could not be analyzed") from exc
+            liveness = LivenessResult.unavailable("analysis_error")
+        if selfie_liveness.required and not liveness.passed:
+            raise HTTPException(status_code=400, detail=f"Liveness check failed: {liveness.reason}")
+    elif selfie_liveness.enabled:
+        liveness = LivenessResult.unavailable("not_attempted")
+    else:
+        liveness = LivenessResult.unavailable("disabled")
+
+    ext = frame_extensions[0]
     filename = f"verify_{profile_id}_{uuid.uuid4().hex[:6]}{ext}"
-    photo_scan = _check_photo_safety(profile_id, filename, content)
-    _store_media(filename, content)
-    _record_photo_hash(profile_id, filename, photo_scan)
-    vid = submit_selfie_verification(profile_id, filename)
-    return {"id": vid, "status": "pending", "message": "Selfie submitted for verification"}
+    _store_media(filename, frame_contents[0], frame_types[0])
+    if photo_scans:
+        _record_photo_hash(profile_id, filename, photo_scans[0])
+    previous = get_verification_status(profile_id)
+    vid = submit_selfie_verification(
+        profile_id,
+        filename,
+        liveness_status="passed" if liveness.passed else liveness.reason,
+        liveness_score=liveness.score,
+        liveness_evidence=liveness.evidence,
+        liveness_frames=len(frame_contents),
+    )
+    if previous and previous.get("selfie_photo") and previous["selfie_photo"] != filename:
+        _delete_media(previous["selfie_photo"])
+    return {
+        "id": vid,
+        "status": "pending",
+        "liveness": liveness.public_dict(),
+        "message": "Selfie submitted for verification",
+    }
 
 
 @app.get("/api/verify/status/{profile_id}")
@@ -2264,7 +2345,19 @@ def verification_status(profile_id: str):
     status = get_verification_status(profile_id)
     if not status:
         return {"status": "none"}
-    return {"status": status["status"], "submitted_at": status["created_at"]}
+    evidence = status.get("liveness_evidence") or "{}"
+    try:
+        evidence = json_stdlib.loads(evidence)
+    except (TypeError, ValueError):
+        evidence = {}
+    return {
+        "status": status["status"],
+        "submitted_at": status["created_at"],
+        "liveness_status": status.get("liveness_status", "not_attempted"),
+        "liveness_score": status.get("liveness_score"),
+        "liveness_frames": status.get("liveness_frames", 1),
+        "liveness_evidence": evidence,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2819,6 +2912,7 @@ def health_check():
         "queue": job_queue.health(),
         "object_storage": object_storage.health(),
         "photo_safety": photo_safety.health(),
+        "selfie_liveness": selfie_liveness.health(),
         "rate_limit_backend": app.state.rate_limit_backend,
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "user-api"),
         "websocket_transport": "redis" if redis_sessions.enabled else "local",

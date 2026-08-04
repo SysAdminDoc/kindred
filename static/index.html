@@ -2622,18 +2622,84 @@ async function loadVerifyStatus(pid){
         if(!el)return;
         if(d.status==='approved') el.innerHTML='<span class="verify-badge verify-approved">&#10003; Verified</span>';
         else if(d.status==='pending') el.innerHTML='<span class="verify-badge verify-pending">Verification Pending</span>';
-        else el.innerHTML=`<label class="verify-badge verify-none" style="cursor:pointer">Get Verified<input type="file" accept="image/*" style="display:none" onchange="submitSelfie('${pid}',this.files[0])"></label>`;
+        else el.innerHTML=`<button type="button" class="verify-badge verify-none" style="cursor:pointer;border:0" onclick="startSelfieLiveness('${pid}')">Get Verified</button>`;
     }catch(e){}
 }
 
 async function submitSelfie(pid,file){
     if(!file)return;
-    const fd=new FormData();fd.append('file',file);
+    return submitSelfieFrames(pid,[file]);
+}
+
+async function submitSelfieFrames(pid,files){
+    if(!files||!files.length)return;
+    const fd=new FormData();
+    files.forEach((file,index)=>fd.append('frames',file,file.name||('selfie-frame-'+index+'.jpg')));
     try{
         const r=await authFetch(API+'/api/verify/selfie/'+pid,{method:'POST',body:fd});
         if(r.ok){toast('Selfie submitted for verification!','success');loadVerifyStatus(pid);}
-        else toast('Upload failed','error');
+        else {const d=await r.json().catch(()=>({}));toast(d.detail||'Upload failed','error');}
     }catch(e){toast('Upload error','error');}
+}
+
+function showSelfieFileFallback(pid){
+    const el=document.getElementById('verify-status');
+    if(!el)return;
+    el.innerHTML=`<label class="verify-badge verify-none" style="cursor:pointer">Choose 8+ frames<input type="file" accept="image/*" multiple style="display:none" onchange="submitSelfieFrames('${pid}',Array.from(this.files))"></label>`;
+}
+
+async function startSelfieLiveness(pid){
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){showSelfieFileFallback(pid);return;}
+    let stream=null;
+    let overlay=null;
+    const cleanup=()=>{
+        if(stream)stream.getTracks().forEach(track=>track.stop());
+        if(overlay)overlay.remove();
+    };
+    try{
+        stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
+        overlay=document.createElement('div');
+        overlay.id='selfie-liveness-capture';
+        overlay.style='position:fixed;inset:0;background:rgba(17,17,27,.92);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+        overlay.innerHTML='<div style="width:min(420px,100%);background:var(--surface0);border:1px solid var(--surface2);border-radius:16px;padding:20px;text-align:center;box-shadow:0 18px 60px rgba(0,0,0,.4)"><h3 style="margin:0 0 8px">Quick liveness check</h3><p style="color:var(--subtext0);font-size:13px;margin:0 0 14px">Look at the camera, blink once, then slowly turn your head left and right.</p><video autoplay playsinline muted style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:12px;background:var(--crust);transform:scaleX(-1)"></video><p data-liveness-status style="color:var(--overlay0);font-size:12px;margin:12px 0">Ready when you are.</p><div style="display:flex;gap:8px;justify-content:center"><button type="button" data-liveness-cancel class="btn-sm">Cancel</button><button type="button" data-liveness-start class="btn-primary">Start capture</button></div></div>';
+        document.body.appendChild(overlay);
+        const video=overlay.querySelector('video');
+        video.srcObject=stream;
+        await video.play();
+        const status=overlay.querySelector('[data-liveness-status]');
+        overlay.querySelector('[data-liveness-cancel]').onclick=cleanup;
+        overlay.querySelector('[data-liveness-start]').onclick=async()=>{
+            const start=overlay.querySelector('[data-liveness-start]');
+            start.disabled=true;
+            status.textContent='Capturing — blink and turn your head slowly...';
+            await new Promise(resolve=>setTimeout(resolve,500));
+            const canvas=document.createElement('canvas');
+            canvas.width=Math.min(video.videoWidth||640,960);
+            canvas.height=Math.round(canvas.width*3/4);
+            const context=canvas.getContext('2d');
+            const frames=[];
+            try{
+                for(let index=0;index<12;index++){
+                    context.drawImage(video,0,0,canvas.width,canvas.height);
+                    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.82));
+                    if(!blob)throw new Error('Camera frame unavailable');
+                    frames.push(new File([blob],`selfie-frame-${index}.jpg`,{type:'image/jpeg'}));
+                    status.textContent=`Capturing frame ${index+1} of 12...`;
+                    await new Promise(resolve=>setTimeout(resolve,150));
+                }
+                cleanup();
+                await submitSelfieFrames(pid,frames);
+            }catch(error){
+                start.disabled=false;
+                status.textContent='Could not capture the sequence. Please try again.';
+                console.error(error);
+            }
+        };
+    }catch(error){
+        cleanup();
+        toast('Camera access is unavailable','error');
+        showSelfieFileFallback(pid);
+    }
 }
 
 // ─── Video Intros ───

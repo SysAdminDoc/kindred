@@ -927,7 +927,7 @@ async function renderVerifications(){
             html+=`<div class="profile-item" style="padding:16px">
                 <div style="display:flex;align-items:center;gap:16px;flex:1">
                     ${v.photo?`<img src="/uploads/${v.photo}" class="photo-thumb" style="width:48px;height:48px">`:''}
-                    <div><strong>${escHtml(v.name)}</strong><br><span style="color:var(--overlay0);font-size:12px">Submitted ${new Date(v.created_at).toLocaleString()}</span></div>
+                    <div><strong>${escHtml(v.name)}</strong><br><span style="color:var(--overlay0);font-size:12px">Submitted ${new Date(v.created_at).toLocaleString()}</span><br><span style="color:var(--teal);font-size:12px">Liveness: ${escHtml(v.liveness_status||'not attempted')}${v.liveness_score!=null?' ('+Math.round(Number(v.liveness_score)*100)+'%)':''}</span></div>
                     <img src="/uploads/${v.selfie_photo}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;border:2px solid var(--surface1);cursor:pointer" onclick="window.open('/uploads/${v.selfie_photo}','_blank')">
                 </div>
                 <div class="actions" style="gap:8px">

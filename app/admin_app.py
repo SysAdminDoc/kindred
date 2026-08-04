@@ -34,6 +34,7 @@ from app.object_storage import (
     object_storage,
 )
 from app.photo_safety import photo_safety
+from app.selfie_liveness import selfie_liveness
 from app.database import (
     init_db, get_profile, get_all_profiles, delete_profile, get_profile_media_keys,
     get_conversation_count,
@@ -152,6 +153,7 @@ def startup():
     job_queue.initialize()
     object_storage.initialize()
     photo_safety.initialize()
+    selfie_liveness.initialize()
     init_db()
     # Create default admin if none exists
     from app.database import get_db
@@ -431,6 +433,7 @@ def health_check():
         "queue": job_queue.health(),
         "object_storage": object_storage.health(),
         "photo_safety": photo_safety.health(),
+        "selfie_liveness": selfie_liveness.health(),
         "worker_role": os.getenv("KINDRED_WORKER_ROLE", "admin-api"),
         "pid": os.getpid(),
     }

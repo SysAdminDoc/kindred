@@ -14,5 +14,7 @@ dramatiq[redis]>=2.2,<3
 # S3-compatible photo/video storage; local disk remains the default when no bucket is configured.
 boto3>=1.35,<2
 Pillow>=10.0.0
+# Local blink/head-turn selfie liveness; the pinned model asset lives in models/.
+mediapipe==0.10.32
 # Used only by the explicit SQLite-to-PostgreSQL migration command; SQLite remains the default.
 psycopg[binary]>=3.2,<4

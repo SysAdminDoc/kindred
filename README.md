@@ -116,7 +116,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Session management (view/revoke active sessions)
 - Account deletion (GDPR-compliant full data removal)
 - Data export (GDPR-compliant download your data)
-- Selfie verification with admin review
+- Selfie verification with admin review and local ML liveness (blink + head turn)
 - Upload-time pHash + dHash matching against an operator-managed known-abuse hash corpus
 - Automated content filtering (profanity censoring, spam blocking)
 - Photo moderation queue with admin review
@@ -225,6 +225,7 @@ kindred/
     object_storage_migration.py # Legacy uploads/ migration command
     photo_safety.py     # pHash/dHash upload screening and optional external hook
     photo_safety_corpus.py # Hash-only corpus importer
+    selfie_liveness.py  # MediaPipe blink + head-turn sequence analyzer
     database.py         # SQLite CRUD (70+ tables)
     engine.py           # 8-dimension matching engine
     questions.py        # Questionnaire definitions
@@ -348,6 +349,17 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_PHOTODNA_HOOK_URL` | empty | Provider-specific hash adapter URL, required when the hook is enabled |
 | `KINDRED_PHOTODNA_API_KEY` | empty | Optional subscription key passed to the configured adapter |
 | `KINDRED_PHOTODNA_TIMEOUT_SECONDS` | `3` | External hash adapter timeout |
+| `KINDRED_SELFIE_LIVENESS_ENABLED` | `true` | Enable local MediaPipe selfie liveness |
+| `KINDRED_SELFIE_LIVENESS_REQUIRED` | `true` | Require a passing blink + head-turn sequence before queueing verification |
+| `KINDRED_SELFIE_LIVENESS_MODEL_PATH` | `models/face_landmarker.task` | Local Face Landmarker model asset |
+| `KINDRED_SELFIE_LIVENESS_MODEL_SHA256` | pinned asset hash | Fail startup if the model asset is not the pinned file |
+| `KINDRED_SELFIE_LIVENESS_MIN_FRAMES` | `8` | Minimum ordered frames in a liveness attempt |
+| `KINDRED_SELFIE_LIVENESS_MAX_FRAMES` | `24` | Maximum ordered frames accepted per attempt |
+| `KINDRED_SELFIE_LIVENESS_FRAME_INTERVAL_MS` | `150` | Synthetic interval used when clients submit frames without timestamps |
+| `KINDRED_SELFIE_LIVENESS_MIN_DURATION_MS` | `900` | Minimum sequence duration |
+| `KINDRED_SELFIE_LIVENESS_BLINK_CLOSED_EAR` | `0.20` | Eye-aspect-ratio threshold for a closed-eye frame |
+| `KINDRED_SELFIE_LIVENESS_BLINK_OPEN_EAR` | `0.24` | Eye-aspect-ratio threshold for an open-eye frame |
+| `KINDRED_SELFIE_LIVENESS_HEAD_TURN_DELTA` | `0.12` | Relative nose/yaw movement required for a head turn |
 | `KINDRED_EMBEDDING_MODEL` | `all-mpnet-base-v2` | Preferred semantic embedding model |
 | `KINDRED_EMBEDDING_FALLBACK_MODEL` | `all-MiniLM-L6-v2` | Fallback when the preferred model cannot load |
 
@@ -374,6 +386,15 @@ an operator-approved JSON corpus with
 `python -m app.photo_safety_corpus corpus.json --source operator --dry-run`,
 then rerun without `--dry-run`. Blocked upload metadata is visible to admins at
 `/api/admin/photo-safety/events`.
+
+Selfie verification now captures twelve camera frames in the user portal and
+posts them as a short ordered sequence to `/api/verify/selfie/{profile_id}`.
+The server runs the bundled MediaPipe Face Landmarker locally, requires a
+blink and measurable head turn, stores only the first passing frame, and keeps
+aggregate liveness evidence with the admin review record. If camera access is
+unavailable, users can submit at least eight still frames through the fallback
+picker. Set `KINDRED_SELFIE_LIVENESS_REQUIRED=false` only for a deliberately
+degraded legacy still-image workflow.
 
 To migrate an existing local upload directory, first configure the remote
 backend and run `python -m app.object_storage_migration --dry-run`, then rerun

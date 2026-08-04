@@ -82,6 +82,22 @@ class WeightLearningPersistenceTests(unittest.TestCase):
             ["gallery.jpg", "intro.mp4", "message.jpg", "rater.jpg", "selfie.jpg", "story.jpg"],
         )
 
+    def test_selfie_verification_persists_liveness_evidence(self):
+        verification_id = database.submit_selfie_verification(
+            "rater",
+            "selfie.jpg",
+            liveness_status="passed",
+            liveness_score=0.93,
+            liveness_evidence={"blink_detected": True, "yaw_delta": 0.18},
+            liveness_frames=12,
+        )
+        status = database.get_verification_status("rater")
+        self.assertEqual(status["id"], verification_id)
+        self.assertEqual(status["liveness_status"], "passed")
+        self.assertEqual(status["liveness_score"], 0.93)
+        self.assertEqual(status["liveness_frames"], 12)
+        self.assertIn('"yaw_delta": 0.18', status["liveness_evidence"])
+
 
 if __name__ == "__main__":
     unittest.main()

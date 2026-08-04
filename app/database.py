@@ -362,6 +362,11 @@ def init_db():
             profile_id TEXT NOT NULL UNIQUE,
             selfie_photo TEXT NOT NULL,
             status TEXT DEFAULT 'pending',
+            liveness_status TEXT DEFAULT 'not_attempted',
+            liveness_score REAL,
+            liveness_evidence TEXT DEFAULT '{}',
+            liveness_frames INTEGER DEFAULT 1,
+            liveness_checked_at TIMESTAMP,
             reviewed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
@@ -1283,6 +1288,11 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN country TEXT",
         "ALTER TABLE profiles ADD COLUMN learned_weight_prefs TEXT",
         "ALTER TABLE photo_hashes ADD COLUMN dhash TEXT DEFAULT ''",
+        "ALTER TABLE selfie_verifications ADD COLUMN liveness_status TEXT DEFAULT 'not_attempted'",
+        "ALTER TABLE selfie_verifications ADD COLUMN liveness_score REAL",
+        "ALTER TABLE selfie_verifications ADD COLUMN liveness_evidence TEXT DEFAULT '{}'",
+        "ALTER TABLE selfie_verifications ADD COLUMN liveness_frames INTEGER DEFAULT 1",
+        "ALTER TABLE selfie_verifications ADD COLUMN liveness_checked_at TIMESTAMP",
     ]
     for sql in migrations:
         try:
@@ -2778,14 +2788,34 @@ def get_game_score(profile_a: str, profile_b: str) -> dict:
 # Selfie Verification
 # ---------------------------------------------------------------------------
 
-def submit_selfie_verification(profile_id: str, selfie_photo: str) -> str:
+def submit_selfie_verification(
+    profile_id: str,
+    selfie_photo: str,
+    *,
+    liveness_status: str = "not_attempted",
+    liveness_score: float | None = None,
+    liveness_evidence: dict | None = None,
+    liveness_frames: int = 1,
+) -> str:
     conn = get_db()
     vid = uuid.uuid4().hex
     # Upsert - replace any existing pending verification
     conn.execute("DELETE FROM selfie_verifications WHERE profile_id=?", (profile_id,))
     conn.execute(
-        "INSERT INTO selfie_verifications (id, profile_id, selfie_photo) VALUES (?,?,?)",
-        (vid, profile_id, selfie_photo)
+        """INSERT INTO selfie_verifications
+           (id, profile_id, selfie_photo, liveness_status, liveness_score,
+            liveness_evidence, liveness_frames, liveness_checked_at)
+           VALUES (?,?,?,?,?,?,?,CASE WHEN ? = 'not_attempted' THEN NULL ELSE datetime('now') END)""",
+        (
+            vid,
+            profile_id,
+            selfie_photo,
+            liveness_status,
+            liveness_score,
+            json.dumps(liveness_evidence or {}, sort_keys=True),
+            max(1, liveness_frames),
+            liveness_status,
+        ),
     )
     conn.commit()
 
