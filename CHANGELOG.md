@@ -24,6 +24,7 @@ All notable changes to kindred will be documented in this file.
 - Added: Local meetup discovery with opt-in event coordinates, radius-filtered nearby events, and a Leaflet heatmap
 - Added: Server-side voice transcription with durable status, queue processing, and accessible transcript disclosure
 - Added: Schema-wide privacy field tags, per-table retention policies, and leased inactive-account hard deletion
+- Added: Default-on CCPA do-not-sell preference with authenticated API and profile settings control
 - v2.5.1 — Comprehensive audit: 41 bug fixes
 - v2.5.0 — Phase 8: Premium & integrations
 - v2.4.0 — Phase 7: Admin & operations

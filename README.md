@@ -118,6 +118,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Session management (view/revoke active sessions)
 - Account deletion (GDPR-compliant full data removal)
 - Data export (GDPR-compliant download your data)
+- CCPA do-not-sell preference (enabled by default; Kindred does not sell personal information)
 - Selfie verification with admin review and local ML liveness (blink + head turn)
 - Sliding-window direct-message harassment signals with escalating warnings and recipient-side auto-mutes
 - Upload-time pHash + dHash matching against an operator-managed known-abuse hash corpus

@@ -240,4 +240,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19

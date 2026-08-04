@@ -40,6 +40,16 @@ class PrivacyRetentionTests(unittest.TestCase):
         self.assertEqual(audit["untagged_fields"], [])
         self.assertEqual(audit["missing_table_policies"], [])
 
+    def test_do_not_sell_preference_defaults_on_and_is_exported(self):
+        user_id = database.create_user("privacy@example.com", "hash", "Privacy")
+        self.assertTrue(database.get_do_not_sell(user_id))
+        self.assertTrue(database.export_user_data(user_id)["user"]["do_not_sell"])
+
+        database.set_do_not_sell(user_id, False)
+
+        self.assertFalse(database.get_do_not_sell(user_id))
+        self.assertFalse(database.export_user_data(user_id)["user"]["do_not_sell"])
+
     def test_hard_delete_removes_unlinked_account_records_and_media(self):
         profile_id = database.save_profile({
             "id": "profile-1",

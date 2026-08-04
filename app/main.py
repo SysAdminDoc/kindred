@@ -148,7 +148,7 @@ from app.database import (
     revoke_session_by_token, revoke_all_sessions,
     save_user_location, get_user_location, get_nearby_profiles,
     save_recovery_codes, use_recovery_code, get_recovery_code_count,
-    set_incognito_mode, is_incognito,
+    set_incognito_mode, is_incognito, set_do_not_sell, get_do_not_sell,
     get_mutual_friends, get_mutual_friend_count,
     search_messages,
     delete_account, export_user_data, get_profile_media_keys,
@@ -628,6 +628,9 @@ class WeightUpdate(BaseModel):
 
 class PrivacyUpdate(BaseModel):
     privacy: dict[str, str]
+
+class DoNotSellUpdate(BaseModel):
+    enabled: bool
 
 class DatePlanCreate(BaseModel):
     profile_a: str
@@ -3599,6 +3602,21 @@ def toggle_incognito(body: IncognitoUpdate, user: dict = Depends(require_user)):
 @app.get("/api/settings/incognito")
 def get_incognito(user: dict = Depends(require_user)):
     return {"incognito": is_incognito(user["id"])}
+
+
+# ---------------------------------------------------------------------------
+# CCPA Do-Not-Sell Preference
+# ---------------------------------------------------------------------------
+
+@app.put("/api/settings/do-not-sell")
+def update_do_not_sell(body: DoNotSellUpdate, user: dict = Depends(require_user)):
+    set_do_not_sell(user["id"], body.enabled)
+    return {"do_not_sell": body.enabled}
+
+
+@app.get("/api/settings/do-not-sell")
+def get_do_not_sell_setting(user: dict = Depends(require_user)):
+    return {"do_not_sell": get_do_not_sell(user["id"])}
 
 
 # ---------------------------------------------------------------------------

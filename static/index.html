@@ -2112,6 +2112,8 @@ async function viewProfilePage(pid,viewer){
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Incognito Mode</summary>
                 <div style="padding:12px 0"><p style="color:var(--overlay0);font-size:13px;margin-bottom:10px">Browse profiles without appearing in Who Viewed Me.</p>
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="incognito-toggle" onchange="toggleIncognito(this.checked)" style="accent-color:var(--mauve)"> Enable Incognito Mode</label></div></details>
+                <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Privacy &amp; Data Sharing</summary>
+                <div id="do-not-sell-area" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Active Sessions</summary>
                 <div style="padding:12px 0"><div id="sessions-list"><div class="loading"><div class="spinner"></div></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Location &amp; Matching</summary>
@@ -2179,6 +2181,7 @@ async function viewProfilePage(pid,viewer){
             checkPushStatus();
             loadRecoveryCodesStatus();
             loadIncognitoStatus();
+            loadDoNotSellStatus();
             loadSessions();
             loadLocationSettings();
             loadReadReceiptsSetting();
@@ -4748,6 +4751,25 @@ async function toggleIncognito(checked){
         if(r.ok){setIncognitoUI(checked);toast(checked?'Incognito mode on — you\'re browsing invisibly':'Incognito mode off','success');}
         else toast('Failed to update incognito','error');
     }catch(e){toast('Error','error');}
+}
+
+async function loadDoNotSellStatus(){
+    const el=document.getElementById('do-not-sell-area');if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/settings/do-not-sell');
+        if(!r.ok)throw new Error('Failed');
+        const d=await r.json();
+        const enabled=d.do_not_sell!==false;
+        el.innerHTML='<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--subtext0)"><input type="checkbox" id="do-not-sell-toggle" '+(enabled?'checked':'')+' onchange="saveDoNotSell(this.checked)" style="accent-color:var(--mauve)"> Do not sell or share my personal information</label><p style="color:var(--overlay0);font-size:12px;margin-top:7px">Kindred does not sell personal information. This preference records your CCPA request and will remain enabled by default.</p>';
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load privacy setting</div>';}
+}
+
+async function saveDoNotSell(enabled){
+    try{
+        const r=await authFetch(API+'/api/settings/do-not-sell',{method:'PUT',headers:authHeaders(),body:JSON.stringify({enabled})});
+        if(r.ok)toast('Privacy preference saved','success');
+        else{toast('Could not save privacy preference','error');loadDoNotSellStatus();}
+    }catch(e){toast('Could not save privacy preference','error');loadDoNotSellStatus();}
 }
 
 // ══════════════════════════════════════════════

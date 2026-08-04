@@ -200,6 +200,7 @@ def init_db():
             display_name TEXT,
             profile_id TEXT,
             is_admin INTEGER DEFAULT 0,
+            do_not_sell INTEGER NOT NULL DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE SET NULL
         );
@@ -1366,6 +1367,7 @@ def _migrate(conn):
         # v1.7.0
         "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'mocha'",
         "ALTER TABLE users ADD COLUMN typing_preview INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN do_not_sell INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT",
         # v2.5.1
         "ALTER TABLE profiles ADD COLUMN availability_status TEXT DEFAULT 'active'",
@@ -4729,6 +4731,23 @@ def is_incognito(user_id: str) -> bool:
     return bool(row and row["incognito_mode"])
 
 
+def set_do_not_sell(user_id: str, enabled: bool) -> None:
+    conn = get_db()
+    conn.execute(
+        "UPDATE users SET do_not_sell=? WHERE id=?",
+        (int(bool(enabled)), user_id),
+    )
+    conn.commit()
+
+
+def get_do_not_sell(user_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT do_not_sell FROM users WHERE id=?", (user_id,)
+    ).fetchone()
+    return bool(row["do_not_sell"]) if row else True
+
+
 # ---------------------------------------------------------------------------
 # Mutual Friends
 # ---------------------------------------------------------------------------
@@ -4925,7 +4944,10 @@ def delete_account(user_id: str) -> bool:
 def export_user_data(user_id: str) -> dict:
     """Export all user data for GDPR compliance."""
     conn = get_db()
-    user = conn.execute("SELECT id, email, display_name, created_at FROM users WHERE id=?", (user_id,)).fetchone()
+    user = conn.execute(
+        "SELECT id, email, display_name, do_not_sell, created_at FROM users WHERE id=?",
+        (user_id,),
+    ).fetchone()
     if not user:
         return {}
     data = {"user": dict(user)}
