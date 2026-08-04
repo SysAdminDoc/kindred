@@ -5514,14 +5514,16 @@ async function loadDateSchedules(partnerId,containerId){
         const d=r.ok?await r.json():{schedules:[]};
         const schedules=d.schedules||[];
         let html=`<div style="margin-top:8px">`;
-        html+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><span style="font-size:14px;font-weight:600;color:var(--lavender)">&#128197; Scheduled Dates</span><button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="showDateScheduleForm('${partnerId}','${containerId}')">+ Schedule</button></div>`;
+        html+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><span style="font-size:14px;font-weight:600;color:var(--lavender)">&#128197; Scheduled Dates</span><div style="display:flex;gap:6px"><button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="createCalendarFeed('${partnerId}','${containerId}')">Share calendar</button><button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="showDateScheduleForm('${partnerId}','${containerId}')">+ Schedule</button></div></div>`;
+        html+=`<div id="calendar-feed-${containerId}"></div>`;
         if(!schedules.length){html+='<div style="color:var(--overlay0);font-size:13px">No dates scheduled yet.</div>';}
         else{
             schedules.forEach(s=>{
-                const dt=[s.date,s.time].filter(Boolean).join(' at ');
+                const dt=[s.date_date||s.date,s.date_time||s.time].filter(Boolean).join(' at ');
                 html+=`<div class="date-sched-card">
-                    <div class="dsc-header"><span class="dsc-title">${escHtml(s.venue||'Date')}</span><a class="ics-btn" href="${API}/api/date-schedule/${s.id}/ics" download>&#128197; Export .ics</a></div>
+                    <div class="dsc-header"><span class="dsc-title">${escHtml(s.venue||'Date')}</span><button class="ics-btn" onclick="downloadDateIcs('${s.id}')">&#128197; Export .ics</button></div>
                     ${dt?`<div class="dsc-meta">&#128336; ${escHtml(dt)}</div>`:''}
+                    ${s.status?`<div class="dsc-meta">Status: ${escHtml(s.status)}</div>`:''}
                     ${s.notes?`<div class="dsc-notes">${escHtml(s.notes)}</div>`:''}
                 </div>`;
             });
@@ -5530,6 +5532,32 @@ async function loadDateSchedules(partnerId,containerId){
         html+=`</div>`;
         el.innerHTML=html;
     }catch(e){if(el)el.innerHTML='';}
+}
+async function createCalendarFeed(partnerId,containerId){
+    const el=document.getElementById('calendar-feed-'+containerId);
+    try{
+        const r=await authFetch(API+'/api/calendar-feeds/'+partnerId,{method:'POST',headers:authHeaders()});
+        const d=await r.json();
+        if(!r.ok){toast(d.detail||'Could not create calendar feed','error');return;}
+        if(el)el.innerHTML=`<div style="margin:8px 0;padding:10px;background:var(--surface0);border-radius:8px"><div style="font-size:12px;color:var(--subtext0);margin-bottom:5px">Calendar subscription URL <span style="color:var(--overlay0)">(anyone with this URL can view these dates)</span></div><div style="display:flex;gap:6px"><input id="calendar-feed-url-${containerId}" readonly value="${escHtml(d.url)}" style="flex:1;min-width:0;font-size:11px;padding:6px 8px;background:var(--mantle);border:1px solid var(--surface1);color:var(--text);border-radius:5px"><button class="btn btn-secondary" style="font-size:11px;padding:5px 9px" onclick="copyCalendarFeedUrl('${containerId}')">Copy</button></div><div style="font-size:11px;color:var(--overlay0);margin-top:5px">Creating a new URL revokes the previous one.</div></div>`;
+        toast('Calendar subscription URL created','success');
+    }catch(e){toast('Could not create calendar feed','error');}
+}
+async function copyCalendarFeedUrl(containerId){
+    const input=document.getElementById('calendar-feed-url-'+containerId);
+    if(!input)return;
+    try{await navigator.clipboard.writeText(input.value);toast('Calendar URL copied','success');}
+    catch(e){input.focus();input.select();toast('Select and copy the calendar URL','info');}
+}
+async function downloadDateIcs(scheduleId){
+    try{
+        const r=await authFetch(API+'/api/date-schedule/'+scheduleId+'/ics');
+        if(!r.ok){const d=await r.json();toast(d.detail||'Could not export date','error');return;}
+        const blob=await r.blob();
+        const url=URL.createObjectURL(blob);const link=document.createElement('a');
+        link.href=url;link.download='kindred-date-'+scheduleId+'.ics';link.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }catch(e){toast('Could not export date','error');}
 }
 function showDateScheduleForm(partnerId,containerId){
     const formEl=document.getElementById('date-sched-form-'+containerId);

@@ -16,6 +16,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import jwt
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks, Body
@@ -29,7 +30,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from app.config import (
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS,
@@ -47,6 +48,7 @@ from app.config import (
     STRIPE_ENABLED, STRIPE_PUBLISHABLE_KEY, EVENT_PAYMENT_HOLD_MINUTES,
 )
 from app.logging_config import setup_logging, get_logger
+from app.calendar_feed import render_calendar
 from app.content_filter import check_content, filter_message
 from app.harassment import HarassmentDecision, analyze_message, decide
 from app.job_queue import QueueConfigurationError, job_queue
@@ -144,6 +146,8 @@ from app.database import (
     get_report_cooling_off_ids, is_report_cooling_off,
     create_icebreaker_game, get_icebreaker_game, submit_game_turn, get_games_for_pair,
     create_date_schedule, get_date_schedules, get_date_schedule, update_date_schedule_status,
+    are_matched, create_calendar_feed, get_calendar_feed_by_token,
+    get_calendar_feed_for_pair, revoke_calendar_feed,
     create_blind_date, get_active_blind_dates, reveal_blind_dates,
     pass_profile, get_passed_profiles, reconsider_profile,
     save_thread_reply, get_reply_context,
@@ -245,7 +249,10 @@ async def request_logging_middleware(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         try:
             from app.database import log_request
-            log_request(request_id, request.method, request.url.path,
+            logged_path = request.url.path
+            if logged_path.startswith("/api/calendar/"):
+                logged_path = "/api/calendar/{token}.ics"
+            log_request(request_id, request.method, logged_path,
                        response.status_code, round(duration_ms, 2),
                        ip_address=request.client.host if request.client else None)
         except Exception:
@@ -3685,11 +3692,104 @@ def get_pair_games(partner_id: str, user: dict = Depends(require_user)):
 # Date Scheduling
 # ---------------------------------------------------------------------------
 
+def _require_calendar_pair(partner_id: str, user: dict) -> str:
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    if profile_id == partner_id or not get_profile(partner_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    _ensure_pair_not_cooling_off(profile_id, partner_id)
+    if is_blocked_either(profile_id, partner_id):
+        raise HTTPException(status_code=404, detail="Profiles not available")
+    if not are_matched(profile_id, partner_id):
+        raise HTTPException(status_code=403, detail="Shared calendars require a mutual match")
+    return profile_id
+
+
+def _external_calendar_url(request: Request, token: str) -> str:
+    """Build a public feed URL when the app is behind the Caddy proxy."""
+    generated = str(request.url_for("calendar_feed_ics", token=token))
+    headers = getattr(request, "headers", {})
+    forwarded_proto = headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    forwarded_host = headers.get("x-forwarded-host", "").split(",")[0].strip()
+    if not forwarded_proto and not forwarded_host:
+        return generated
+    parsed = urlsplit(generated)
+    return urlunsplit((
+        forwarded_proto or parsed.scheme,
+        forwarded_host or parsed.netloc,
+        parsed.path,
+        parsed.query,
+        parsed.fragment,
+    ))
+
+
+@app.get("/api/calendar-feeds/{partner_id}")
+def calendar_feed_status(partner_id: str, user: dict = Depends(require_user)):
+    profile_id = _require_calendar_pair(partner_id, user)
+    feed = get_calendar_feed_for_pair(profile_id, partner_id)
+    return {
+        "active": bool(feed and not feed.get("revoked_at")),
+        "created_at": feed.get("created_at") if feed else None,
+    }
+
+
+@app.post("/api/calendar-feeds/{partner_id}")
+def create_shared_calendar_feed_endpoint(
+    partner_id: str,
+    request: Request,
+    user: dict = Depends(require_user),
+):
+    profile_id = _require_calendar_pair(partner_id, user)
+    feed = create_calendar_feed(profile_id, partner_id, profile_id)
+    feed_url = _external_calendar_url(request, feed["token"])
+    return {
+        "id": feed["id"],
+        "url": feed_url,
+        "created_at": feed["created_at"],
+        "message": "Calendar subscription URL created; generating a new URL revokes the previous one",
+    }
+
+
+@app.delete("/api/calendar-feeds/{partner_id}")
+def revoke_shared_calendar_feed(partner_id: str, user: dict = Depends(require_user)):
+    profile_id = _require_calendar_pair(partner_id, user)
+    revoke_calendar_feed(profile_id, partner_id)
+    return {"active": False, "message": "Calendar subscription revoked"}
+
+
+@app.get("/api/calendar/{token}.ics", name="calendar_feed_ics")
+def calendar_feed_ics(token: str):
+    feed = get_calendar_feed_by_token(token)
+    if not feed:
+        raise HTTPException(status_code=404, detail="Calendar feed not found")
+    if (
+        is_blocked_either(feed["profile_a"], feed["profile_b"])
+        or not are_matched(feed["profile_a"], feed["profile_b"])
+        or is_report_cooling_off(feed["profile_a"], feed["profile_b"])
+        or is_report_cooling_off(feed["profile_b"], feed["profile_a"])
+    ):
+        raise HTTPException(status_code=404, detail="Calendar feed not found")
+    schedules = get_date_schedules(feed["profile_a"], feed["profile_b"])
+    return Response(
+        content=render_calendar(schedules),
+        media_type="text/calendar",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": "inline; filename=kindred-shared-calendar.ics",
+        },
+    )
+
 @app.post("/api/date-schedule")
 def schedule_date(body: DateScheduleCreate, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id", "")
     if not profile_id:
         raise HTTPException(status_code=400, detail="No profile")
+    if profile_id == body.partner_id or not get_profile(body.partner_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    _ensure_pair_not_cooling_off(profile_id, body.partner_id)
+    if is_blocked_either(profile_id, body.partner_id):
+        raise HTTPException(status_code=404, detail="Profiles not available")
     result = create_date_schedule(profile_id, body.partner_id, profile_id,
                                    body.date, body.time, body.venue, body.notes)
     return result
@@ -3698,6 +3798,13 @@ def schedule_date(body: DateScheduleCreate, user: dict = Depends(require_user)):
 @app.get("/api/date-schedule/{partner_id}")
 def get_dates_with_partner(partner_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    if profile_id == partner_id or not get_profile(partner_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    _ensure_pair_not_cooling_off(profile_id, partner_id)
+    if is_blocked_either(profile_id, partner_id):
+        raise HTTPException(status_code=404, detail="Profiles not available")
     return {"schedules": get_date_schedules(profile_id, partner_id)}
 
 
@@ -3705,6 +3812,15 @@ def get_dates_with_partner(partner_id: str, user: dict = Depends(require_user)):
 def update_schedule_status(schedule_id: str, body: DatePlanUpdate, user: dict = Depends(require_user)):
     if body.status not in ("accepted", "declined", "cancelled", "completed"):
         raise HTTPException(status_code=400, detail="Invalid status")
+    schedule = get_date_schedule(schedule_id)
+    profile_id = user.get("profile_id", "")
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    if profile_id not in {schedule["profile_a"], schedule["profile_b"]}:
+        raise HTTPException(status_code=403, detail="Not a participant in this date")
+    _ensure_pair_not_cooling_off(schedule["profile_a"], schedule["profile_b"])
+    if is_blocked_either(schedule["profile_a"], schedule["profile_b"]):
+        raise HTTPException(status_code=404, detail="Profiles not available")
     update_date_schedule_status(schedule_id, body.status)
     return {"message": "Status updated"}
 
@@ -3714,19 +3830,13 @@ def export_date_ics(schedule_id: str, user: dict = Depends(require_user)):
     ds = get_date_schedule(schedule_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    def _ics_escape(val):
-        return (val or "").replace("\\", "\\\\").replace("\n", "\\n").replace(",", "\\,").replace(";", "\\;")
-    ics = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Kindred//Date//EN
-BEGIN:VEVENT
-DTSTART:{ds['date_date'].replace('-', '')}T{(ds.get('date_time') or '19:00').replace(':', '')}00
-SUMMARY:Kindred Date
-LOCATION:{_ics_escape(ds.get('venue', ''))}
-DESCRIPTION:{_ics_escape(ds.get('notes', ''))}
-END:VEVENT
-END:VCALENDAR"""
-    from starlette.responses import Response
+    profile_id = user.get("profile_id", "")
+    if profile_id not in {ds["profile_a"], ds["profile_b"]}:
+        raise HTTPException(status_code=403, detail="Not a participant in this date")
+    _ensure_pair_not_cooling_off(ds["profile_a"], ds["profile_b"])
+    if is_blocked_either(ds["profile_a"], ds["profile_b"]):
+        raise HTTPException(status_code=404, detail="Profiles not available")
+    ics = render_calendar([ds], calendar_name="Kindred Date")
     return Response(content=ics, media_type="text/calendar",
                     headers={"Content-Disposition": f"attachment; filename=kindred-date-{schedule_id}.ics"})
 

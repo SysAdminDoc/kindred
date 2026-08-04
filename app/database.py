@@ -14,6 +14,7 @@ user sessions, user locations, recovery codes.
 import hashlib
 import json
 import math
+import secrets
 import sqlite3
 import threading
 import uuid
@@ -736,6 +737,23 @@ def init_db():
             FOREIGN KEY (profile_a) REFERENCES profiles(id) ON DELETE CASCADE,
             FOREIGN KEY (profile_b) REFERENCES profiles(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS calendar_feeds (
+            id TEXT PRIMARY KEY,
+            profile_a TEXT NOT NULL,
+            profile_b TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            revoked_at TIMESTAMP,
+            last_accessed_at TIMESTAMP,
+            UNIQUE(profile_a, profile_b),
+            FOREIGN KEY (profile_a) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_b) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_calendar_feeds_token
+            ON calendar_feeds(token_hash, revoked_at);
 
         CREATE TABLE IF NOT EXISTS blind_dates (
             id TEXT PRIMARY KEY,
@@ -4693,6 +4711,8 @@ def delete_account(user_id: str) -> bool:
                 ("passed_profiles", "profile_id"), ("passed_profiles", "passed_id"),
                 ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),
                 ("date_schedules", "profile_a"), ("date_schedules", "profile_b"),
+                ("calendar_feeds", "profile_a"), ("calendar_feeds", "profile_b"),
+                ("calendar_feeds", "created_by"),
                 ("date_feedback", "profile_id"), ("date_feedback", "partner_id"),
                 ("weight_learning_events", "profile_id"),
                 ("weight_learning_events", "partner_id"),
@@ -4895,6 +4915,108 @@ def get_date_schedules(profile_a: str, profile_b: str) -> list[dict]:
         ORDER BY date_date DESC
     """, (profile_a, profile_b, profile_b, profile_a)).fetchall()
     return [dict(r) for r in rows]
+
+
+def are_matched(profile_a: str, profile_b: str) -> bool:
+    """Return whether both profiles currently like each other."""
+    if not profile_a or not profile_b or profile_a == profile_b:
+        return False
+    conn = get_db()
+    row = conn.execute(
+        """SELECT 1
+           FROM likes outbound
+           JOIN likes inbound
+             ON inbound.from_id=outbound.target_id
+            AND inbound.target_id=outbound.from_id
+            AND inbound.target_type='profile'
+           WHERE outbound.from_id=?
+             AND outbound.target_id=?
+             AND outbound.target_type='profile'
+           LIMIT 1""",
+        (profile_a, profile_b),
+    ).fetchone()
+    return row is not None
+
+
+def _canonical_profile_pair(profile_a: str, profile_b: str) -> tuple[str, str]:
+    if not profile_a or not profile_b or profile_a == profile_b:
+        raise ValueError("Calendar feeds require two different profiles")
+    return (profile_a, profile_b) if profile_a < profile_b else (profile_b, profile_a)
+
+
+def create_calendar_feed(profile_a: str, profile_b: str, created_by: str) -> dict:
+    """Rotate and return a bearer token for a shared match calendar."""
+    profile_a, profile_b = _canonical_profile_pair(profile_a, profile_b)
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = get_db()
+    feed_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO calendar_feeds
+           (id, profile_a, profile_b, token_hash, created_by, created_at,
+            revoked_at, last_accessed_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'), NULL, NULL)
+           ON CONFLICT(profile_a, profile_b) DO UPDATE SET
+             token_hash=excluded.token_hash,
+             created_by=excluded.created_by,
+             created_at=excluded.created_at,
+             revoked_at=NULL,
+             last_accessed_at=NULL""",
+        (feed_id, profile_a, profile_b, token_hash, created_by),
+    )
+    row = conn.execute(
+        """SELECT id, profile_a, profile_b, created_by, created_at
+           FROM calendar_feeds WHERE profile_a=? AND profile_b=?""",
+        (profile_a, profile_b),
+    ).fetchone()
+    conn.commit()
+    return {**dict(row), "token": token}
+
+
+def get_calendar_feed_by_token(token: str) -> dict | None:
+    """Resolve an active feed token without storing or returning the raw token."""
+    if not token or len(token) > 256:
+        return None
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = get_db()
+    row = conn.execute(
+        """SELECT id, profile_a, profile_b, created_by, created_at
+           FROM calendar_feeds
+           WHERE token_hash=? AND revoked_at IS NULL""",
+        (token_hash,),
+    ).fetchone()
+    if not row:
+        return None
+    conn.execute(
+        "UPDATE calendar_feeds SET last_accessed_at=datetime('now') WHERE id=?",
+        (row["id"],),
+    )
+    conn.commit()
+    return dict(row)
+
+
+def get_calendar_feed_for_pair(profile_a: str, profile_b: str) -> dict | None:
+    profile_a, profile_b = _canonical_profile_pair(profile_a, profile_b)
+    conn = get_db()
+    row = conn.execute(
+        """SELECT id, profile_a, profile_b, created_by, created_at,
+                  revoked_at, last_accessed_at
+           FROM calendar_feeds WHERE profile_a=? AND profile_b=?""",
+        (profile_a, profile_b),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def revoke_calendar_feed(profile_a: str, profile_b: str) -> bool:
+    profile_a, profile_b = _canonical_profile_pair(profile_a, profile_b)
+    conn = get_db()
+    cursor = conn.execute(
+        """UPDATE calendar_feeds SET revoked_at=datetime('now')
+           WHERE profile_a=? AND profile_b=? AND revoked_at IS NULL""",
+        (profile_a, profile_b),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def get_date_schedule(ds_id: str) -> dict | None:

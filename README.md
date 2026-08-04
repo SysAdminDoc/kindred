@@ -76,6 +76,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Image cropping before upload (Canvas API)
 - Icebreaker games (Word Association, Would You Rather, 20 Questions)
 - Date scheduling with ICS calendar export
+- Shared match calendars with revocable, tokenized ICS subscription URLs
 - Blind date mode (48h no-photo/name, then reveal)
 - Second look (review passed profiles)
 - Threaded replies (quote-reply in conversations)
@@ -425,6 +426,13 @@ to the browser. Stripe webhook signatures are verified before an RSVP changes
 from pending to paid, and unfinished attempts reserve a seat only for the
 configured hold window. The host is automatically marked as attending without
 being charged.
+
+Matched pairs can also create a shared calendar subscription from the date
+scheduling panel. The URL is a revocable bearer credential stored only as a
+hash; it includes both proposed and confirmed dates, reflects cancellations,
+and stops serving as soon as the pair is blocked, reported, or no longer
+mutually matched. The one-off `.ics` export remains authenticated to the date
+participants.
 
 Selfie verification now captures twelve camera frames in the user portal and
 posts them as a short ordered sequence to `/api/verify/selfie/{profile_id}`.
