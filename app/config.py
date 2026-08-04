@@ -225,6 +225,14 @@ SAFETY_CHECKIN_DEFAULT_MINUTES = int(os.getenv("KINDRED_SAFETY_CHECKIN_MINUTES",
 # --- Database Vacuum ---
 VACUUM_INTERVAL_HOURS = int(os.getenv("KINDRED_VACUUM_INTERVAL_HOURS", "168"))
 
+# --- Privacy retention ---
+INACTIVE_ACCOUNT_HARD_DELETE_MONTHS = int(
+    os.getenv("KINDRED_INACTIVE_ACCOUNT_HARD_DELETE_MONTHS", "24")
+)
+PRIVACY_RETENTION_INTERVAL_HOURS = int(
+    os.getenv("KINDRED_PRIVACY_RETENTION_INTERVAL_HOURS", "24")
+)
+
 # --- Webhooks ---
 WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "true"
 
@@ -232,4 +240,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18

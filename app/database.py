@@ -435,6 +435,34 @@ def init_db():
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS privacy_field_tags (
+            table_name TEXT NOT NULL,
+            column_name TEXT NOT NULL,
+            classification TEXT NOT NULL,
+            is_pii INTEGER NOT NULL DEFAULT 0,
+            retention_strategy TEXT NOT NULL,
+            subject_scope TEXT NOT NULL DEFAULT 'none',
+            notes TEXT,
+            PRIMARY KEY(table_name, column_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS privacy_table_policies (
+            table_name TEXT PRIMARY KEY,
+            retention_days INTEGER,
+            timestamp_column TEXT,
+            automatic_cleanup INTEGER NOT NULL DEFAULT 0,
+            deletion_strategy TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS privacy_cleanup_runs (
+            run_key TEXT PRIMARY KEY,
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            deleted_accounts INTEGER DEFAULT 0,
+            pruned_rows INTEGER DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS refresh_tokens (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -1278,6 +1306,8 @@ def init_db():
 
     # Migration: add columns that may not exist in older databases
     _migrate(conn)
+    from app.privacy import ensure_privacy_metadata
+    ensure_privacy_metadata(conn)
 
     # Track schema version
     current = conn.execute("SELECT MAX(version) FROM schema_versions").fetchone()[0] or 0
@@ -1582,7 +1612,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 def send_message(from_id: str, to_id: str, content: str, photo: str = "") -> str:
     conn = get_db()
     msg_id = uuid.uuid4().hex
-    cursor = conn.execute(
+    conn.execute(
         "INSERT INTO messages (id, from_id, to_id, content, photo) VALUES (?,?,?,?,?)",
         (msg_id, from_id, to_id, content, photo or None)
     )
@@ -4787,6 +4817,25 @@ def delete_account(user_id: str) -> bool:
     try:
         profile_id = user["profile_id"]
         if profile_id:
+            # The original deletion list predates several feature tables that
+            # do not declare foreign keys.  Keep the explicit list below for
+            # compatibility, but also purge every account-linked legacy row
+            # from the privacy inventory before deleting the profile.
+            from app.privacy import PROFILE_PURGE_COLUMNS
+            for table, column in PROFILE_PURGE_COLUMNS:
+                try:
+                    if table == "likes" and column == "target_id":
+                        conn.execute(
+                            "DELETE FROM likes WHERE target_type='profile' AND target_id=?",
+                            (profile_id,),
+                        )
+                    else:
+                        conn.execute(
+                            f"DELETE FROM {table} WHERE {column}=?",
+                            (profile_id,),
+                        )
+                except sqlite3.OperationalError:
+                    pass
             tables_with_profile = [
                 ("messages", "from_id"), ("messages", "to_id"),
                 ("profile_blog_posts", "profile_id"),
@@ -4840,6 +4889,15 @@ def delete_account(user_id: str) -> bool:
                 except sqlite3.OperationalError:
                     pass
             conn.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+        from app.privacy import USER_PURGE_COLUMNS
+        for table, column in USER_PURGE_COLUMNS:
+            try:
+                conn.execute(
+                    f"DELETE FROM {table} WHERE {column}=?",
+                    (user_id,),
+                )
+            except sqlite3.OperationalError:
+                pass
         user_tables = [
             "notifications", "notification_preferences", "refresh_tokens",
             "email_verifications", "totp_secrets", "push_subscriptions",
@@ -7359,6 +7417,25 @@ def get_inactive_users(days: int = 7) -> list[dict]:
           AND (u.last_email_digest IS NULL OR u.last_email_digest < datetime('now', '-3 days'))
     """, (days, days, days)).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_inactive_accounts_for_hard_delete(months: int = 24) -> list[dict]:
+    """Return only deactivated accounts past the hard-delete retention window."""
+
+    conn = get_db()
+    retention_months = max(1, int(months))
+    rows = conn.execute(
+        """SELECT u.id AS user_id, u.profile_id,
+                  COALESCE(NULLIF(p.last_active, ''), u.created_at) AS inactive_since
+           FROM users u
+           LEFT JOIN profiles p ON p.id=u.profile_id
+           WHERE (u.deactivated=1 OR COALESCE(p.deactivated, 0)=1)
+             AND COALESCE(NULLIF(p.last_active, ''), u.created_at)
+                 < datetime('now', ? || ' months')
+           ORDER BY inactive_since ASC""",
+        (f"-{retention_months}",),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def log_retention_email(user_id: str, email_type: str):

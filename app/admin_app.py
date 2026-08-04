@@ -36,6 +36,12 @@ from app.object_storage import (
 from app.photo_safety import photo_safety
 from app.selfie_liveness import selfie_liveness
 from app.transcription import transcription_service
+from app.privacy import (
+    get_privacy_audit,
+    get_privacy_field_tags,
+    get_privacy_retention_policies,
+    run_scheduled_privacy_cleanup,
+)
 from app.database import (
     init_db, get_profile, get_all_profiles, delete_profile, get_profile_media_keys,
     get_conversation_count,
@@ -1037,6 +1043,20 @@ async def admin_batch_msg(req: BatchMessageRequest, admin=Depends(require_admin)
 @admin_app.get("/api/admin/retention-cohorts")
 async def admin_retention(weeks: int = 8, admin=Depends(require_admin)):
     return get_retention_cohorts(weeks)
+
+
+@admin_app.get("/api/admin/privacy/audit")
+def admin_privacy_audit(admin: dict = Depends(require_admin)):
+    return {
+        "audit": get_privacy_audit(),
+        "fields": get_privacy_field_tags(),
+        "retention_policies": get_privacy_retention_policies(),
+    }
+
+
+@admin_app.post("/api/admin/privacy/retention/run")
+def admin_run_privacy_retention(admin: dict = Depends(require_admin)):
+    return run_scheduled_privacy_cleanup()
 
 @admin_app.get("/api/admin/funnel")
 async def admin_funnel(admin=Depends(require_admin)):

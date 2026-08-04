@@ -79,6 +79,11 @@ from app.transcription import (
     transcribe_and_store,
     transcription_service,
 )
+from app.privacy import (
+    run_scheduled_privacy_cleanup,
+    start_privacy_scheduler,
+    stop_privacy_scheduler,
+)
 from app.redis_backend import redis_sessions
 from app.database import (
     init_db, save_profile, get_profile, get_all_profiles,
@@ -814,6 +819,11 @@ async def startup():
     app.state.selfie_liveness_backend = selfie_liveness.initialize()
     app.state.transcription_backend = transcription_service.initialize()
     init_db()
+    try:
+        run_scheduled_privacy_cleanup()
+    except Exception:
+        log.exception("Initial privacy retention cleanup failed")
+    start_privacy_scheduler()
     from app.i18n import init_i18n
     init_i18n()
     from app.backup import start_backup_scheduler
@@ -827,6 +837,7 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    stop_privacy_scheduler()
     selfie_liveness.close()
     await ws_manager.stop()
 
@@ -3636,7 +3647,9 @@ def delete_user_account(body: AccountDeleteConfirm, user: dict = Depends(require
         _delete_media(media_key)
     if redis_sessions.enabled:
         redis_sessions.revoke_all_sessions(user["id"])
-    log_analytics_event("account_deleted", user.get("profile_id"))
+    # Do not create a new analytics row containing the identifier that was
+    # just deleted. Aggregate the event without a profile subject instead.
+    log_analytics_event("account_deleted", None)
     return {"message": "Account deleted"}
 
 

@@ -340,6 +340,8 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_TRANSCRIPTION_API_KEY` | empty | Optional bearer token for the configured transcription endpoint |
 | `KINDRED_TRANSCRIPTION_MODEL` | `whisper-1` | Model name sent to the transcription endpoint |
 | `KINDRED_TRANSCRIPTION_TIMEOUT_SECONDS` | `120` | Per-audio transcription request timeout |
+| `KINDRED_INACTIVE_ACCOUNT_HARD_DELETE_MONTHS` | `24` | Months after deactivation before scheduled hard deletion |
+| `KINDRED_PRIVACY_RETENTION_INTERVAL_HOURS` | `24` | Scheduler interval for retention cleanup and inactive-account deletion |
 | `KINDRED_MAX_UPLOAD_MB` | `30` | Max file upload size |
 | `KINDRED_OBJECT_STORAGE_ENDPOINT` | empty | S3-compatible endpoint; leave unset for local `uploads/` storage |
 | `KINDRED_OBJECT_STORAGE_BUCKET` | empty | Remote media bucket; supplying it enables S3-compatible storage |
@@ -400,6 +402,12 @@ Whisper-compatible service works as well). Transcripts are generated in the
 dedicated `kindred-transcription` worker queue when Redis/Dramatiq is enabled;
 local development falls back to inline processing and exposes a pending or
 unavailable state in the conversation UI.
+
+The privacy audit records a classification and retention strategy for every
+schema field and table. Administrators can inspect coverage at
+`/api/admin/privacy/audit`. Deactivated accounts are hard-deleted after
+`KINDRED_INACTIVE_ACCOUNT_HARD_DELETE_MONTHS`; the scheduled purge also removes
+unlinked OAuth, analytics, request-log, and media records for the account.
 
 When object storage is configured, the API stores new media under the
 configured bucket and serves it through the existing `/uploads/{key}` contract;
