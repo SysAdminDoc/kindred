@@ -65,7 +65,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Profile prompts (Hinge-style "Two truths and a lie", "My ideal Sunday", etc.)
 - Profile themes (Cosmic, Forest, Sunset, Ocean, Aurora)
 - Status updates and activity feed
-- Groups and events with RSVP + calendar view + Leaflet map view
+- Groups and events with RSVP + calendar view + local meetup discovery with a Leaflet heatmap
 - Optional ticketed event RSVPs with Stripe PaymentIntents, idempotent payment records, and signed webhook confirmation
 - Profile boost (premium visibility boost with countdown timer)
 - Video intros and music preferences with cross-user compatibility scoring

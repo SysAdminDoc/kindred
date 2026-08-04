@@ -101,6 +101,7 @@ from app.database import (
     join_group, leave_group, is_group_member, get_group_members,
     create_group_post, get_group_posts, delete_group_post,
     create_event, get_event, get_all_events, rsvp_event,
+    get_events_nearby,
     get_event_rsvps, get_event_rsvp, get_event_attendee_count,
     get_my_events, update_event_rsvp_payment,
     get_or_create_game, answer_game, get_game_history, get_game_score,
@@ -2272,6 +2273,8 @@ class EventCreate(BaseModel):
     max_attendees: int = 0
     ticket_price_cents: int = 0
     ticket_currency: str = "usd"
+    latitude: float | None = None
+    longitude: float | None = None
 
 class EventRSVP(BaseModel):
     status: str = "going"
@@ -2295,11 +2298,17 @@ def create_event_endpoint(body: EventCreate, user: dict = Depends(require_user))
             raise HTTPException(status_code=400, detail="Paid tickets must be at least 50 cents")
         if not STRIPE_ENABLED or not stripe_gateway.ready:
             raise HTTPException(status_code=503, detail="Paid events are not configured")
+    if (body.latitude is None) != (body.longitude is None):
+        raise HTTPException(status_code=400, detail="Latitude and longitude must be supplied together")
+    if body.latitude is not None and not -90 <= body.latitude <= 90:
+        raise HTTPException(status_code=400, detail="Latitude must be between -90 and 90")
+    if body.longitude is not None and not -180 <= body.longitude <= 180:
+        raise HTTPException(status_code=400, detail="Longitude must be between -180 and 180")
     eid = create_event(
         body.title.strip(), body.description.strip(), user["profile_id"],
         body.location.strip(), body.event_date, body.event_time,
         body.group_id, body.max_attendees, body.ticket_price_cents,
-        ticket_currency,
+        ticket_currency, body.latitude, body.longitude,
     )
     log_activity(user["profile_id"], "created_event", "event", eid, body.title.strip())
     return {"id": eid, "message": "Event created"}
@@ -2308,6 +2317,33 @@ def create_event_endpoint(body: EventCreate, user: dict = Depends(require_user))
 @app.get("/api/events")
 def list_events():
     return {"events": get_all_events()}
+
+
+@app.get("/api/events/local")
+def list_local_events(radius_km: int = 100, user: dict = Depends(require_user)):
+    if radius_km < 1 or radius_km > 500:
+        raise HTTPException(status_code=400, detail="Radius must be between 1 and 500 km")
+    location = get_user_location(user["id"])
+    if not location or not location.get("enabled"):
+        return {
+            "events": [],
+            "location_enabled": False,
+            "message": "Enable your saved location to discover nearby meetups",
+        }
+    latitude = location.get("latitude")
+    longitude = location.get("longitude")
+    if latitude is None or longitude is None:
+        return {
+            "events": [],
+            "location_enabled": False,
+            "message": "Save a latitude and longitude to discover nearby meetups",
+        }
+    return {
+        "events": get_events_nearby(float(latitude), float(longitude), radius_km),
+        "location_enabled": True,
+        "radius_km": radius_km,
+        "center": {"latitude": latitude, "longitude": longitude},
+    }
 
 
 @app.get("/api/events/mine")

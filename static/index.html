@@ -3708,6 +3708,7 @@ async function renderEvents(){
     const app=document.getElementById('app');
     app.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div><h2>Events</h2><p class="subtitle">Find and create meetups</p></div><div style="display:flex;gap:8px;align-items:center"><div class="view-toggle"><button onclick="showView('events')">List</button><button onclick="showView('calendar')">Calendar</button></div><button id="events-map-toggle-btn" class="map-toggle-btn" onclick="toggleEventsMapView(this,window._cachedEvents||[])" title="Toggle map view">&#128205; Map</button><button class="btn btn-primary" onclick="showCreateEventForm()" style="padding:8px 16px;font-size:13px">Create Event</button></div></div><div id="create-event-area"></div>
     <div id="events-map-container" style="display:none"></div>
+    <h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">Nearby Meetups</h3><div id="nearby-events"><div class="skeleton skeleton-card"></div></div>
     <h3 style="font-size:14px;color:var(--subtext1);margin-bottom:10px">My Events</h3><div id="my-events"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
     <h3 style="font-size:14px;color:var(--subtext1);margin:16px 0 10px">Upcoming Events</h3><div id="all-events"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>`;
     loadEvents();
@@ -3715,10 +3716,17 @@ async function renderEvents(){
 
 async function loadEvents(){
     try{
-        const [mr,ar]=await Promise.all([authFetch(API+'/api/events/mine'),authFetch(API+'/api/events')]);
+        const [mr,ar,lr]=await Promise.all([authFetch(API+'/api/events/mine'),authFetch(API+'/api/events'),authFetch(API+'/api/events/local?radius_km=100')]);
         const myD=await mr.json(),allD=await ar.json();
+        const localD=lr.ok?await lr.json():{events:[],location_enabled:false,message:'Nearby meetups are unavailable'};
         const myEl=document.getElementById('my-events');
         const allEl=document.getElementById('all-events');
+        const nearbyEl=document.getElementById('nearby-events');
+        if(nearbyEl){
+            if(!localD.location_enabled){nearbyEl.innerHTML=`<div style="color:var(--overlay0);font-size:13px">${escHtml(localD.message||'Enable your saved location to discover nearby meetups.')}</div>`;}
+            else if(!localD.events?.length){nearbyEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No geotagged meetups within 100 km yet.</div>';}
+            else{nearbyEl.innerHTML='<div class="event-grid">'+localD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.distance_km} km away &bull; ${e.attendee_count||0} attending${e.ticket_price_cents?` &bull; ${ticketPriceLabel(e.ticket_price_cents,e.ticket_currency)}`:''}</div></div>`).join('')+'</div>';staggerListItems(nearbyEl);}
+        }
         if(myEl){
             if(myD.events.length){myEl.innerHTML='<div class="event-grid">'+myD.events.map((e,i)=>`<div class="event-card" style="animation-delay:${i*.04}s" onclick="viewEvent('${e.id}')"><h3>${escHtml(e.title)}</h3>${e.event_date?`<div class="ec-date">${e.event_date}${e.event_time?' at '+e.event_time:''}</div>`:''}<div class="ec-loc">${escHtml(e.location||'No location set')}</div><div class="ec-meta">${e.attendee_count||0} attending &bull; ${e.my_status||'going'}${e.ticket_price_cents?` &bull; ${ticketPriceLabel(e.ticket_price_cents,e.ticket_currency)}`:''}</div></div>`).join('')+'</div>';staggerListItems(myEl);}
             else myEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No events yet</div>';
@@ -3728,20 +3736,23 @@ async function loadEvents(){
             else allEl.innerHTML='<div style="color:var(--overlay0);font-size:13px">No upcoming events. Create the first one!</div>';
         }
         // Cache all events for map view
-        const allEvents=[...(myD.events||[]),...(allD.events||[])];
-        window._cachedEvents=allEvents;
+        window._cachedEvents=localD.location_enabled?(localD.events||[]):[];
+        window._eventsMapCenter=localD.center?[localD.center.latitude,localD.center.longitude]:null;
+        window._eventMapMessage=localD.message||'No nearby geotagged meetups are available.';
         // If map is currently shown, refresh it
         const mapContainer=document.getElementById('events-map-container');
-        if(mapContainer&&mapContainer.style.display!=='none'&&allEvents.length){showEventsMapView(allEvents);}
+        if(mapContainer&&mapContainer.style.display!=='none'){showEventsMapView(window._cachedEvents);}
     }catch(e){}
 }
 
+let _pendingEventCoordinates=null;
 function showCreateEventForm(){
     const el=document.getElementById('create-event-area');if(!el)return;
+    _pendingEventCoordinates=null;
     el.innerHTML=`<div style="background:var(--mantle);padding:14px;border-radius:8px;margin-bottom:16px">
         <div class="form-group"><label>Event Title</label><input type="text" id="ce-title" placeholder="e.g., Coffee Meetup, Speed Dating Night"></div>
         <div class="form-group"><label>Description</label><textarea id="ce-desc" placeholder="What's happening?" style="min-height:60px"></textarea></div>
-        <div class="form-group"><label>Location</label><input type="text" id="ce-loc" placeholder="Where?"></div>
+        <div class="form-group"><label>Location</label><input type="text" id="ce-loc" placeholder="Where?"><div style="display:flex;align-items:center;gap:8px;margin-top:5px"><button type="button" class="btn btn-secondary" style="font-size:11px;padding:5px 9px" onclick="useSavedEventLocation()">Use saved map location</button><span id="ce-location-status" style="font-size:11px;color:var(--overlay0)">Optional: adds this meetup to nearby discovery</span></div></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="form-group"><label>Date</label><input type="text" id="ce-date" placeholder="e.g., 2026-04-15"></div>
             <div class="form-group"><label>Time</label><input type="text" id="ce-time" placeholder="e.g., 7:00 PM"></div>
@@ -3751,11 +3762,21 @@ function showCreateEventForm(){
         <div class="btn-row"><button class="btn btn-secondary" onclick="document.getElementById('create-event-area').innerHTML=''">Cancel</button><button class="btn btn-primary" onclick="submitCreateEvent()">Create Event</button></div></div>`;
 }
 
+async function useSavedEventLocation(){
+    const status=document.getElementById('ce-location-status');
+    try{
+        const r=await authFetch(API+'/api/settings/location');const location=await r.json();
+        if(!r.ok||!location.enabled||location.latitude==null||location.longitude==null){if(status)status.textContent='Save an enabled location in Settings first';return;}
+        _pendingEventCoordinates={latitude:Number(location.latitude),longitude:Number(location.longitude)};
+        if(status)status.textContent=`Map location set to ${location.city||'your saved location'}`;
+    }catch(e){if(status)status.textContent='Could not load saved location';}
+}
+
 async function submitCreateEvent(){
     const title=document.getElementById('ce-title')?.value?.trim();
     if(!title){toast('Event title required','error');return;}
     const price=Number.parseFloat(document.getElementById('ce-price')?.value)||0;
-    const body={title,description:document.getElementById('ce-desc')?.value?.trim()||'',location:document.getElementById('ce-loc')?.value?.trim()||'',event_date:document.getElementById('ce-date')?.value?.trim()||'',event_time:document.getElementById('ce-time')?.value?.trim()||'',max_attendees:parseInt(document.getElementById('ce-max')?.value)||0,ticket_price_cents:Math.round(price*100),ticket_currency:document.getElementById('ce-currency')?.value?.trim().toLowerCase()||'usd'};
+    const body={title,description:document.getElementById('ce-desc')?.value?.trim()||'',location:document.getElementById('ce-loc')?.value?.trim()||'',event_date:document.getElementById('ce-date')?.value?.trim()||'',event_time:document.getElementById('ce-time')?.value?.trim()||'',max_attendees:parseInt(document.getElementById('ce-max')?.value)||0,ticket_price_cents:Math.round(price*100),ticket_currency:document.getElementById('ce-currency')?.value?.trim().toLowerCase()||'usd',...(_pendingEventCoordinates||{})};
     const response=await authFetch(API+'/api/events',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
     if(!response.ok){const detail=await response.json().catch(()=>({}));toast(detail.detail||'Event creation failed','error');return;}
     toast('Event created!','success');
@@ -7426,20 +7447,31 @@ async function activateBoost(){
 // ─── Phase 8 v2.5.0: Events Map View ───
 // ══════════════════════════════════════════════════════
 let _leafletLoaded=false;
+let _leafletHeatLoaded=false;
 let _eventsMapInstance=null;
 
 async function ensureLeaflet(){
-    if(_leafletLoaded&&window.L)return;
-    await new Promise((resolve,reject)=>{
-        const link=document.createElement('link');
-        link.rel='stylesheet';link.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(link);
-        const script=document.createElement('script');
-        script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload=resolve;script.onerror=reject;
-        document.head.appendChild(script);
-    });
-    _leafletLoaded=true;
+    if(!_leafletLoaded||!window.L){
+        await new Promise((resolve,reject)=>{
+            const link=document.createElement('link');
+            link.rel='stylesheet';link.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            document.head.appendChild(link);
+            const script=document.createElement('script');
+            script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            script.onload=resolve;script.onerror=reject;
+            document.head.appendChild(script);
+        });
+        _leafletLoaded=true;
+    }
+    if(!_leafletHeatLoaded&&window.L&&!window.L.heatLayer){
+        await new Promise((resolve,reject)=>{
+            const script=document.createElement('script');
+            script.src='https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js';
+            script.onload=resolve;script.onerror=reject;
+            document.head.appendChild(script);
+        });
+        _leafletHeatLoaded=typeof window.L.heatLayer==='function';
+    }
 }
 
 async function showEventsMapView(events){
@@ -7449,8 +7481,9 @@ async function showEventsMapView(events){
     try{
         await ensureLeaflet();
         if(_eventsMapInstance){_eventsMapInstance.remove();_eventsMapInstance=null;}
-        let center=[40.7128,-74.0060];
-        if(navigator.geolocation){
+        if(!events.length){container.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:20px;text-align:center;color:var(--overlay0);font-size:13px">${escHtml(window._eventMapMessage||'No nearby geotagged meetups are available.')}</div>`;return;}
+        let center=window._eventsMapCenter||[40.7128,-74.0060];
+        if(!window._eventsMapCenter&&navigator.geolocation){
             await new Promise(res=>{navigator.geolocation.getCurrentPosition(p=>{center=[p.coords.latitude,p.coords.longitude];res();},res,{timeout:3000});});
         }
         const map=window.L.map('events-map-container',{center,zoom:11});
@@ -7458,16 +7491,20 @@ async function showEventsMapView(events){
         window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
             attribution:'&copy; <a href="https://carto.com/">CARTO</a>',maxZoom:19
         }).addTo(map);
+        const points=[];
         // Custom dark marker icon
         const darkIcon=window.L.divIcon({className:'',html:'<div style="width:12px;height:12px;background:var(--mauve);border-radius:50%;border:2px solid var(--lavender);box-shadow:0 0 6px rgba(203,166,247,.6)"></div>',iconSize:[12,12]});
         events.forEach(ev=>{
-            if(!ev.lat&&!ev.lng)return;
-            const lat=parseFloat(ev.lat),lng=parseFloat(ev.lng);
+            const lat=parseFloat(ev.latitude??ev.lat),lng=parseFloat(ev.longitude??ev.lng);
             if(isNaN(lat)||isNaN(lng))return;
+            const intensity=Math.min(1,0.35+Math.log10((Number(ev.attendee_count)||0)+1)*0.3);
+            points.push([lat,lng,intensity]);
             const marker=window.L.marker([lat,lng],{icon:darkIcon}).addTo(map);
             const dateStr=ev.event_date?ev.event_date+(ev.event_time?' at '+ev.event_time:''):'Date TBD';
             marker.bindPopup(`<div class="map-popup-title">${escHtml(ev.title)}</div><div class="map-popup-date">${escHtml(dateStr)}</div><button class="map-popup-rsvp" onclick="rsvpAction('${ev.id}','going');toast('RSVP sent!','success')">RSVP Going</button>`);
         });
+        if(window.L.heatLayer&&points.length){window.L.heatLayer(points,{radius:32,blur:24,maxZoom:15,gradient:{0.25:'#89b4fa',0.55:'#cba6f7',0.8:'#f38ba8',1:'#fab387'}}).addTo(map);}
+        if(!points.length){if(_eventsMapInstance){_eventsMapInstance.remove();_eventsMapInstance=null;}container.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--overlay0);font-size:13px">Nearby events have no map coordinates yet.</div>';}
     }catch(e){
         const c=document.getElementById('events-map-container');
         if(c)c.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--overlay0);font-size:13px">Map unavailable</div>';

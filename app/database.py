@@ -323,6 +323,8 @@ def init_db():
             photo TEXT,
             ticket_price_cents INTEGER DEFAULT 0,
             ticket_currency TEXT DEFAULT 'usd',
+            latitude REAL,
+            longitude REAL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (creator_id) REFERENCES profiles(id) ON DELETE CASCADE,
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
@@ -1361,6 +1363,8 @@ def _migrate(conn):
         "ALTER TABLE profiles ADD COLUMN learned_weight_prefs TEXT",
         "ALTER TABLE events ADD COLUMN ticket_price_cents INTEGER DEFAULT 0",
         "ALTER TABLE events ADD COLUMN ticket_currency TEXT DEFAULT 'usd'",
+        "ALTER TABLE events ADD COLUMN latitude REAL",
+        "ALTER TABLE events ADD COLUMN longitude REAL",
         "ALTER TABLE event_rsvps ADD COLUMN payment_status TEXT DEFAULT 'not_required'",
         "ALTER TABLE event_rsvps ADD COLUMN payment_intent_id TEXT",
         "ALTER TABLE event_rsvps ADD COLUMN amount_cents INTEGER DEFAULT 0",
@@ -2714,17 +2718,18 @@ def create_event(title: str, description: str, creator_id: str,
                  location: str = "", event_date: str = "",
                  event_time: str = "", group_id: str = "",
                  max_attendees: int = 0, ticket_price_cents: int = 0,
-                 ticket_currency: str = "usd") -> str:
+                 ticket_currency: str = "usd", latitude: float | None = None,
+                 longitude: float | None = None) -> str:
     conn = get_db()
     eid = uuid.uuid4().hex
     conn.execute(
         """INSERT INTO events (id, title, description, creator_id, location,
            event_date, event_time, group_id, max_attendees,
-           ticket_price_cents, ticket_currency)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+           ticket_price_cents, ticket_currency, latitude, longitude)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (eid, title, description, creator_id, location or None,
          event_date or None, event_time or None, group_id or None, max_attendees,
-         ticket_price_cents, ticket_currency)
+         ticket_price_cents, ticket_currency, latitude, longitude)
     )
     # Creator auto-RSVPs
     rid = uuid.uuid4().hex
@@ -2761,6 +2766,41 @@ def get_all_events(limit: int = 50) -> list[dict]:
     ).fetchall()
 
     return [dict(r) for r in rows]
+
+
+def get_events_nearby(latitude: float, longitude: float,
+                      radius_km: int = 100, limit: int = 100) -> list[dict]:
+    """Return geotagged events within a radius, nearest first."""
+    radius_km = max(1, min(int(radius_km), 500))
+    events = get_all_events(limit=500)
+    lat_delta = radius_km / 111.0
+    lon_delta = radius_km / (111.0 * max(0.1, abs(math.cos(math.radians(latitude)))))
+    nearby = []
+    for event in events:
+        try:
+            event_lat = float(event["latitude"])
+            event_lon = float(event["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (
+            latitude - lat_delta <= event_lat <= latitude + lat_delta
+            and longitude - lon_delta <= event_lon <= longitude + lon_delta
+        ):
+            continue
+        dlat = math.radians(event_lat - latitude)
+        dlon = math.radians(event_lon - longitude)
+        haversine = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(math.radians(latitude))
+            * math.cos(math.radians(event_lat))
+            * math.sin(dlon / 2) ** 2
+        )
+        distance_km = 6371.0 * 2 * math.asin(min(1.0, math.sqrt(haversine)))
+        if distance_km <= radius_km:
+            event["distance_km"] = round(distance_km, 1)
+            nearby.append(event)
+    nearby.sort(key=lambda event: (event.get("distance_km", 0), event.get("event_date") or "9999-99-99"))
+    return nearby[:limit]
 
 
 def get_event_rsvp(event_id: str, profile_id: str) -> dict | None:
