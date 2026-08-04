@@ -151,7 +151,7 @@ from app.database import (
     set_incognito_mode, is_incognito, set_do_not_sell, get_do_not_sell,
     get_mutual_friends, get_mutual_friend_count,
     search_messages,
-    delete_account, export_user_data, get_profile_media_keys,
+    delete_account, export_user_data, export_schema_org_person, get_profile_media_keys,
     get_expiring_matches,
     get_report_cooling_off_ids, is_report_cooling_off,
     create_icebreaker_game, get_icebreaker_game, submit_game_turn, get_games_for_pair,
@@ -3707,6 +3707,20 @@ def export_data(user: dict = Depends(require_user)):
     if not data:
         raise HTTPException(status_code=404, detail="No data found")
     return data
+
+
+@app.get("/api/account/export/schema-org")
+def export_schema_org_data(user: dict = Depends(require_user)):
+    data = export_schema_org_person(user["id"])
+    if not data:
+        raise HTTPException(status_code=404, detail="No data found")
+    return JSONResponse(
+        content=data,
+        media_type="application/ld+json",
+        headers={
+            "Content-Disposition": 'attachment; filename="kindred-person.jsonld"',
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -4943,6 +4943,8 @@ def delete_account(user_id: str) -> bool:
 
 def export_user_data(user_id: str) -> dict:
     """Export all user data for GDPR compliance."""
+    from datetime import datetime, timezone
+
     conn = get_db()
     user = conn.execute(
         "SELECT id, email, display_name, do_not_sell, created_at FROM users WHERE id=?",
@@ -4950,7 +4952,12 @@ def export_user_data(user_id: str) -> dict:
     ).fetchone()
     if not user:
         return {}
-    data = {"user": dict(user)}
+    data = {
+        "format": "kindred",
+        "schema_version": "1.0",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "user": dict(user),
+    }
     profile_id = conn.execute("SELECT profile_id FROM users WHERE id=?", (user_id,)).fetchone()
     pid = profile_id["profile_id"] if profile_id else None
     if pid:
@@ -4985,6 +4992,83 @@ def export_user_data(user_id: str) -> dict:
     if location:
         data["location_settings"] = dict(location)
     return data
+
+
+def _export_list_values(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            decoded = None
+        if isinstance(decoded, list):
+            return _export_list_values(decoded)
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return [str(value).strip()]
+
+
+def export_schema_org_person(user_id: str) -> dict:
+    """Export the account's profile as portable schema.org JSON-LD."""
+    conn = get_db()
+    user = conn.execute(
+        "SELECT id, email, display_name, profile_id FROM users WHERE id=?",
+        (user_id,),
+    ).fetchone()
+    if not user:
+        return {}
+
+    profile = get_profile(user["profile_id"]) if user["profile_id"] else None
+    profile = profile or {}
+    person: dict = {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "identifier": {
+            "@type": "PropertyValue",
+            "propertyID": "kindredProfileId",
+            "value": profile.get("id") or user["id"],
+        },
+        "name": profile.get("name") or user["display_name"] or "Kindred member",
+        "email": user["email"],
+    }
+
+    if profile.get("gender"):
+        person["gender"] = profile["gender"]
+    if profile.get("about_me"):
+        person["description"] = profile["about_me"]
+    if profile.get("country"):
+        person["nationality"] = {"@type": "Country", "name": profile["country"]}
+
+    interests = _export_list_values(profile.get("interests"))
+    if interests:
+        person["knowsAbout"] = interests
+
+    additional_properties = []
+    for property_name, value in (
+        ("kindredAge", profile.get("age")),
+        ("kindredRelationshipIntent", profile.get("relationship_intent")),
+        ("kindredDatingEnergy", profile.get("dating_energy")),
+        ("kindredDatingPace", profile.get("dating_pace")),
+        ("kindredLoveLanguage", profile.get("love_language")),
+    ):
+        if value not in (None, ""):
+            additional_properties.append({
+                "@type": "PropertyValue",
+                "propertyID": property_name,
+                "value": value,
+            })
+    if profile.get("photo"):
+        additional_properties.append({
+            "@type": "PropertyValue",
+            "propertyID": "kindredPhotoKey",
+            "value": profile["photo"],
+        })
+    if additional_properties:
+        person["additionalProperty"] = additional_properties
+
+    return person
 
 
 # ---------------------------------------------------------------------------

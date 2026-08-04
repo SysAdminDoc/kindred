@@ -417,6 +417,11 @@ own current suspension and appeal state at `/api/explanations/suspension`.
 The equivalent `/api/right-to-explanation/...` paths are provided for clients
 that use the legal terminology directly.
 
+`GET /api/account/export` returns a versioned Kindred JSON export containing
+the account's portable records. `GET /api/account/export/schema-org` returns a
+downloadable JSON-LD `schema.org/Person` profile for importing the identity
+and public profile fields into standards-aware tools.
+
 When object storage is configured, the API stores new media under the
 configured bucket and serves it through the existing `/uploads/{key}` contract;
 the default keeps the bucket private and supports photo, audio, and video byte

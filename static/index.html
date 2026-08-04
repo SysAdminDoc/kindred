@@ -2129,7 +2129,7 @@ async function viewProfilePage(pid,viewer){
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Language</summary>
                 <div style="padding:12px 0"><div class="form-group"><label style="font-size:12px;color:var(--overlay0)">Display Language</label><select id="lang-select" onchange="loadTranslations(this.value);toast('Language updated','success')" style="width:100%"><option value="en">English</option></select></div><p style="color:var(--overlay0);font-size:12px;margin-top:4px">More languages coming soon.</p></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Export My Data</summary>
-                <div class="export-section" style="padding:12px 0"><p style="color:var(--overlay0);font-size:13px;margin-bottom:10px">Download a copy of all your data including profile, matches, and messages (JSON format).</p><button class="btn btn-secondary" id="export-data-btn" onclick="exportMyData()" style="padding:8px 20px;font-size:13px">Export My Data</button></div></details>
+                <div class="export-section" style="padding:12px 0"><p style="color:var(--overlay0);font-size:13px;margin-bottom:10px">Download a copy of all your data including profile, matches, and messages (Kindred JSON format).</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary" id="export-data-btn" onclick="exportMyData()" style="padding:8px 20px;font-size:13px">Export My Data</button><button class="btn btn-secondary" id="export-person-btn" onclick="exportSchemaOrgPerson()" style="padding:8px 20px;font-size:13px">Export schema.org Person</button></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--yellow);font-size:14px;padding:8px 0">&#9889; Profile Boost</summary>
                 <div id="boost-status-area" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0">Connected Accounts</summary>
@@ -5066,6 +5066,23 @@ async function exportMyData(){
         toast('Data exported!','success');
     }catch(e){toast('Export failed','error');}
     if(btn){btn.disabled=false;btn.textContent='Export My Data';}
+}
+
+async function exportSchemaOrgPerson(){
+    const btn=document.getElementById('export-person-btn');
+    if(btn){btn.disabled=true;btn.textContent='Preparing profile...';}
+    try{
+        const r=await authFetch(API+'/api/account/export/schema-org');
+        if(!r.ok){toast('Profile export failed','error');}
+        else{
+            const blob=await r.blob();
+            const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download='kindred-person.jsonld';
+            document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+            toast('schema.org Person exported!','success');
+        }
+    }catch(e){toast('Profile export failed','error');}
+    if(btn){btn.disabled=false;btn.textContent='Export schema.org Person';}
 }
 
 // ══════════════════════════════════════════════
