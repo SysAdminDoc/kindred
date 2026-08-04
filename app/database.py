@@ -155,6 +155,20 @@ def init_db():
             FOREIGN KEY (reported_id) REFERENCES profiles(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS report_cooling_off (
+            id TEXT PRIMARY KEY,
+            reporter_id TEXT NOT NULL,
+            reported_id TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (reporter_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (reported_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(reporter_id, reported_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_cooling_off_reporter
+            ON report_cooling_off(reporter_id, expires_at);
+
         CREATE TABLE IF NOT EXISTS profile_blog_posts (
             id TEXT PRIMARY KEY,
             profile_id TEXT NOT NULL,
@@ -1775,9 +1789,81 @@ def create_safety_report(reporter_id: str, reported_id: str,
         "INSERT INTO safety_reports (id, reporter_id, reported_id, report_type, notes) VALUES (?,?,?,?,?)",
         (report_id, reporter_id, reported_id, report_type, notes)
     )
+    _upsert_report_cooling_off(conn, reporter_id, reported_id)
     conn.commit()
 
     return report_id
+
+
+def _cooling_off_expiry(days: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    if days <= 0:
+        return "9999-12-31 23:59:59"
+    return (datetime.now(timezone.utc) + timedelta(days=days)).replace(
+        microsecond=0
+    ).isoformat(sep=" ")
+
+
+def _cooling_off_timestamp() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat(sep=" ")
+
+
+def _upsert_report_cooling_off(conn: sqlite3.Connection, reporter_id: str,
+                               reported_id: str, days: int | None = None) -> bool:
+    if not reporter_id or not reported_id or reporter_id == reported_id:
+        return False
+    if days is None:
+        from app.config import REPORT_COOLING_OFF_DAYS
+        days = REPORT_COOLING_OFF_DAYS
+    now = _cooling_off_timestamp()
+    expires_at = _cooling_off_expiry(days)
+    conn.execute(
+        """INSERT INTO report_cooling_off
+           (id, reporter_id, reported_id, expires_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(reporter_id, reported_id) DO UPDATE SET
+           expires_at=excluded.expires_at, updated_at=excluded.updated_at""",
+        (uuid.uuid4().hex, reporter_id, reported_id, expires_at, now, now),
+    )
+    return True
+
+
+def create_report_cooling_off(reporter_id: str, reported_id: str,
+                              days: int | None = None) -> bool:
+    """Hide a reported profile from the reporter until the cooling-off expiry."""
+    conn = get_db()
+    created = _upsert_report_cooling_off(conn, reporter_id, reported_id, days)
+    conn.commit()
+    return created
+
+
+def get_report_cooling_off_ids(reporter_id: str) -> set[str]:
+    """Return reported profiles still hidden from this reporter."""
+    if not reporter_id:
+        return set()
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT reported_id FROM report_cooling_off
+           WHERE reporter_id=? AND expires_at > datetime('now')""",
+        (reporter_id,),
+    ).fetchall()
+    return {row["reported_id"] for row in rows}
+
+
+def is_report_cooling_off(reporter_id: str, reported_id: str) -> bool:
+    if not reporter_id or not reported_id or reporter_id == reported_id:
+        return False
+    conn = get_db()
+    row = conn.execute(
+        """SELECT 1 FROM report_cooling_off
+           WHERE reporter_id=? AND reported_id=?
+             AND expires_at > datetime('now')""",
+        (reporter_id, reported_id),
+    ).fetchone()
+    return row is not None
 
 
 def get_safety_reports_for(profile_id: str) -> int:
@@ -4486,6 +4572,8 @@ def delete_account(user_id: str) -> bool:
                 ("likes", "from_id"), ("photos", "profile_id"),
                 ("group_members", "profile_id"), ("group_posts", "profile_id"),
                 ("behavioral_events", "profile_id"), ("safety_reports", "reporter_id"),
+                ("report_cooling_off", "reporter_id"),
+                ("report_cooling_off", "reported_id"),
                 ("voice_messages", "from_id"), ("voice_messages", "to_id"),
                 ("profile_prompts", "profile_id"), ("super_likes", "from_id"),
                 ("super_likes", "to_id"), ("stories", "profile_id"),
@@ -6297,6 +6385,7 @@ def create_safety_report_v2(reporter_id: str, reported_id: str, report_type: str
             "UPDATE safety_reports SET status = 'escalated' WHERE reported_id = ? AND status = 'open'",
             (reported_id,)
         )
+    _upsert_report_cooling_off(conn, reporter_id, reported_id)
     conn.commit()
     return report_id
 

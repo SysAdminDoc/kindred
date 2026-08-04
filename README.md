@@ -356,6 +356,7 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_HARASSMENT_WARN_SCORE` | `2` | Aggregate score at which a respectful-message warning is returned |
 | `KINDRED_HARASSMENT_MUTE_SCORE` | `4` | Aggregate score at which the recipient-side auto-mute activates |
 | `KINDRED_HARASSMENT_MUTE_MINUTES` | `60` | Auto-mute duration |
+| `KINDRED_REPORT_COOLING_OFF_DAYS` | `30` | Days a reporter is excluded from seeing a reported profile; `0` is permanent |
 | `KINDRED_SELFIE_LIVENESS_ENABLED` | `true` | Enable local MediaPipe selfie liveness |
 | `KINDRED_SELFIE_LIVENESS_REQUIRED` | `true` | Require a passing blink + head-turn sequence before queueing verification |
 | `KINDRED_SELFIE_LIVENESS_MODEL_PATH` | `models/face_landmarker.task` | Local Face Landmarker model asset |
@@ -402,6 +403,13 @@ respectful-message warning, while the mute threshold creates a one-way
 recipient-side mute and suppresses later direct messages until it expires.
 The WebSocket message path applies the same gate, and administrators can
 review events and active mutes at `/api/admin/harassment`.
+
+Reports immediately create a reporter-specific cooling-off exclusion, so the
+reported profile is removed from matches, suggestions, search, explore, nearby,
+availability, and recently-active/new-user discovery. The exclusion lasts
+`KINDRED_REPORT_COOLING_OFF_DAYS` days and is renewed by later reports; set it
+to `0` when the product policy requires a permanent exclusion. Reviewing or
+closing a report does not lift the exclusion automatically.
 
 Selfie verification now captures twelve camera frames in the user portal and
 posts them as a short ordered sequence to `/api/verify/selfie/{profile_id}`.

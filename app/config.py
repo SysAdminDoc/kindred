@@ -191,6 +191,10 @@ HARASSMENT_WARN_SCORE = int(os.getenv("KINDRED_HARASSMENT_WARN_SCORE", "2"))
 HARASSMENT_MUTE_SCORE = int(os.getenv("KINDRED_HARASSMENT_MUTE_SCORE", "4"))
 HARASSMENT_MUTE_MINUTES = int(os.getenv("KINDRED_HARASSMENT_MUTE_MINUTES", "60"))
 
+# --- Report cooling-off ---
+# A value of zero keeps the reporter/reported pair hidden permanently.
+REPORT_COOLING_OFF_DAYS = int(os.getenv("KINDRED_REPORT_COOLING_OFF_DAYS", "30"))
+
 # --- Undo Block Grace Period ---
 UNDO_BLOCK_MINUTES = int(os.getenv("KINDRED_UNDO_BLOCK_MINUTES", "5"))
 
@@ -207,4 +211,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13

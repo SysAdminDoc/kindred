@@ -134,6 +134,7 @@ from app.database import (
     search_messages,
     delete_account, export_user_data, get_profile_media_keys,
     get_expiring_matches,
+    get_report_cooling_off_ids, is_report_cooling_off,
     create_icebreaker_game, get_icebreaker_game, submit_game_turn, get_games_for_pair,
     create_date_schedule, get_date_schedules, get_date_schedule, update_date_schedule_status,
     create_blind_date, get_active_blind_dates, reveal_blind_dates,
@@ -201,6 +202,21 @@ logger = setup_logging()
 log = get_logger("api")
 
 app = FastAPI(title="Kindred", version="2.5.1")
+
+
+def _cooling_off_profile_ids(profile_id: str) -> set[str]:
+    return get_report_cooling_off_ids(profile_id) if profile_id else set()
+
+
+def _ensure_not_cooling_off(reporter_id: str, reported_id: str) -> None:
+    if is_report_cooling_off(reporter_id, reported_id):
+        raise HTTPException(status_code=404, detail="Profile not available")
+
+
+def _ensure_pair_not_cooling_off(profile_a: str, profile_b: str) -> None:
+    if (is_report_cooling_off(profile_a, profile_b)
+            or is_report_cooling_off(profile_b, profile_a)):
+        raise HTTPException(status_code=404, detail="Profiles not available")
 
 # CORS middleware
 app.add_middleware(
@@ -1244,7 +1260,9 @@ async def get_boost_status(user=Depends(require_user)):
 
 
 @app.get("/api/profile/{profile_id}")
-def read_profile(profile_id: str):
+def read_profile(profile_id: str, user: dict | None = Depends(get_current_user)):
+    if user and user.get("profile_id"):
+        _ensure_not_cooling_off(user["profile_id"], profile_id)
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -1257,7 +1275,11 @@ def read_profile(profile_id: str):
 
 @app.get("/api/profiles")
 def list_profiles(user: dict = Depends(require_user)):
-    profiles = get_all_profiles()
+    excluded = _cooling_off_profile_ids(user.get("profile_id", ""))
+    profiles = [
+        profile for profile in get_all_profiles()
+        if profile["id"] not in excluded
+    ]
     return [
         {
             "id": p["id"],
@@ -1354,7 +1376,12 @@ def expiring_matches(user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
     if not profile_id:
         raise HTTPException(status_code=400, detail="No profile linked")
-    return {"matches": get_expiring_matches(profile_id, MATCH_EXPIRY_DAYS)}
+    excluded = _cooling_off_profile_ids(profile_id)
+    matches = [
+        match for match in get_expiring_matches(profile_id, MATCH_EXPIRY_DAYS)
+        if match.get("match_id") not in excluded
+    ]
+    return {"matches": matches}
 
 
 @app.get("/api/matches/{profile_id}")
@@ -1363,7 +1390,11 @@ def get_matches(profile_id: str, top_n: int = 20):
     if target is None:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    all_profiles = get_all_profiles()
+    excluded = _cooling_off_profile_ids(profile_id)
+    all_profiles = [
+        profile for profile in get_all_profiles()
+        if profile["id"] not in excluded
+    ]
     if len(all_profiles) < 2:
         return {"matches": [], "message": "Need at least 2 profiles to match"}
 
@@ -1385,6 +1416,7 @@ def get_matches(profile_id: str, top_n: int = 20):
 
 @app.get("/api/compatibility/{id_a}/{id_b}")
 def compare_profiles(id_a: str, id_b: str):
+    _ensure_pair_not_cooling_off(id_a, id_b)
     profile_a = get_profile(id_a)
     profile_b = get_profile(id_b)
     if profile_a is None or profile_b is None:
@@ -1683,7 +1715,10 @@ def report_safety(report: SafetyReport, user: dict = Depends(require_user)):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/profile/{profile_id}/export")
-def export_profile(profile_id: str):
+def export_profile(profile_id: str,
+                   user: dict | None = Depends(get_current_user)):
+    if user and user.get("profile_id"):
+        _ensure_not_cooling_off(user["profile_id"], profile_id)
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -1703,7 +1738,11 @@ def export_profile(profile_id: str):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/profile/{profile_id}/page")
-def get_profile_page(profile_id: str, viewer: str = ""):
+def get_profile_page(profile_id: str, viewer: str = "",
+                     user: dict | None = Depends(get_current_user)):
+    if user and user.get("profile_id"):
+        viewer = user["profile_id"]
+        _ensure_not_cooling_off(viewer, profile_id)
     profile = get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -2019,7 +2058,10 @@ async def upload_gallery_photo(profile_id: str, file: UploadFile = File(...),
 
 
 @app.get("/api/profile/{profile_id}/photos")
-def list_photos(profile_id: str):
+def list_photos(profile_id: str,
+                user: dict | None = Depends(get_current_user)):
+    if user and user.get("profile_id"):
+        _ensure_not_cooling_off(user["profile_id"], profile_id)
     return {"photos": get_photos(profile_id)}
 
 
@@ -2058,7 +2100,12 @@ def make_primary(photo_id: str, profile_id: str = "", user: dict = Depends(requi
 def search(query: str = "", gender: str = "", seeking: str = "",
            age_min: int = 0, age_max: int = 999, location: str = "",
            user: dict = Depends(require_user)):
-    results = search_profiles(query, gender, seeking, age_min, age_max, location)
+    excluded = _cooling_off_profile_ids(user.get("profile_id", ""))
+    results = [
+        profile for profile in search_profiles(
+            query, gender, seeking, age_min, age_max, location
+        ) if profile["id"] not in excluded
+    ]
     return {"results": [
         {
             "id": p["id"], "name": p["name"], "age": p["age"],
@@ -2083,6 +2130,15 @@ def activity_feed(profile_id: str):
 
 @app.get("/api/explore")
 def explore(user: dict = Depends(require_user)):
+    excluded = _cooling_off_profile_ids(user.get("profile_id", ""))
+    featured = [
+        profile for profile in get_explore_profiles(12)
+        if profile["id"] not in excluded
+    ]
+    recent = [
+        profile for profile in get_recent_profiles(10)
+        if profile["id"] not in excluded
+    ]
     return {
         "featured": [
             {"id": p["id"], "name": p["name"], "age": p["age"],
@@ -2090,13 +2146,13 @@ def explore(user: dict = Depends(require_user)):
              "location": p.get("location"), "profile_views": p.get("profile_views", 0),
              "dating_energy": p.get("dating_energy"),
              "relationship_intent": p.get("relationship_intent")}
-            for p in get_explore_profiles(12)
+            for p in featured
         ],
         "recent": [
             {"id": p["id"], "name": p["name"], "age": p["age"],
              "photo": p.get("photo"), "headline": p.get("headline"),
              "created_at": p["created_at"]}
-            for p in get_recent_profiles(10)
+            for p in recent
         ],
     }
 
@@ -2481,7 +2537,10 @@ def add_music(profile_id: str, body: MusicPrefCreate, user: dict = Depends(requi
 
 
 @app.get("/api/music/{profile_id}")
-def list_music(profile_id: str):
+def list_music(profile_id: str,
+               user: dict | None = Depends(get_current_user)):
+    if user and user.get("profile_id"):
+        _ensure_not_cooling_off(user["profile_id"], profile_id)
     return {"music": get_music_prefs(profile_id)}
 
 
@@ -2496,6 +2555,7 @@ def remove_music(pref_id: str, profile_id: str, user: dict = Depends(require_use
 
 @app.get("/api/music-compat/{profile_a}/{profile_b}")
 def music_compatibility(profile_a: str, profile_b: str):
+    _ensure_pair_not_cooling_off(profile_a, profile_b)
     return compute_music_compatibility(profile_a, profile_b)
 
 
@@ -2621,22 +2681,37 @@ def daily_suggestions(user: dict = Depends(require_user)):
     profile_id = user.get("profile_id")
     if not profile_id:
         return {"suggestions": []}
-    existing = get_daily_suggestions(profile_id)
+    excluded = _cooling_off_profile_ids(profile_id)
+    existing = [
+        suggestion for suggestion in get_daily_suggestions(profile_id)
+        if suggestion.get("suggested_id") not in excluded
+    ]
     if existing:
         return {"suggestions": existing}
     # Generate fresh suggestions
     target = get_profile(profile_id)
     if not target:
         return {"suggestions": []}
-    all_profiles = get_all_profiles()
+    all_profiles = [
+        profile for profile in get_all_profiles()
+        if profile["id"] not in excluded
+    ]
     if len(all_profiles) < 2:
         return {"suggestions": []}
     custom_weights = _effective_profile_weights(target)
     matches = find_matches(profile_id, all_profiles, DAILY_SUGGESTION_COUNT, custom_weights)
-    suggestions = [{"suggested_id": m["id"], "score": m["compatibility"]["total"]} for m in matches]
+    suggestions = [
+        {"suggested_id": m["profile_id"], "score": m["compatibility"]["total"]}
+        for m in matches
+    ]
     save_daily_suggestions(profile_id, suggestions)
     log_analytics_event("daily_suggestions_generated", profile_id)
-    return {"suggestions": get_daily_suggestions(profile_id)}
+    return {
+        "suggestions": [
+            suggestion for suggestion in get_daily_suggestions(profile_id)
+            if suggestion.get("suggested_id") not in excluded
+        ]
+    }
 
 
 @app.post("/api/suggestions/{suggestion_id}/seen")
@@ -3366,11 +3441,14 @@ def nearby_profiles(user: dict = Depends(require_user)):
     if not loc or not loc.get("enabled") or not loc.get("latitude"):
         return {"profiles": [], "message": "Location not enabled"}
     profile_id = user.get("profile_id", "")
-    profiles = get_nearby_profiles(
-        loc["latitude"], loc["longitude"],
-        loc.get("radius_km", LOCATION_MATCH_RADIUS_KM),
-        exclude_id=profile_id,
-    )
+    excluded = _cooling_off_profile_ids(profile_id)
+    profiles = [
+        profile for profile in get_nearby_profiles(
+            loc["latitude"], loc["longitude"],
+            loc.get("radius_km", LOCATION_MATCH_RADIUS_KM),
+            exclude_id=profile_id,
+        ) if profile["id"] not in excluded
+    ]
     return {"profiles": [{
         "id": p["id"], "name": p["name"], "age": p["age"],
         "photo": p.get("photo"), "location": p.get("location"),
@@ -3784,8 +3862,11 @@ async def update_availability(data: AvailabilityUpdate, user: dict = Depends(req
 
 @app.get("/api/available-now")
 async def get_available_now(user: dict = Depends(require_user)):
-    available = get_available_profiles()
-    return available
+    excluded = _cooling_off_profile_ids(user.get("profile_id", ""))
+    return [
+        profile for profile in get_available_profiles()
+        if profile.get("profile_id") not in excluded
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -3951,6 +4032,7 @@ def compatibility_history(target_id: str, user: dict = Depends(require_user)):
     profile_id = user.get("profile_id", "")
     if not profile_id:
         raise HTTPException(400, "No profile")
+    _ensure_not_cooling_off(profile_id, target_id)
     history = get_compatibility_history(profile_id, target_id)
     return {"history": history}
 
@@ -4162,7 +4244,11 @@ async def get_my_ghost_matches(user=Depends(require_user)):
     profile_id = user["profile_id"]
     if not profile_id:
         raise HTTPException(400, "Profile required")
-    return get_ghost_matches(profile_id)
+    excluded = _cooling_off_profile_ids(profile_id)
+    return [
+        match for match in get_ghost_matches(profile_id)
+        if match.get("match_id") not in excluded
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -4205,11 +4291,19 @@ async def remove_saved_search(search_id: str, user=Depends(require_user)):
 
 @app.get("/api/discover/recently-active")
 async def discover_recently_active(hours: int = 24, user=Depends(require_user)):
-    return get_recently_active_profiles(min(hours, 168))
+    excluded = _cooling_off_profile_ids(user.get("profile_id", ""))
+    return [
+        profile for profile in get_recently_active_profiles(min(hours, 168))
+        if profile.get("id") not in excluded
+    ]
 
 @app.get("/api/discover/new-users")
 async def discover_new_users(days: int = 7, user=Depends(require_user)):
-    return get_new_profiles(min(days, 30))
+    excluded = _cooling_off_profile_ids(user.get("profile_id", ""))
+    return [
+        profile for profile in get_new_profiles(min(days, 30))
+        if profile.get("id") not in excluded
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -4372,6 +4466,7 @@ async def get_ai_suggestions(match_id: str, user=Depends(require_user)):
     """Generate conversation suggestions. Actual AI generation happens client-side via Puter.js.
     This endpoint saves/retrieves cached suggestions."""
     from app.database import save_ai_suggestion
+    _ensure_not_cooling_off(user.get("profile_id", ""), match_id)
     suggestions = [
         "What's something you've been really excited about lately?",
         "If you could travel anywhere tomorrow, where would you go?",
@@ -4403,8 +4498,13 @@ async def recalculate_compatibility(user=Depends(require_user)):
     user_profile = get_profile(user.get("profile_id") or "")
     if not user_profile:
         return {"recalculated": 0, "results": []}
+    excluded = _cooling_off_profile_ids(user_profile.get("id") or "")
     all_profiles = get_all_profiles()
-    candidates = [p for p in all_profiles if p["id"] != (user_profile.get("id") or "")]
+    candidates = [
+        p for p in all_profiles
+        if p["id"] != (user_profile.get("id") or "")
+        and p["id"] not in excluded
+    ]
     results = []
     for other in candidates:
         try:
