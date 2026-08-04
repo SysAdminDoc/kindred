@@ -514,6 +514,38 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS harassment_events (
+            id TEXT PRIMARY KEY,
+            message_id TEXT,
+            from_id TEXT NOT NULL,
+            to_id TEXT NOT NULL,
+            signal_score INTEGER NOT NULL,
+            categories TEXT NOT NULL DEFAULT '[]',
+            action TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL,
+            FOREIGN KEY (from_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (to_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_harassment_events_pair
+            ON harassment_events(from_id, to_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS harassment_mutes (
+            id TEXT PRIMARY KEY,
+            owner_profile_id TEXT NOT NULL,
+            muted_profile_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            window_score INTEGER NOT NULL DEFAULT 0,
+            expires_at TIMESTAMP NOT NULL,
+            active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (owner_profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (muted_profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            UNIQUE(owner_profile_id, muted_profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_harassment_mutes_owner
+            ON harassment_mutes(owner_profile_id, expires_at, active);
+
         CREATE TABLE IF NOT EXISTS premium_subscriptions (
             user_id TEXT PRIMARY KEY,
             tier TEXT NOT NULL DEFAULT 'free',
@@ -3599,6 +3631,140 @@ def get_content_filter_logs(limit: int = 100) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Harassment detection and auto-mutes
+# ---------------------------------------------------------------------------
+
+def get_harassment_window(from_id: str, to_id: str, window_minutes: int = 10) -> dict:
+    conn = get_db()
+    minutes = max(1, int(window_minutes))
+    row = conn.execute(
+        """SELECT COALESCE(SUM(signal_score), 0) AS score, COUNT(*) AS count
+           FROM harassment_events
+           WHERE from_id=? AND to_id=? AND created_at >= datetime('now', ?)""",
+        (from_id, to_id, f"-{minutes} minutes"),
+    ).fetchone()
+    return {"score": int(row["score"] or 0), "count": int(row["count"] or 0)}
+
+
+def record_harassment_event(
+    from_id: str,
+    to_id: str,
+    signal_score: int,
+    categories: tuple[str, ...] | list[str],
+    action: str,
+    message_id: str | None = None,
+) -> str:
+    conn = get_db()
+    event_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO harassment_events
+           (id, message_id, from_id, to_id, signal_score, categories, action)
+           VALUES (?,?,?,?,?,?,?)""",
+        (
+            event_id,
+            message_id,
+            from_id,
+            to_id,
+            max(0, int(signal_score)),
+            json.dumps(list(categories), sort_keys=True),
+            action,
+        ),
+    )
+    conn.commit()
+    return event_id
+
+
+def create_harassment_mute(
+    owner_profile_id: str,
+    muted_profile_id: str,
+    reason: str,
+    window_score: int,
+    minutes: int = 60,
+) -> str:
+    conn = get_db()
+    mute_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO harassment_mutes
+           (id, owner_profile_id, muted_profile_id, reason, window_score, expires_at, active)
+           VALUES (?, ?, ?, ?, ?, datetime('now', '+' || ? || ' minutes'), 1)
+           ON CONFLICT(owner_profile_id, muted_profile_id) DO UPDATE SET
+             reason=excluded.reason,
+             window_score=excluded.window_score,
+             expires_at=excluded.expires_at,
+             active=1""",
+        (
+            mute_id,
+            owner_profile_id,
+            muted_profile_id,
+            reason[:200],
+            max(0, int(window_score)),
+            str(max(1, int(minutes))),
+        ),
+    )
+    conn.commit()
+    row = conn.execute(
+        """SELECT id FROM harassment_mutes
+           WHERE owner_profile_id=? AND muted_profile_id=?""",
+        (owner_profile_id, muted_profile_id),
+    ).fetchone()
+    return row["id"] if row else mute_id
+
+
+def is_profile_muted(owner_profile_id: str, muted_profile_id: str) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        """SELECT id FROM harassment_mutes
+           WHERE owner_profile_id=? AND muted_profile_id=?
+             AND active=1 AND expires_at > datetime('now')""",
+        (owner_profile_id, muted_profile_id),
+    ).fetchone()
+    if row:
+        return True
+    conn.execute(
+        """UPDATE harassment_mutes SET active=0
+           WHERE owner_profile_id=? AND muted_profile_id=? AND active=1""",
+        (owner_profile_id, muted_profile_id),
+    )
+    conn.commit()
+    return False
+
+
+def get_harassment_mutes(limit: int = 100) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT m.*, owner.name AS owner_name, muted.name AS muted_name
+           FROM harassment_mutes m
+           LEFT JOIN profiles owner ON owner.id=m.owner_profile_id
+           LEFT JOIN profiles muted ON muted.id=m.muted_profile_id
+           WHERE m.active=1 AND m.expires_at > datetime('now')
+           ORDER BY m.created_at DESC LIMIT ?""",
+        (max(1, min(int(limit), 500)),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_harassment_events(limit: int = 100) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT e.*, sender.name AS sender_name, recipient.name AS recipient_name
+           FROM harassment_events e
+           LEFT JOIN profiles sender ON sender.id=e.from_id
+           LEFT JOIN profiles recipient ON recipient.id=e.to_id
+           ORDER BY e.created_at DESC LIMIT ?""",
+        (max(1, min(int(limit), 500)),),
+    ).fetchall()
+    events = []
+    for row in rows:
+        event = dict(row)
+        try:
+            event["categories"] = json.loads(event.get("categories") or "[]")
+        except (TypeError, ValueError):
+            event["categories"] = []
+        events.append(event)
+    return events
+
+
+# ---------------------------------------------------------------------------
 # Premium Subscriptions
 # ---------------------------------------------------------------------------
 
@@ -4333,6 +4499,9 @@ def delete_account(user_id: str) -> bool:
                 ("shared_playlists", "profile_b"), ("playlist_songs", "added_by"),
                 ("event_photos", "profile_id"), ("profile_badges", "profile_id"),
                 ("photo_safety_events", "profile_id"),
+                ("harassment_events", "from_id"), ("harassment_events", "to_id"),
+                ("harassment_mutes", "owner_profile_id"),
+                ("harassment_mutes", "muted_profile_id"),
                 ("story_reactions", "profile_id"), ("pinned_messages", "pinned_by"),
                 ("passed_profiles", "profile_id"), ("passed_profiles", "passed_id"),
                 ("blind_dates", "initiator_id"), ("blind_dates", "target_id"),

@@ -49,6 +49,7 @@ from app.database import (
     get_all_events, get_event, get_event_rsvps, delete_event,
     get_pending_verifications, review_verification,
     get_pending_photo_moderations, review_photo_moderation, get_photo_safety_events,
+    get_harassment_events, get_harassment_mutes,
     get_analytics_summary, get_engagement_metrics,
     get_content_filter_logs,
     get_all_active_stories, get_story, delete_story,
@@ -418,6 +419,14 @@ def admin_analytics(days: int = 30, admin: dict = Depends(require_admin)):
 def admin_content_filter_log(limit: int = 100, admin: dict = Depends(require_admin)):
     logs = get_content_filter_logs(limit)
     return {"logs": logs}
+
+
+@admin_app.get("/api/admin/harassment")
+def admin_harassment(limit: int = 100, admin: dict = Depends(require_admin)):
+    return {
+        "events": get_harassment_events(limit),
+        "mutes": get_harassment_mutes(limit),
+    }
 
 
 # ─── Health Check ───

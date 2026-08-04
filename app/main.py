@@ -42,9 +42,12 @@ from app.config import (
     MATCH_EXPIRY_DAYS, DEFAULT_LOCALE,
     BLIND_DATE_HOURS, MESSAGE_COOLDOWN_MINUTES, MESSAGE_COOLDOWN_COUNT,
     UNDO_BLOCK_MINUTES, SAFETY_CHECKIN_DEFAULT_MINUTES,
+    HARASSMENT_ENABLED, HARASSMENT_WINDOW_MINUTES, HARASSMENT_WARN_SCORE,
+    HARASSMENT_MUTE_SCORE, HARASSMENT_MUTE_MINUTES,
 )
 from app.logging_config import setup_logging, get_logger
 from app.content_filter import check_content, filter_message
+from app.harassment import HarassmentDecision, analyze_message, decide
 from app.job_queue import QueueConfigurationError, job_queue
 from app.object_storage import (
     InvalidObjectKey,
@@ -96,6 +99,8 @@ from app.database import (
     save_video_intro, get_video_intro, delete_video_intro,
     add_music_pref, get_music_prefs, delete_music_pref, compute_music_compatibility,
     block_profile, unblock_profile, is_blocked_either, get_blocked_profiles,
+    is_profile_muted, get_harassment_window, record_harassment_event,
+    create_harassment_mute,
     create_password_reset, use_password_reset,
     get_notification_prefs, update_notification_prefs, should_notify,
     get_conversation_paginated, mark_messages_read_with_timestamp,
@@ -320,6 +325,44 @@ def _delete_media(filename: str) -> None:
         object_storage.delete(filename)
     except ObjectStorageError as exc:
         log.warning("Unable to remove media object %s: %s", filename, exc)
+
+
+def _harassment_decision(from_id: str, to_id: str, content: str) -> HarassmentDecision:
+    signal = analyze_message(content) if HARASSMENT_ENABLED else analyze_message("")
+    window = get_harassment_window(from_id, to_id, HARASSMENT_WINDOW_MINUTES)
+    return decide(
+        signal,
+        window["score"],
+        window["count"],
+        warn_score=HARASSMENT_WARN_SCORE,
+        mute_score=HARASSMENT_MUTE_SCORE,
+    )
+
+
+def _record_harassment_decision(
+    from_id: str,
+    to_id: str,
+    decision: HarassmentDecision,
+    message_id: str | None = None,
+) -> None:
+    if not decision.signal.flagged:
+        return
+    if decision.action == "auto_mute":
+        create_harassment_mute(
+            to_id,
+            from_id,
+            decision.reason,
+            decision.window_score,
+            HARASSMENT_MUTE_MINUTES,
+        )
+    record_harassment_event(
+        from_id,
+        to_id,
+        decision.signal.score,
+        decision.signal.categories,
+        decision.action,
+        message_id,
+    )
 
 
 def _thumbnail_key(filename: str) -> str:
@@ -1427,10 +1470,16 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     if is_blocked_either(msg.from_id, msg.to_id):
         raise HTTPException(status_code=403, detail="Cannot message this user")
+    if is_profile_muted(msg.to_id, msg.from_id):
+        raise HTTPException(status_code=403, detail="Messaging unavailable")
+    content_text = msg.content.strip()
+    harassment = _harassment_decision(msg.from_id, msg.to_id, content_text)
+    if harassment.action == "auto_mute":
+        _record_harassment_decision(msg.from_id, msg.to_id, harassment)
+        raise HTTPException(status_code=403, detail="Message blocked by safety controls")
     # Message cooldown for new matches
     if not check_message_cooldown(msg.from_id, msg.to_id, MESSAGE_COOLDOWN_COUNT, MESSAGE_COOLDOWN_MINUTES):
         raise HTTPException(status_code=429, detail="Slow down - message cooldown active")
-    content_text = msg.content.strip()
     # Content filter
     filtered_text, was_filtered = filter_message(content_text)
     if was_filtered:
@@ -1444,6 +1493,7 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
     # Thread reply support
     if msg.reply_to:
         save_thread_reply(msg_id, msg.reply_to)
+    _record_harassment_decision(msg.from_id, msg.to_id, harassment, msg_id)
     # Notify recipient
     sender = get_profile(msg.from_id)
     sender_name = sender["name"] if sender else "Someone"
@@ -1473,7 +1523,10 @@ async def send_msg(msg: MessageSend, user: dict = Depends(require_user)):
         "id": msg_id,
     })
     log_analytics_event("message_sent", msg.from_id)
-    return {"id": msg_id, "status": "sent"}
+    response = {"id": msg_id, "status": "sent"}
+    if harassment.action == "warn":
+        response["safety_notice"] = "Please keep messages respectful. Continued harassment will mute this conversation."
+    return response
 
 
 @app.get("/api/messages/search")
@@ -2811,11 +2864,28 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str, token: str =
                 to_id = msg.get("to")
                 content = msg.get("content", "").strip()
                 if to_id and content:
+                    if is_blocked_either(profile_id, to_id) or is_profile_muted(to_id, profile_id):
+                        await ws_manager.send_to(profile_id, {
+                            "type": "message_blocked",
+                            "to": to_id,
+                            "reason": "Messaging unavailable",
+                        })
+                        continue
+                    harassment = _harassment_decision(profile_id, to_id, content)
+                    if harassment.action == "auto_mute":
+                        _record_harassment_decision(profile_id, to_id, harassment)
+                        await ws_manager.send_to(profile_id, {
+                            "type": "message_blocked",
+                            "to": to_id,
+                            "reason": "Message blocked by safety controls",
+                        })
+                        continue
                     content, _ = filter_message(content)
                     spam = check_content(content)
                     if not spam["clean"] and spam.get("type") == "spam":
                         continue
                     msg_id = send_message(profile_id, to_id, content)
+                    _record_harassment_decision(profile_id, to_id, harassment, msg_id)
                     # Send to recipient in real-time
                     sender = get_profile(profile_id)
                     await ws_manager.send_to(to_id, {
@@ -2825,6 +2895,12 @@ async def websocket_endpoint(websocket: WebSocket, profile_id: str, token: str =
                         "content": content,
                         "id": msg_id,
                     })
+                    if harassment.action == "warn":
+                        await ws_manager.send_to(profile_id, {
+                            "type": "safety_notice",
+                            "to": to_id,
+                            "message": "Please keep messages respectful. Continued harassment will mute this conversation.",
+                        })
                     # Also send back to sender for confirmation
                     await ws_manager.send_to(profile_id, {
                         "type": "message_sent",

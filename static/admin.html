@@ -1058,35 +1058,52 @@ async function renderAnalytics(){
 // ─── Content Filter ───
 async function renderContentFilter(){
     const app=document.getElementById('app');
-    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading content filter log...</div>';
+    app.innerHTML='<div class="loading"><div class="spinner"></div>Loading trust and safety signals...</div>';
     try{
-        const r=await adminFetch(API+'/api/admin/content-filter-log');const d=await r.json();
+        const [r,hr]=await Promise.all([adminFetch(API+'/api/admin/content-filter-log'),adminFetch(API+'/api/admin/harassment')]);
+        const d=await r.json();const h=await hr.json().catch(()=>({}));
         const logs=d.logs||d.entries||[];
-        if(!logs.length){app.innerHTML='<div class="card"><h2>Content Filter Log</h2><div class="empty"><h3>No flagged content</h3><p>No content has been flagged by the filter yet.</p></div></div>';return;}
-        let html=`<div class="card"><h2>Content Filter Log</h2><p class="subtitle">${logs.length} flagged item${logs.length!==1?'s':''}</p>
-        <div style="overflow-x:auto"><table class="filter-table"><thead><tr>
-            <th>Time</th><th>User</th><th>Type</th><th>Matched Text</th><th>Action</th>
-        </tr></thead><tbody>`;
-        for(const entry of logs){
-            const typeClass=entry.type==='profanity'?'filter-type-profanity':entry.type==='spam'?'filter-type-spam':'filter-type-other';
-            const matched=entry.matched||entry.matched_text||'';
-            const originalText=entry.text||entry.original_text||'';
-            let displayText=escHtml(originalText);
-            if(matched){
-                const safeMatched=escHtml(matched);
-                displayText=displayText.replace(new RegExp(safeMatched.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<span class="matched-highlight">${m}</span>`);
+        const events=h.events||[],mutes=h.mutes||[];
+        if(!logs.length&&!events.length&&!mutes.length){app.innerHTML='<div class="card"><h2>Trust and Safety</h2><div class="empty"><h3>No flagged activity</h3><p>No content or harassment pattern has been flagged yet.</p></div></div>';return;}
+        let html='';
+        if(logs.length){
+            html+=`<div class="card"><h2>Content Filter Log</h2><p class="subtitle">${logs.length} flagged item${logs.length!==1?'s':''}</p>
+            <div style="overflow-x:auto"><table class="filter-table"><thead><tr>
+                <th>Time</th><th>User</th><th>Type</th><th>Matched Text</th><th>Action</th>
+            </tr></thead><tbody>`;
+            for(const entry of logs){
+                const typeClass=entry.type==='profanity'?'filter-type-profanity':entry.type==='spam'?'filter-type-spam':'filter-type-other';
+                const matched=entry.matched||entry.matched_text||'';
+                const originalText=entry.text||entry.original_text||'';
+                let displayText=escHtml(originalText);
+                if(matched){
+                    const safeMatched=escHtml(matched);
+                    displayText=displayText.replace(new RegExp(safeMatched.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<span class="matched-highlight">${m}</span>`);
+                }
+                html+=`<tr>
+                    <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${entry.time||entry.created_at?new Date(entry.time||entry.created_at).toLocaleString():'--'}</td>
+                    <td><strong>${escHtml(entry.user||entry.user_name||'Unknown')}</strong></td>
+                    <td><span class="${typeClass}">${entry.type||'unknown'}</span></td>
+                    <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">${displayText||'--'}</td>
+                    <td style="font-size:12px">${escHtml(entry.action||entry.action_taken||'--')}</td>
+                </tr>`;
             }
-            html+=`<tr>
-                <td style="white-space:nowrap;font-size:12px;color:var(--overlay0)">${entry.time||entry.created_at?new Date(entry.time||entry.created_at).toLocaleString():'--'}</td>
-                <td><strong>${escHtml(entry.user||entry.user_name||'Unknown')}</strong></td>
-                <td><span class="${typeClass}">${entry.type||'unknown'}</span></td>
-                <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">${displayText||'--'}</td>
-                <td style="font-size:12px">${escHtml(entry.action||entry.action_taken||'--')}</td>
-            </tr>`;
+            html+=`</tbody></table></div></div>`;
         }
-        html+=`</tbody></table></div></div>`;
+        if(events.length||mutes.length){
+            html+=`<div class="card"><h2>Harassment Auto-Mutes</h2><p class="subtitle">${mutes.length} active mute${mutes.length!==1?'s':''}; ${events.length} recent signal${events.length!==1?'s':''}</p>`;
+            if(mutes.length){html+='<div style="overflow-x:auto"><table class="filter-table"><thead><tr><th>Owner</th><th>Muted profile</th><th>Reason</th><th>Score</th><th>Expires</th></tr></thead><tbody>';
+                for(const mute of mutes){html+=`<tr><td>${escHtml(mute.owner_name||mute.owner_profile_id)}</td><td>${escHtml(mute.muted_name||mute.muted_profile_id)}</td><td>${escHtml(mute.reason||'pattern')}</td><td>${mute.window_score||0}</td><td>${mute.expires_at?new Date(mute.expires_at).toLocaleString():'--'}</td></tr>`;}
+                html+='</tbody></table></div>';
+            }
+            if(events.length){html+='<div style="overflow-x:auto;margin-top:14px"><table class="filter-table"><thead><tr><th>Time</th><th>Sender</th><th>Recipient</th><th>Categories</th><th>Action</th></tr></thead><tbody>';
+                for(const event of events){html+=`<tr><td>${event.created_at?new Date(event.created_at).toLocaleString():'--'}</td><td>${escHtml(event.sender_name||event.from_id)}</td><td>${escHtml(event.recipient_name||event.to_id)}</td><td>${escHtml((event.categories||[]).join(', ')||'pattern')}</td><td>${escHtml(event.action||'flagged')}</td></tr>`;}
+                html+='</tbody></table></div>';
+            }
+            html+='</div>';
+        }
         app.innerHTML=html;
-    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading content filter log</h3><p>The content filter endpoint may not be available yet.</p></div>';console.error(e);}
+    }catch(e){app.innerHTML='<div class="empty"><h3>Error loading trust and safety signals</h3><p>The moderation endpoints may not be available yet.</p></div>';console.error(e);}
 }
 
 // ─── Stories Moderation ───

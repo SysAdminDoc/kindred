@@ -117,6 +117,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Account deletion (GDPR-compliant full data removal)
 - Data export (GDPR-compliant download your data)
 - Selfie verification with admin review and local ML liveness (blink + head turn)
+- Sliding-window direct-message harassment signals with escalating warnings and recipient-side auto-mutes
 - Upload-time pHash + dHash matching against an operator-managed known-abuse hash corpus
 - Automated content filtering (profanity censoring, spam blocking)
 - Photo moderation queue with admin review
@@ -226,6 +227,7 @@ kindred/
     photo_safety.py     # pHash/dHash upload screening and optional external hook
     photo_safety_corpus.py # Hash-only corpus importer
     selfie_liveness.py  # MediaPipe blink + head-turn sequence analyzer
+    harassment.py       # Explainable direct-message harassment signal scoring
     database.py         # SQLite CRUD (70+ tables)
     engine.py           # 8-dimension matching engine
     questions.py        # Questionnaire definitions
@@ -349,6 +351,11 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_PHOTODNA_HOOK_URL` | empty | Provider-specific hash adapter URL, required when the hook is enabled |
 | `KINDRED_PHOTODNA_API_KEY` | empty | Optional subscription key passed to the configured adapter |
 | `KINDRED_PHOTODNA_TIMEOUT_SECONDS` | `3` | External hash adapter timeout |
+| `KINDRED_HARASSMENT_ENABLED` | `true` | Enable direct-message harassment signal scoring |
+| `KINDRED_HARASSMENT_WINDOW_MINUTES` | `10` | Sliding window used to aggregate sender/recipient signals |
+| `KINDRED_HARASSMENT_WARN_SCORE` | `2` | Aggregate score at which a respectful-message warning is returned |
+| `KINDRED_HARASSMENT_MUTE_SCORE` | `4` | Aggregate score at which the recipient-side auto-mute activates |
+| `KINDRED_HARASSMENT_MUTE_MINUTES` | `60` | Auto-mute duration |
 | `KINDRED_SELFIE_LIVENESS_ENABLED` | `true` | Enable local MediaPipe selfie liveness |
 | `KINDRED_SELFIE_LIVENESS_REQUIRED` | `true` | Require a passing blink + head-turn sequence before queueing verification |
 | `KINDRED_SELFIE_LIVENESS_MODEL_PATH` | `models/face_landmarker.task` | Local Face Landmarker model asset |
@@ -386,6 +393,15 @@ an operator-approved JSON corpus with
 `python -m app.photo_safety_corpus corpus.json --source operator --dry-run`,
 then rerun without `--dry-run`. Blocked upload metadata is visible to admins at
 `/api/admin/photo-safety/events`.
+
+Direct messages are checked before delivery for explainable threat, sexual
+coercion, slur, and targeted-abuse signals. Signals are retained as category
+and score metadata only; repeated signals are aggregated per sender/recipient
+pair inside the configured sliding window. The first threshold returns a
+respectful-message warning, while the mute threshold creates a one-way
+recipient-side mute and suppresses later direct messages until it expires.
+The WebSocket message path applies the same gate, and administrators can
+review events and active mutes at `/api/admin/harassment`.
 
 Selfie verification now captures twelve camera frames in the user portal and
 posts them as a short ordered sequence to `/api/verify/selfie/{profile_id}`.

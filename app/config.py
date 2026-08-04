@@ -184,6 +184,13 @@ BLIND_DATE_HOURS = int(os.getenv("KINDRED_BLIND_DATE_HOURS", "48"))
 MESSAGE_COOLDOWN_MINUTES = int(os.getenv("KINDRED_MESSAGE_COOLDOWN_MINUTES", "5"))
 MESSAGE_COOLDOWN_COUNT = int(os.getenv("KINDRED_MESSAGE_COOLDOWN_COUNT", "10"))
 
+# --- Harassment detection ---
+HARASSMENT_ENABLED = os.getenv("KINDRED_HARASSMENT_ENABLED", "true").lower() == "true"
+HARASSMENT_WINDOW_MINUTES = int(os.getenv("KINDRED_HARASSMENT_WINDOW_MINUTES", "10"))
+HARASSMENT_WARN_SCORE = int(os.getenv("KINDRED_HARASSMENT_WARN_SCORE", "2"))
+HARASSMENT_MUTE_SCORE = int(os.getenv("KINDRED_HARASSMENT_MUTE_SCORE", "4"))
+HARASSMENT_MUTE_MINUTES = int(os.getenv("KINDRED_HARASSMENT_MUTE_MINUTES", "60"))
+
 # --- Undo Block Grace Period ---
 UNDO_BLOCK_MINUTES = int(os.getenv("KINDRED_UNDO_BLOCK_MINUTES", "5"))
 
@@ -200,4 +207,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
