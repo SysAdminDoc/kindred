@@ -116,6 +116,23 @@ TRANSCRIPTION_TIMEOUT_SECONDS = float(
     os.getenv("KINDRED_TRANSCRIPTION_TIMEOUT_SECONDS", "120")
 )
 
+# --- ActivityPub-style federation ---
+# Federation is disabled by default.  A public HTTPS base URL and a persistent
+# Ed25519 key are required before actors or cross-instance match offers exist.
+FEDERATION_ENABLED = os.getenv("KINDRED_FEDERATION_ENABLED", "false").lower() == "true"
+FEDERATION_BASE_URL = os.getenv("KINDRED_FEDERATION_BASE_URL", "").strip().rstrip("/")
+FEDERATION_KEY_PATH = Path(os.getenv(
+    "KINDRED_FEDERATION_KEY_PATH",
+    str(Path(__file__).parent.parent / ".federation_ed25519.pem"),
+))
+FEDERATION_FETCH_TIMEOUT_SECONDS = float(
+    os.getenv("KINDRED_FEDERATION_FETCH_TIMEOUT_SECONDS", "10")
+)
+FEDERATION_MAX_BODY_BYTES = int(
+    os.getenv("KINDRED_FEDERATION_MAX_BODY_BYTES", str(512 * 1024))
+)
+FEDERATION_USER_AGENT = os.getenv("KINDRED_FEDERATION_USER_AGENT", "Kindred-Federation/1.0")
+
 # --- Web Push (VAPID) ---
 VAPID_PUBLIC_KEY = os.getenv("KINDRED_VAPID_PUBLIC_KEY", "")
 VAPID_PRIVATE_KEY = os.getenv("KINDRED_VAPID_PRIVATE_KEY", "")
@@ -242,4 +259,4 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20

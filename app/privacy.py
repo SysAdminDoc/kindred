@@ -104,6 +104,8 @@ PROFILE_PURGE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("feedback", "profile_a"),
     ("feedback", "profile_b"),
     ("flagged_content", "reporter_id"),
+    ("federated_matches", "local_profile_id"),
+    ("federation_outbox", "actor_profile_id"),
     ("game_turns", "profile_id"),
     ("group_members", "profile_id"),
     ("group_messages", "from_id"),

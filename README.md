@@ -132,6 +132,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Link preview scanning (suspicious URL warnings)
 - Rate-limited auth endpoints
 - Shared Redis rate limits and refresh-token sessions when `KINDRED_REDIS_URL` is configured
+- Optional ActivityPub-style federation with signed public actors and cross-instance match offers; private vault data stays local
 - File upload magic byte validation on all upload endpoints
 - S3-compatible object storage for photos, videos, voice messages, selfies, stories, and event media with local development fallback
 - JWT authentication on all user and admin endpoints
@@ -330,6 +331,12 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_REDIS_URL` | empty | Redis URL for shared rate limits, sessions, WebSocket pub/sub, and presence |
 | `KINDRED_REDIS_REQUIRED` | `false` | Fail startup instead of falling back when Redis is unavailable |
 | `KINDRED_REDIS_KEY_PREFIX` | `kindred` | Prefix for Redis session keys |
+| `KINDRED_FEDERATION_ENABLED` | `false` | Enable ActivityPub-style actors, WebFinger, and signed cross-instance match offers |
+| `KINDRED_FEDERATION_BASE_URL` | empty | Stable public HTTPS base URL for this instance; required when federation is enabled |
+| `KINDRED_FEDERATION_KEY_PATH` | `.federation_ed25519.pem` | Persistent Ed25519 signing key path |
+| `KINDRED_FEDERATION_FETCH_TIMEOUT_SECONDS` | `10` | Timeout for remote actor and inbox requests |
+| `KINDRED_FEDERATION_MAX_BODY_BYTES` | `524288` | Maximum signed federation request/response size |
+| `KINDRED_FEDERATION_USER_AGENT` | `Kindred-Federation/1.0` | User-Agent sent to remote federation peers |
 | `KINDRED_USER_WORKERS` | `2` | User API worker count in the production Compose stack |
 | `KINDRED_ADMIN_WORKERS` | `1` | Admin API worker count in the production Compose stack |
 | `KINDRED_WS_WORKERS` | `2` | Dedicated WebSocket worker count in the production Compose stack |
@@ -421,6 +428,15 @@ that use the legal terminology directly.
 the account's portable records. `GET /api/account/export/schema-org` returns a
 downloadable JSON-LD `schema.org/Person` profile for importing the identity
 and public profile fields into standards-aware tools.
+
+Federation is disabled by default. To enable it, set
+`KINDRED_FEDERATION_ENABLED=true` and configure a stable public
+`KINDRED_FEDERATION_BASE_URL`; the first actor request creates the ignored,
+local Ed25519 key at `KINDRED_FEDERATION_KEY_PATH`. Public actors and WebFinger
+publish only profile fields intended for discovery. Match offers and decisions
+are signed before delivery to the remote inbox. Questionnaire answers,
+embeddings, messages, credentials, and other private vault data remain on the
+originating instance.
 
 When object storage is configured, the API stores new media under the
 configured bucket and serves it through the existing `/uploads/{key}` contract;

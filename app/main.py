@@ -48,6 +48,7 @@ from app.config import (
     STRIPE_ENABLED, STRIPE_PUBLISHABLE_KEY, EVENT_PAYMENT_HOLD_MINUTES,
 )
 from app.logging_config import setup_logging, get_logger
+from app import federation
 from app.calendar_feed import render_calendar
 from app.content_filter import check_content, filter_message
 from app.harassment import HarassmentDecision, analyze_message, decide
@@ -808,6 +809,14 @@ class EventMessageCreate(BaseModel):
 
 class ReadReceiptsUpdate(BaseModel):
     enabled: bool
+
+
+class FederationActorReference(BaseModel):
+    actor: str
+
+
+class FederationMatchDecision(BaseModel):
+    status: str
 
 # ---------------------------------------------------------------------------
 # Startup
@@ -1754,6 +1763,266 @@ def log_event(event: BehavioralEvent, user: dict = Depends(require_user)):
 @app.get("/api/behavioral/{profile_id}")
 def get_behavior(profile_id: str):
     return get_behavioral_profile(profile_id)
+
+
+# ---------------------------------------------------------------------------
+# ActivityPub-style federation
+# ---------------------------------------------------------------------------
+
+def _require_federation() -> None:
+    if not federation.enabled():
+        raise HTTPException(status_code=404, detail="Federation is not enabled")
+
+
+def _federation_profile(profile_id: str) -> dict:
+    _require_federation()
+    profile = get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return profile
+
+
+def _federation_actor_for_profile(profile_id: str) -> str:
+    return federation.actor_url(profile_id)
+
+
+async def _resolve_federation_actor(reference: str) -> dict:
+    try:
+        actor = await asyncio.to_thread(federation.resolve_actor, reference)
+    except federation.ActorResolutionError as exc:
+        raise HTTPException(status_code=400, detail="Unable to resolve remote actor") from exc
+    from app.database import upsert_federated_peer
+    return upsert_federated_peer(actor)
+
+
+async def _deliver_federation_activity(
+    profile_id: str,
+    peer: dict,
+    activity: dict,
+) -> dict:
+    from app.database import record_federation_delivery, record_federation_outbox
+
+    outbox = record_federation_outbox(profile_id, activity)
+    try:
+        result = await asyncio.to_thread(
+            federation.deliver_activity,
+            peer["inbox"],
+            activity,
+            federation.actor_url(profile_id),
+        )
+    except federation.DeliveryError:
+        delivery = record_federation_delivery(
+            outbox["id"], peer["inbox"], "failed", error="remote inbox unavailable"
+        )
+        return {"status": "failed", "delivery": delivery}
+    delivery = record_federation_delivery(
+        outbox["id"], peer["inbox"], "delivered", response_status=result["status"]
+    )
+    return {"status": "delivered", "delivery": delivery}
+
+
+@app.get("/.well-known/webfinger")
+def federation_webfinger(resource: str):
+    _require_federation()
+    if resource.lower().startswith("acct:"):
+        account = resource[5:]
+        profile_id, separator, host = account.rpartition("@")
+        if not separator or host.lower() != (federation._base_host() or "").lower():
+            raise HTTPException(status_code=404, detail="WebFinger resource not found")
+    else:
+        profile_id = federation.profile_id_from_actor(resource)
+        if not profile_id:
+            raise HTTPException(status_code=404, detail="WebFinger resource not found")
+    profile = get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="WebFinger resource not found")
+    return federation.build_webfinger(profile)
+
+
+@app.get("/users/{profile_id}")
+def federation_actor(profile_id: str):
+    return federation.build_actor(_federation_profile(profile_id))
+
+
+@app.get("/users/{profile_id}/outbox")
+def federation_outbox(profile_id: str, limit: int = 20):
+    profile = _federation_profile(profile_id)
+    from app.database import get_federation_outbox
+    activities = get_federation_outbox(profile["id"], limit)
+    actor = federation.actor_url(profile["id"])
+    return {
+        "@context": federation.ACTIVITYSTREAMS_CONTEXT,
+        "id": federation.outbox_url(profile["id"]),
+        "type": "OrderedCollection",
+        "totalItems": len(activities),
+        "orderedItems": activities,
+        "actor": actor,
+    }
+
+
+@app.post("/api/federation/resolve")
+async def resolve_federation_actor(
+    body: FederationActorReference,
+    user: dict = Depends(require_user),
+):
+    _require_federation()
+    peer = await _resolve_federation_actor(body.actor)
+    return {"actor": peer.get("actor", {}), "inbox": peer["inbox"], "domain": peer["domain"]}
+
+
+@app.get("/api/federation/matches")
+def get_federated_match_list(user: dict = Depends(require_user)):
+    _require_federation()
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="Profile required")
+    from app.database import get_federated_matches
+    return {"matches": get_federated_matches(profile_id)}
+
+
+@app.post("/api/federation/matches", status_code=202)
+async def create_federated_match_endpoint(
+    body: FederationActorReference,
+    user: dict = Depends(require_user),
+):
+    _require_federation()
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="Profile required")
+    local_actor = federation.actor_url(profile_id)
+    peer = await _resolve_federation_actor(body.actor)
+    if peer["actor"].get("id") == local_actor:
+        raise HTTPException(status_code=400, detail="Cannot match with the local actor")
+    from app.database import create_federated_match, get_federated_matches
+    existing = next(
+        (item for item in get_federated_matches(profile_id)
+         if item["remote_actor_id"] == peer["actor"]["id"]),
+        None,
+    )
+    if existing and existing["status"] in {"pending", "accepted"}:
+        raise HTTPException(status_code=409, detail="A federation match already exists")
+    activity, remote_match_id = federation.new_match_activity(local_actor, peer["actor"]["id"])
+    match = create_federated_match(
+        profile_id,
+        peer["actor"]["id"],
+        remote_match_id,
+        status="pending",
+        initiated_by="local",
+    )
+    delivery = await _deliver_federation_activity(profile_id, peer, activity)
+    return {"match": match, "delivery": delivery}
+
+
+@app.put("/api/federation/matches/{match_id}")
+async def decide_federated_match(
+    match_id: str,
+    body: FederationMatchDecision,
+    user: dict = Depends(require_user),
+):
+    _require_federation()
+    profile_id = user.get("profile_id")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="Profile required")
+    if body.status not in {"accepted", "rejected"}:
+        raise HTTPException(status_code=400, detail="Status must be accepted or rejected")
+    from app.database import get_federated_match, update_federated_match_status
+    current = get_federated_match(match_id, profile_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Federation match not found")
+    match = update_federated_match_status(match_id, profile_id, body.status)
+    if not match:
+        raise HTTPException(status_code=409, detail="Federation match is no longer pending")
+    activity = federation.new_match_decision_activity(
+        federation.actor_url(profile_id),
+        current["remote_actor_id"],
+        current["remote_match_id"],
+        body.status == "accepted",
+    )
+    delivery = await _deliver_federation_activity(profile_id, current, activity)
+    return {"match": match, "delivery": delivery}
+
+
+@app.post("/api/federation/inbox", status_code=202)
+async def federation_inbox(request: Request):
+    _require_federation()
+    raw_body = await request.body()
+    if len(raw_body) > federation.FEDERATION_MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Federation request is too large")
+    try:
+        activity = json_stdlib.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json_stdlib.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid federation activity") from exc
+    if not isinstance(activity, dict):
+        raise HTTPException(status_code=400, detail="Invalid federation activity")
+    actor_id = activity.get("actor")
+    if not isinstance(actor_id, str):
+        raise HTTPException(status_code=400, detail="Federation activity has no actor")
+    try:
+        remote_actor = await asyncio.to_thread(federation.resolve_actor, actor_id)
+        federation.verify_incoming_signature(
+            request.method,
+            federation.inbox_url(),
+            raw_body,
+            request.headers,
+            remote_actor,
+        )
+    except (federation.ActorResolutionError, federation.SignatureVerificationError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid federation signature") from exc
+    from app.database import (
+        create_federated_match,
+        create_notification,
+        find_federated_match_by_remote_id,
+        get_user_by_profile_id,
+        update_federated_match_status,
+        upsert_federated_peer,
+    )
+    upsert_federated_peer(remote_actor)
+    activity_type = activity.get("type")
+    if activity_type == "Create" and isinstance(activity.get("object"), dict):
+        offer = activity["object"]
+        target_profile_id = federation.profile_id_from_actor(str(offer.get("target") or ""))
+        if offer.get("type") != "KindredMatch" or offer.get("actor") != actor_id or not target_profile_id:
+            return {"accepted": True, "ignored": True}
+        match = create_federated_match(
+            target_profile_id,
+            actor_id,
+            str(offer.get("id") or activity.get("id") or ""),
+            status="pending",
+            initiated_by="remote",
+        )
+        recipient = get_user_by_profile_id(target_profile_id)
+        if recipient:
+            create_notification(
+                recipient["id"],
+                "federated_match",
+                "New cross-instance match request",
+                str(remote_actor.get("name") or remote_actor.get("preferredUsername") or "A remote member"),
+                "/federated-matches",
+            )
+        return {"accepted": True, "match_id": match.get("id")}
+    if activity_type in {"Accept", "Reject"}:
+        object_value = activity.get("object")
+        remote_match_id = object_value.get("id") if isinstance(object_value, dict) else object_value
+        if not isinstance(remote_match_id, str):
+            return {"accepted": True, "ignored": True}
+        match = find_federated_match_by_remote_id(actor_id, remote_match_id)
+        if not match:
+            return {"accepted": True, "ignored": True}
+        target_status = "accepted" if activity_type == "Accept" else "rejected"
+        updated = update_federated_match_status(
+            match["id"], match["local_profile_id"], target_status
+        )
+        recipient = get_user_by_profile_id(match["local_profile_id"])
+        if recipient and updated:
+            create_notification(
+                recipient["id"],
+                "federated_match",
+                "Cross-instance match updated",
+                f"Your remote match was {target_status}.",
+                "/federated-matches",
+            )
+        return {"accepted": True, "match_id": match["id"], "status": target_status}
+    return {"accepted": True, "ignored": True}
 
 # ---------------------------------------------------------------------------
 # Safety Reports

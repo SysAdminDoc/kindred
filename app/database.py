@@ -1303,6 +1303,63 @@ def init_db():
             created_at TEXT NOT NULL,
             active INTEGER DEFAULT 1
         );
+
+        CREATE TABLE IF NOT EXISTS federated_peers (
+            actor_id TEXT PRIMARY KEY,
+            handle TEXT,
+            domain TEXT NOT NULL,
+            inbox TEXT NOT NULL,
+            outbox TEXT,
+            actor_json TEXT NOT NULL,
+            public_key_id TEXT NOT NULL,
+            public_key_pem TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        );
+        CREATE INDEX IF NOT EXISTS idx_federated_peers_domain
+            ON federated_peers(domain, active);
+
+        CREATE TABLE IF NOT EXISTS federated_matches (
+            id TEXT PRIMARY KEY,
+            local_profile_id TEXT NOT NULL,
+            remote_actor_id TEXT NOT NULL,
+            remote_match_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            initiated_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (local_profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (remote_actor_id) REFERENCES federated_peers(actor_id) ON DELETE CASCADE,
+            UNIQUE(local_profile_id, remote_actor_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_federated_matches_profile
+            ON federated_matches(local_profile_id, status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS federation_outbox (
+            id TEXT PRIMARY KEY,
+            activity_id TEXT NOT NULL UNIQUE,
+            actor_profile_id TEXT NOT NULL,
+            activity_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (actor_profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS federation_deliveries (
+            id TEXT PRIMARY KEY,
+            outbox_id TEXT NOT NULL,
+            inbox_url TEXT NOT NULL,
+            status TEXT NOT NULL,
+            response_status INTEGER,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            last_attempt_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (outbox_id) REFERENCES federation_outbox(id) ON DELETE CASCADE,
+            UNIQUE(outbox_id, inbox_url)
+        );
+        CREATE INDEX IF NOT EXISTS idx_federation_deliveries_status
+            ON federation_deliveries(status, last_attempt_at);
     """)
 
     # Migration: add columns that may not exist in older databases
@@ -2236,6 +2293,12 @@ def get_user_by_id(user_id: str) -> dict | None:
     conn = get_db()
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
 
+    return dict(row) if row else None
+
+
+def get_user_by_profile_id(profile_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE profile_id = ?", (profile_id,)).fetchone()
     return dict(row) if row else None
 
 
@@ -8040,6 +8103,288 @@ def find_user_by_oauth(provider: str, provider_user_id: str) -> dict | None:
         WHERE o.provider = ? AND o.provider_user_id = ?
     """, (provider, provider_user_id)).fetchone()
     return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# ActivityPub-style federation
+# ---------------------------------------------------------------------------
+
+def upsert_federated_peer(actor: dict) -> dict:
+    """Store only the remote actor document needed for signed delivery."""
+    from datetime import datetime, timezone
+    from urllib.parse import urlsplit
+
+    actor_id = str(actor["id"])
+    public_key = actor["publicKey"]
+    now = datetime.now(timezone.utc).isoformat()
+    domain = urlsplit(actor_id).hostname or ""
+    handle = str(actor.get("preferredUsername") or "")[:128] or None
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO federated_peers
+           (actor_id, handle, domain, inbox, outbox, actor_json,
+            public_key_id, public_key_pem, fetched_at, active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+           ON CONFLICT(actor_id) DO UPDATE SET
+             handle=excluded.handle,
+             domain=excluded.domain,
+             inbox=excluded.inbox,
+             outbox=excluded.outbox,
+             actor_json=excluded.actor_json,
+             public_key_id=excluded.public_key_id,
+             public_key_pem=excluded.public_key_pem,
+             fetched_at=excluded.fetched_at,
+             active=1""",
+        (
+            actor_id,
+            handle,
+            domain,
+            str(actor["inbox"]),
+            str(actor.get("outbox") or "") or None,
+            json.dumps(actor, separators=(",", ":"), ensure_ascii=False),
+            str(public_key["id"]),
+            str(public_key["publicKeyPem"]),
+            now,
+        ),
+    )
+    conn.commit()
+    return get_federated_peer(actor_id) or {}
+
+
+def _federated_peer_row(row) -> dict | None:
+    if not row:
+        return None
+    result = dict(row)
+    try:
+        result["actor"] = json.loads(result.pop("actor_json"))
+    except (TypeError, json.JSONDecodeError):
+        result["actor"] = {}
+    return result
+
+
+def get_federated_peer(actor_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM federated_peers WHERE actor_id=? AND active=1",
+        (actor_id,),
+    ).fetchone()
+    return _federated_peer_row(row)
+
+
+def create_federated_match(
+    local_profile_id: str,
+    remote_actor_id: str,
+    remote_match_id: str,
+    status: str = "pending",
+    initiated_by: str = "local",
+) -> dict:
+    from datetime import datetime, timezone
+
+    if status not in {"pending", "accepted", "rejected"}:
+        raise ValueError("Invalid federated match status")
+    if initiated_by not in {"local", "remote"}:
+        raise ValueError("Invalid federated match initiator")
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    existing = conn.execute(
+        """SELECT id, status FROM federated_matches
+           WHERE local_profile_id=? AND remote_actor_id=?""",
+        (local_profile_id, remote_actor_id),
+    ).fetchone()
+    if existing:
+        next_status = existing["status"] if existing["status"] == "accepted" and status == "pending" else status
+        conn.execute(
+            """UPDATE federated_matches
+               SET remote_match_id=?, status=?, initiated_by=?, updated_at=?
+               WHERE id=?""",
+            (remote_match_id, next_status, initiated_by, now, existing["id"]),
+        )
+        match_id = existing["id"]
+    else:
+        match_id = uuid.uuid4().hex
+        conn.execute(
+            """INSERT INTO federated_matches
+               (id, local_profile_id, remote_actor_id, remote_match_id,
+                status, initiated_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                match_id,
+                local_profile_id,
+                remote_actor_id,
+                remote_match_id,
+                status,
+                initiated_by,
+                now,
+                now,
+            ),
+        )
+    conn.commit()
+    return get_federated_match(match_id, local_profile_id) or {}
+
+
+def get_federated_match(match_id: str, local_profile_id: str | None = None) -> dict | None:
+    conn = get_db()
+    query = """SELECT m.*, p.actor_json, p.handle, p.domain, p.inbox, p.outbox
+               FROM federated_matches m
+               JOIN federated_peers p ON p.actor_id=m.remote_actor_id
+               WHERE m.id=?"""
+    params: list[str] = [match_id]
+    if local_profile_id is not None:
+        query += " AND m.local_profile_id=?"
+        params.append(local_profile_id)
+    row = conn.execute(query, params).fetchone()
+    if not row:
+        return None
+    result = dict(row)
+    try:
+        result["remote_actor"] = json.loads(result.pop("actor_json"))
+    except (TypeError, json.JSONDecodeError):
+        result["remote_actor"] = {}
+    return result
+
+
+def get_federated_matches(local_profile_id: str) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT m.*, p.actor_json, p.handle, p.domain, p.inbox, p.outbox
+           FROM federated_matches m
+           JOIN federated_peers p ON p.actor_id=m.remote_actor_id
+           WHERE m.local_profile_id=?
+           ORDER BY m.updated_at DESC""",
+        (local_profile_id,),
+    ).fetchall()
+    results = []
+    for row in rows:
+        result = dict(row)
+        try:
+            result["remote_actor"] = json.loads(result.pop("actor_json"))
+        except (TypeError, json.JSONDecodeError):
+            result["remote_actor"] = {}
+        results.append(result)
+    return results
+
+
+def find_federated_match_by_remote_id(remote_actor_id: str, remote_match_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        """SELECT id, local_profile_id, remote_actor_id, remote_match_id, status,
+                  initiated_by, created_at, updated_at
+           FROM federated_matches
+           WHERE remote_actor_id=? AND remote_match_id=?""",
+        (remote_actor_id, remote_match_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_federated_match_status(
+    match_id: str,
+    local_profile_id: str,
+    status: str,
+) -> dict | None:
+    from datetime import datetime, timezone
+
+    if status not in {"accepted", "rejected"}:
+        raise ValueError("Invalid federated match decision")
+    conn = get_db()
+    cursor = conn.execute(
+        """UPDATE federated_matches SET status=?, updated_at=?
+           WHERE id=? AND local_profile_id=? AND status='pending'""",
+        (status, datetime.now(timezone.utc).isoformat(), match_id, local_profile_id),
+    )
+    conn.commit()
+    if not cursor.rowcount:
+        return None
+    return get_federated_match(match_id, local_profile_id)
+
+
+def record_federation_outbox(profile_id: str, activity: dict) -> dict:
+    from datetime import datetime, timezone
+
+    activity_id = str(activity["id"])
+    outbox_id = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO federation_outbox
+           (id, activity_id, actor_profile_id, activity_type, payload, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            outbox_id,
+            activity_id,
+            profile_id,
+            str(activity.get("type") or "Activity"),
+            json.dumps(activity, separators=(",", ":"), ensure_ascii=False),
+            now,
+        ),
+    )
+    conn.commit()
+    return {"id": outbox_id, "activity_id": activity_id, "created_at": now}
+
+
+def get_federation_outbox(profile_id: str, limit: int = 20) -> list[dict]:
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT activity_id, activity_type, payload, created_at
+           FROM federation_outbox
+           WHERE actor_profile_id=?
+           ORDER BY created_at DESC LIMIT ?""",
+        (profile_id, max(1, min(int(limit), 100))),
+    ).fetchall()
+    results = []
+    for row in rows:
+        try:
+            results.append(json.loads(row["payload"]))
+        except (TypeError, json.JSONDecodeError):
+            continue
+    return results
+
+
+def record_federation_delivery(
+    outbox_id: str,
+    inbox_url: str,
+    status: str,
+    response_status: int | None = None,
+    error: str | None = None,
+) -> dict:
+    from datetime import datetime, timezone
+
+    if status not in {"pending", "delivered", "failed"}:
+        raise ValueError("Invalid federation delivery status")
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id, attempts FROM federation_deliveries WHERE outbox_id=? AND inbox_url=?",
+        (outbox_id, inbox_url),
+    ).fetchone()
+    attempts = int(existing["attempts"]) if existing else 0
+    if status != "pending":
+        attempts += 1
+    delivery_id = existing["id"] if existing else uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO federation_deliveries
+           (id, outbox_id, inbox_url, status, response_status, attempts,
+            last_error, last_attempt_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(outbox_id, inbox_url) DO UPDATE SET
+             status=excluded.status,
+             response_status=excluded.response_status,
+             attempts=excluded.attempts,
+             last_error=excluded.last_error,
+             last_attempt_at=excluded.last_attempt_at""",
+        (
+            delivery_id,
+            outbox_id,
+            inbox_url,
+            status,
+            response_status,
+            attempts,
+            error,
+            now if status != "pending" else None,
+            now,
+        ),
+    )
+    conn.commit()
+    return {"id": delivery_id, "status": status, "attempts": attempts}
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ All notable changes to kindred will be documented in this file.
 - Added: Default-on CCPA do-not-sell preference with authenticated API and profile settings control
 - Added: Right-to-explanation endpoints for match visibility, score dimensions, and suspension appeals
 - Added: Versioned Kindred data exports and downloadable schema.org/Person JSON-LD profiles
+- Added: Opt-in ActivityPub-style federation with WebFinger actors, Ed25519-signed delivery, and cross-instance match offers that keep private vault data local
 - v2.5.1 — Comprehensive audit: 41 bug fixes
 - v2.5.0 — Phase 8: Premium & integrations
 - v2.4.0 — Phase 7: Admin & operations
