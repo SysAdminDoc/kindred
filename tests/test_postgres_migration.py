@@ -41,10 +41,11 @@ class PostgresMigrationSnapshotTests(unittest.TestCase):
 
         snapshot = inspect_sqlite(self.db_path)
         tables = {table.name: table for table in snapshot.tables}
-        self.assertEqual(snapshot.schema_version, 21)
+        self.assertEqual(snapshot.schema_version, 22)
         self.assertIn("weight_learning_events", tables)
         self.assertIn("federated_matches", tables)
         self.assertIn("federation_outbox", tables)
+        self.assertIn("matchmaker_proposals", tables)
         self.assertIn("date_schedules", tables)
         date_columns = {column.name for column in tables["date_schedules"].columns}
         self.assertTrue({"video_enabled", "video_room_id", "video_url"} <= date_columns)

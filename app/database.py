@@ -266,6 +266,24 @@ def init_db():
             UNIQUE(profile_id, friend_id)
         );
 
+        CREATE TABLE IF NOT EXISTS matchmaker_proposals (
+            id TEXT PRIMARY KEY,
+            proposer_profile_id TEXT NOT NULL,
+            recipient_profile_id TEXT NOT NULL,
+            suggested_profile_id TEXT NOT NULL,
+            note TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            responded_at TIMESTAMP,
+            FOREIGN KEY (proposer_profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (recipient_profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (suggested_profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_matchmaker_recipient
+            ON matchmaker_proposals(recipient_profile_id, status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_matchmaker_proposer
+            ON matchmaker_proposals(proposer_profile_id, status, created_at DESC);
+
         CREATE TABLE IF NOT EXISTS activity_feed (
             id TEXT PRIMARY KEY,
             profile_id TEXT NOT NULL,
@@ -2199,6 +2217,114 @@ def are_friends(id_a: str, id_b: str) -> bool:
     ).fetchone()
 
     return row is not None
+
+
+def _matchmaker_proposal_query() -> str:
+    return """
+        SELECT mp.*,
+               proposer.name AS proposer_name,
+               proposer.photo AS proposer_photo,
+               recipient.name AS recipient_name,
+               suggested.name AS suggested_name,
+               suggested.photo AS suggested_photo,
+               suggested.age AS suggested_age,
+               suggested.headline AS suggested_headline
+        FROM matchmaker_proposals mp
+        JOIN profiles proposer ON proposer.id = mp.proposer_profile_id
+        JOIN profiles recipient ON recipient.id = mp.recipient_profile_id
+        JOIN profiles suggested ON suggested.id = mp.suggested_profile_id
+    """
+
+
+def get_matchmaker_proposal(proposal_id: str) -> dict | None:
+    conn = get_db()
+    row = conn.execute(
+        _matchmaker_proposal_query() + " WHERE mp.id=?",
+        (proposal_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def create_matchmaker_proposal(
+    proposer_profile_id: str,
+    recipient_profile_id: str,
+    suggested_profile_id: str,
+    note: str = "",
+) -> dict | None:
+    conn = get_db()
+    pending = conn.execute(
+        """SELECT id FROM matchmaker_proposals
+           WHERE proposer_profile_id=? AND recipient_profile_id=?
+             AND suggested_profile_id=? AND status='pending'""",
+        (proposer_profile_id, recipient_profile_id, suggested_profile_id),
+    ).fetchone()
+    if pending:
+        return None
+    proposal_id = uuid.uuid4().hex
+    conn.execute(
+        """INSERT INTO matchmaker_proposals
+           (id, proposer_profile_id, recipient_profile_id,
+            suggested_profile_id, note)
+           VALUES (?,?,?,?,?)""",
+        (
+            proposal_id,
+            proposer_profile_id,
+            recipient_profile_id,
+            suggested_profile_id,
+            (note or "").strip()[:500] or None,
+        ),
+    )
+    conn.commit()
+    return get_matchmaker_proposal(proposal_id)
+
+
+def get_matchmaker_proposals(profile_id: str) -> dict[str, list[dict]]:
+    conn = get_db()
+    received = conn.execute(
+        _matchmaker_proposal_query()
+        + " WHERE mp.recipient_profile_id=? ORDER BY mp.created_at DESC",
+        (profile_id,),
+    ).fetchall()
+    sent = conn.execute(
+        _matchmaker_proposal_query()
+        + " WHERE mp.proposer_profile_id=? ORDER BY mp.created_at DESC",
+        (profile_id,),
+    ).fetchall()
+    return {
+        "received": [dict(row) for row in received],
+        "sent": [dict(row) for row in sent],
+    }
+
+
+def respond_matchmaker_proposal(
+    proposal_id: str, recipient_profile_id: str, accept: bool
+) -> dict | None:
+    conn = get_db()
+    status = "accepted" if accept else "declined"
+    cursor = conn.execute(
+        """UPDATE matchmaker_proposals
+           SET status=?, responded_at=CURRENT_TIMESTAMP
+           WHERE id=? AND recipient_profile_id=? AND status='pending'""",
+        (status, proposal_id, recipient_profile_id),
+    )
+    if cursor.rowcount == 0:
+        return None
+    conn.commit()
+    return get_matchmaker_proposal(proposal_id)
+
+
+def withdraw_matchmaker_proposal(
+    proposal_id: str, proposer_profile_id: str
+) -> bool:
+    conn = get_db()
+    cursor = conn.execute(
+        """UPDATE matchmaker_proposals
+           SET status='withdrawn', responded_at=CURRENT_TIMESTAMP
+           WHERE id=? AND proposer_profile_id=? AND status='pending'""",
+        (proposal_id, proposer_profile_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def increment_profile_views(profile_id: str):
@@ -4930,6 +5056,9 @@ def delete_account(user_id: str) -> bool:
                 ("profile_blog_posts", "profile_id"),
                 ("profile_comments", "profile_id"), ("profile_comments", "from_id"),
                 ("profile_friends", "profile_id"), ("profile_friends", "friend_id"),
+                ("matchmaker_proposals", "proposer_profile_id"),
+                ("matchmaker_proposals", "recipient_profile_id"),
+                ("matchmaker_proposals", "suggested_profile_id"),
                 ("activity_feed", "profile_id"), ("status_updates", "profile_id"),
                 ("likes", "from_id"), ("photos", "profile_id"),
                 ("group_members", "profile_id"), ("group_posts", "profile_id"),
@@ -5042,6 +5171,18 @@ def export_user_data(user_id: str) -> dict:
         ).fetchall()]
         data["friends"] = [dict(r) for r in conn.execute(
             "SELECT friend_id, status, created_at FROM profile_friends WHERE profile_id=?", (pid,)
+        ).fetchall()]
+        data["matchmaker_proposals_sent"] = [dict(r) for r in conn.execute(
+            """SELECT recipient_profile_id, suggested_profile_id, note, status, created_at,
+                      responded_at
+               FROM matchmaker_proposals WHERE proposer_profile_id=? ORDER BY created_at""",
+            (pid,),
+        ).fetchall()]
+        data["matchmaker_proposals_received"] = [dict(r) for r in conn.execute(
+            """SELECT proposer_profile_id, suggested_profile_id, note, status, created_at,
+                      responded_at
+               FROM matchmaker_proposals WHERE recipient_profile_id=? ORDER BY created_at""",
+            (pid,),
         ).fetchall()]
         data["likes_given"] = [dict(r) for r in conn.execute(
             "SELECT target_type, target_id, reaction, created_at FROM likes WHERE from_id=?", (pid,)

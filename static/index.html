@@ -1943,6 +1943,7 @@ async function viewProfilePage(pid,viewer){
             else left+=`<button class="btn btn-primary" onclick="addFriend('${v}','${pid}')">Add Friend</button>`;
             left+=`<button class="btn btn-secondary" onclick="startChatWith('${v}','${pid}')">Send Message</button>`;
             left+=`<span class="like-btn" id="profile-like-btn" onclick="toggleProfileLike('${pid}',this)">Loading...</span>`;
+            if(p.is_friend) left+=`<button class="btn btn-secondary" onclick="showMatchmakerForm('${pid}')">Suggest a match</button><div id="matchmaker-form-${pid}"></div>`;
         }
         if(isOwner){
             left+=`<div id="verify-status" style="margin-bottom:8px"></div>`;
@@ -2046,6 +2047,27 @@ async function viewProfilePage(pid,viewer){
                             <button class="btn-sm btn-match" onclick="acceptFriend('${pid}','${rq.from_id}')">Accept</button>
                             <button class="btn-sm btn-delete" onclick="declineFriend('${pid}','${rq.from_id}')">Decline</button>
                         </div></div>`;
+                }
+                right+=`</div>`;
+            }
+
+            const proposalR=await authFetch(API+'/api/matchmaker/proposals');
+            const proposalD=proposalR.ok?await proposalR.json():{received:[],sent:[]};
+            const pendingReceived=(proposalD.received||[]).filter(pr=>pr.status==='pending');
+            const pendingSent=(proposalD.sent||[]).filter(pr=>pr.status==='pending');
+            if(pendingReceived.length||pendingSent.length){
+                right+=`<div class="ms-section"><h2>Matchmaker</h2>`;
+                if(pendingReceived.length){
+                    right+=`<div style="font-size:12px;color:var(--overlay0);margin-bottom:8px">Friends suggested these introductions:</div>`;
+                    pendingReceived.forEach(pr=>{
+                        right+=`<div class="ms-request"><span style="flex:1"><strong>${escHtml(pr.suggested_name)}</strong><br><small>Suggested by ${escHtml(pr.proposer_name)}${pr.note?': '+escHtml(pr.note):''}</small></span><div class="req-actions"><button class="btn-sm btn-match" onclick="respondMatchmaker('${pr.id}',true,'${pid}')">Accept &amp; Like</button><button class="btn-sm btn-delete" onclick="respondMatchmaker('${pr.id}',false,'${pid}')">Decline</button></div></div>`;
+                    });
+                }
+                if(pendingSent.length){
+                    right+=`<div style="font-size:12px;color:var(--overlay0);margin:${pendingReceived.length?'14px':'0'} 0 8px">Your pending suggestions:</div>`;
+                    pendingSent.forEach(pr=>{
+                        right+=`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--surface0);font-size:12px"><span style="flex:1">${escHtml(pr.suggested_name)} for ${escHtml(pr.recipient_name)}</span><button class="btn-sm btn-delete" onclick="withdrawMatchmaker('${pr.id}','${pid}')">Withdraw</button></div>`;
+                    });
                 }
                 right+=`</div>`;
             }
@@ -2247,6 +2269,48 @@ async function declineFriend(pid,fromId){
     await authFetch(API+'/api/profile/'+pid+'/friend/'+fromId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({accept:false})});
     toast('Request declined','success');
     viewProfilePage(pid,pid);
+}
+
+async function showMatchmakerForm(friendId){
+    const el=document.getElementById('matchmaker-form-'+friendId);
+    if(!el)return;
+    if(el.innerHTML){el.innerHTML='';return;}
+    try{
+        const r=await authFetch(API+'/api/matchmaker/candidates?friend_id='+encodeURIComponent(friendId));
+        const d=await r.json();
+        if(!r.ok){toast(d.detail||'Could not load matchmaker candidates','error');return;}
+        if(!d.candidates?.length){el.innerHTML='<div style="font-size:12px;color:var(--overlay0);margin-top:8px">No safe introductions are available right now.</div>';return;}
+        el.innerHTML=`<div style="margin-top:8px;padding:10px;background:var(--surface0);border-radius:8px"><label style="display:block;font-size:11px;color:var(--overlay0);margin-bottom:4px">Suggest someone</label><select id="matchmaker-candidate-${friendId}" style="width:100%;margin-bottom:6px">${d.candidates.map(c=>`<option value="${escHtml(c.id)}">${escHtml(c.name)}${c.age?` (${c.age})`:''}${c.headline?` — ${escHtml(c.headline)}`:''}</option>`).join('')}</select><textarea id="matchmaker-note-${friendId}" placeholder="Why would they get along? (optional)" style="width:100%;min-height:44px;margin-bottom:6px"></textarea><div style="display:flex;gap:6px"><button class="btn btn-primary" style="font-size:12px;padding:5px 10px" onclick="submitMatchmaker('${friendId}')">Send suggestion</button><button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="document.getElementById('matchmaker-form-${friendId}').innerHTML=''">Cancel</button></div></div>`;
+    }catch(e){toast('Could not load matchmaker candidates','error');}
+}
+async function submitMatchmaker(friendId){
+    const suggestedId=document.getElementById('matchmaker-candidate-'+friendId)?.value;
+    const note=document.getElementById('matchmaker-note-'+friendId)?.value?.trim()||'';
+    if(!suggestedId)return;
+    try{
+        const r=await authFetch(API+'/api/matchmaker/proposals',{method:'POST',headers:authHeaders(),body:JSON.stringify({friend_id:friendId,suggested_id:suggestedId,note})});
+        const d=await r.json();
+        if(!r.ok){toast(d.detail||'Could not send suggestion','error');return;}
+        toast('Match suggestion sent!','success');
+        viewProfilePage(friendId,activeProfile);
+    }catch(e){toast('Could not send suggestion','error');}
+}
+async function respondMatchmaker(proposalId,accept,profileId){
+    try{
+        const r=await authFetch(API+'/api/matchmaker/proposals/'+proposalId,{method:'PUT',headers:authHeaders(),body:JSON.stringify({accept})});
+        const d=await r.json();
+        if(!r.ok){toast(d.detail||'Could not update suggestion','error');return;}
+        toast(accept?(d.matched?'It\'s a match!':'Suggestion accepted — profile liked'):'Suggestion declined',accept?'success':'info');
+        viewProfilePage(profileId,profileId);
+    }catch(e){toast('Could not update suggestion','error');}
+}
+async function withdrawMatchmaker(proposalId,profileId){
+    try{
+        const r=await authFetch(API+'/api/matchmaker/proposals/'+proposalId,{method:'DELETE'});
+        if(!r.ok){const d=await r.json();toast(d.detail||'Could not withdraw suggestion','error');return;}
+        toast('Suggestion withdrawn','success');
+        viewProfilePage(profileId,profileId);
+    }catch(e){toast('Could not withdraw suggestion','error');}
 }
 
 async function postComment(profileId,fromId){

@@ -30,6 +30,7 @@ All notable changes to kindred will be documented in this file.
 - Added: Opt-in ActivityPub-style federation with WebFinger actors, Ed25519-signed delivery, and cross-instance match offers that keep private vault data local
 - Added: Optional React Native/Expo mobile client for iOS and Android sharing REST authentication, discovery, matches, and messaging
 - Added: Optional Jitsi rooms for scheduled dates with participant-only REQUEST calendar invites and notifications
+- Added: Consent-based matchmaker proposals that let accepted friends suggest profiles before the recipient sends a like
 - v2.5.1 — Comprehensive audit: 41 bug fixes
 - v2.5.0 — Phase 8: Premium & integrations
 - v2.4.0 — Phase 7: Admin & operations

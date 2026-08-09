@@ -78,6 +78,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Date scheduling with ICS calendar export and optional Jitsi video rooms
 - Shared match calendars with revocable, tokenized ICS subscription URLs
 - Blind date mode (48h no-photo/name, then reveal)
+- Matchmaker mode: friends can suggest profiles with recipient approval before a like is sent
 - Second look (review passed profiles)
 - Threaded replies (quote-reply in conversations)
 - Shared playlists between matched pairs

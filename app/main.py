@@ -98,7 +98,10 @@ from app.database import (
     create_profile_comment, get_profile_comments, delete_profile_comment,
     send_friend_request, respond_friend_request, get_friends, get_friend_requests,
     remove_friend, are_friends, increment_profile_views,
-    create_user, get_user_by_email, get_user_by_id, link_profile_to_user,
+    create_matchmaker_proposal, get_matchmaker_proposals,
+    respond_matchmaker_proposal, withdraw_matchmaker_proposal,
+    create_user, get_user_by_email, get_user_by_id, get_user_by_profile_id,
+    link_profile_to_user,
     create_notification, get_notifications, get_unread_notification_count,
     mark_notifications_read, mark_notification_read,
     toggle_like, get_likes, get_like_count, has_liked,
@@ -678,6 +681,14 @@ class ProfileCommentCreate(BaseModel):
     content: str
 
 class FriendAction(BaseModel):
+    accept: bool
+
+class MatchmakerProposalCreate(BaseModel):
+    friend_id: str
+    suggested_id: str
+    note: str = ""
+
+class MatchmakerProposalAction(BaseModel):
     accept: bool
 
 class LikeToggle(BaseModel):
@@ -2260,6 +2271,166 @@ def list_friends(profile_id: str):
 @app.get("/api/profile/{profile_id}/friend-requests")
 def list_friend_requests(profile_id: str):
     return {"requests": get_friend_requests(profile_id)}
+
+
+# Matchmaker mode
+def _ensure_matchmaker_pair_available(profile_a: str, profile_b: str) -> None:
+    _ensure_pair_not_cooling_off(profile_a, profile_b)
+    if is_blocked_either(profile_a, profile_b):
+        raise HTTPException(status_code=404, detail="Profiles not available")
+
+
+@app.get("/api/matchmaker/candidates")
+def matchmaker_candidates(friend_id: str, user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    if profile_id == friend_id or not get_profile(friend_id):
+        raise HTTPException(status_code=404, detail="Friend not found")
+    if not are_friends(profile_id, friend_id):
+        raise HTTPException(status_code=403, detail="Matchmaker mode is limited to accepted friends")
+
+    candidates = []
+    for candidate in get_all_profiles():
+        candidate_id = candidate["id"]
+        if candidate_id in {profile_id, friend_id}:
+            continue
+        try:
+            _ensure_matchmaker_pair_available(profile_id, candidate_id)
+            _ensure_matchmaker_pair_available(friend_id, candidate_id)
+        except HTTPException:
+            continue
+        candidates.append({
+            "id": candidate_id,
+            "name": candidate["name"],
+            "age": candidate.get("age"),
+            "photo": candidate.get("photo"),
+            "headline": candidate.get("headline"),
+        })
+    return {"candidates": candidates}
+
+
+@app.get("/api/matchmaker/proposals")
+def list_matchmaker_proposals(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    return get_matchmaker_proposals(profile_id)
+
+
+@app.post("/api/matchmaker/proposals", status_code=201)
+async def create_matchmaker_proposal_endpoint(
+    body: MatchmakerProposalCreate,
+    user: dict = Depends(require_user),
+):
+    proposer_id = user.get("profile_id", "")
+    if not proposer_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    if body.friend_id in {proposer_id, body.suggested_id}:
+        raise HTTPException(status_code=400, detail="Choose a different friend and suggested profile")
+    if not get_profile(body.friend_id) or not get_profile(body.suggested_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if not are_friends(proposer_id, body.friend_id):
+        raise HTTPException(status_code=403, detail="Matchmaker mode is limited to accepted friends")
+    _ensure_matchmaker_pair_available(proposer_id, body.suggested_id)
+    _ensure_matchmaker_pair_available(body.friend_id, body.suggested_id)
+    proposal = create_matchmaker_proposal(
+        proposer_id, body.friend_id, body.suggested_id, body.note
+    )
+    if not proposal:
+        raise HTTPException(status_code=409, detail="That suggestion is already pending")
+
+    proposer = get_profile(proposer_id)
+    suggested = get_profile(body.suggested_id)
+    recipient_user = get_user_by_profile_id(body.friend_id)
+    if recipient_user and proposer and suggested:
+        create_notification(
+            recipient_user["id"],
+            "matchmaker_proposal",
+            f"{proposer['name']} suggested a match for you",
+            f"Meet {suggested['name']}. {body.note.strip()[:200]}".strip(),
+            f"/profile/{body.friend_id}",
+        )
+        await ws_manager.send_notification_to_profile(body.friend_id, {
+            "type": "matchmaker_proposal",
+            "from": proposer_id,
+            "from_name": proposer["name"],
+            "suggested_id": body.suggested_id,
+            "suggested_name": suggested["name"],
+        })
+    return proposal
+
+
+@app.put("/api/matchmaker/proposals/{proposal_id}")
+async def respond_to_matchmaker_proposal(
+    proposal_id: str,
+    body: MatchmakerProposalAction,
+    user: dict = Depends(require_user),
+):
+    recipient_id = user.get("profile_id", "")
+    if not recipient_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    proposal = get_matchmaker_proposals(recipient_id)["received"]
+    current = next((item for item in proposal if item["id"] == proposal_id), None)
+    if not current or current["status"] != "pending":
+        raise HTTPException(status_code=404, detail="Pending suggestion not found")
+    if body.accept:
+        _ensure_matchmaker_pair_available(recipient_id, current["suggested_profile_id"])
+    updated = respond_matchmaker_proposal(proposal_id, recipient_id, body.accept)
+    if not updated:
+        raise HTTPException(status_code=409, detail="Suggestion was already handled")
+
+    matched = False
+    if body.accept:
+        if not has_liked(recipient_id, "profile", current["suggested_profile_id"]):
+            toggle_like(recipient_id, "profile", current["suggested_profile_id"])
+        matched = are_matched(recipient_id, current["suggested_profile_id"])
+        recipient = get_profile(recipient_id)
+        suggested_user = get_user_by_profile_id(current["suggested_profile_id"])
+        if suggested_user and recipient:
+            create_notification(
+                suggested_user["id"],
+                "matchmaker_like",
+                f"{recipient['name']} liked your profile",
+                "A friend suggested you and they accepted the introduction.",
+                f"/profile/{recipient_id}",
+            )
+            await ws_manager.send_notification_to_profile(current["suggested_profile_id"], {
+                "type": "like",
+                "from": recipient_id,
+                "from_name": recipient["name"],
+                "via_matchmaker": True,
+                "matched": matched,
+            })
+
+    proposer_user = get_user_by_profile_id(current["proposer_profile_id"])
+    if proposer_user:
+        decision = "accepted" if body.accept else "declined"
+        create_notification(
+            proposer_user["id"],
+            "matchmaker_response",
+            f"{current['recipient_name']} {decision} your match suggestion",
+            f"Suggested profile: {current['suggested_name']}",
+            f"/profile/{current['proposer_profile_id']}",
+        )
+        await ws_manager.send_notification_to_profile(current["proposer_profile_id"], {
+            "type": "matchmaker_response",
+            "proposal_id": proposal_id,
+            "status": updated["status"],
+        })
+    return {"proposal": updated, "matched": matched}
+
+
+@app.delete("/api/matchmaker/proposals/{proposal_id}")
+def withdraw_matchmaker_proposal_endpoint(
+    proposal_id: str, user: dict = Depends(require_user)
+):
+    proposer_id = user.get("profile_id", "")
+    if not proposer_id:
+        raise HTTPException(status_code=400, detail="No profile")
+    if not withdraw_matchmaker_proposal(proposal_id, proposer_id):
+        raise HTTPException(status_code=404, detail="Pending suggestion not found")
+    return {"message": "Suggestion withdrawn"}
 
 
 # ---------------------------------------------------------------------------
