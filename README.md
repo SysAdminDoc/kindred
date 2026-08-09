@@ -241,6 +241,7 @@ kindred/
     admin.html          # Admin SPA
     logo.svg            # Logo
     favicon.svg         # Favicon
+  mobile/                # Optional React Native/Expo iOS + Android client
 ```
 
 ## The 8 Dimensions
@@ -269,6 +270,24 @@ The launcher auto-creates a virtual environment, installs dependencies, and star
 - **User portal**: http://localhost:8000
 - **Admin portal**: http://localhost:8001
   - Default login: `admin@kindred.local` / `admin`
+
+### Native mobile client
+
+The optional `mobile/` Expo project targets iOS and Android and uses the same
+REST API for authentication, discovery, matches, and messages. Install Node.js
+dependencies from that directory and set `EXPO_PUBLIC_API_URL` to a URL that
+the device or emulator can reach (a LAN address, not `127.0.0.1`, for a real
+device):
+
+```bash
+cd mobile
+npm install
+set EXPO_PUBLIC_API_URL=http://192.168.1.20:8000
+npm run start
+```
+
+The mobile client does not duplicate account or profile storage; the existing
+Kindred server remains the source of truth.
 
 ### Docker
 

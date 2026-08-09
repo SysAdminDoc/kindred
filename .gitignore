@@ -1,4 +1,9 @@
 .venv/
+mobile/node_modules/
+mobile/.expo/
+mobile/.expo-shared/
+mobile/dist/
+mobile/.expo-export/
 __pycache__/
 *.pyc
 kindred.db

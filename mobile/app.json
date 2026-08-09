@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Kindred",
+    "slug": "kindred",
+    "version": "2.5.2",
+    "orientation": "portrait",
+    "scheme": "kindred",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.kindred.mobile"
+    },
+    "android": {
+      "package": "app.kindred.mobile"
+    },
+    "extra": {
+      "apiUrl": "http://127.0.0.1:8000"
+    }
+  }
+}
