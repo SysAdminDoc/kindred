@@ -5614,9 +5614,10 @@ async function loadDateSchedules(partnerId,containerId){
             schedules.forEach(s=>{
                 const dt=[s.date_date||s.date,s.date_time||s.time].filter(Boolean).join(' at ');
                 html+=`<div class="date-sched-card">
-                    <div class="dsc-header"><span class="dsc-title">${escHtml(s.venue||'Date')}</span><button class="ics-btn" onclick="downloadDateIcs('${s.id}')">&#128197; Export .ics</button></div>
+                    <div class="dsc-header"><span class="dsc-title">${escHtml(s.venue||'Date')}</span><div style="display:flex;gap:6px;align-items:center">${s.video_url?`<button class="ics-btn" onclick="openScheduledVideo('${escHtml(s.video_url)}')">&#127909; Join video</button>`:''}<button class="ics-btn" onclick="downloadDateIcs('${s.id}')">&#128197; Export .ics</button></div></div>
                     ${dt?`<div class="dsc-meta">&#128336; ${escHtml(dt)}</div>`:''}
                     ${s.status?`<div class="dsc-meta">Status: ${escHtml(s.status)}</div>`:''}
+                    ${s.video_url?`<div class="dsc-meta">&#127909; Jitsi video room included</div>`:''}
                     ${s.notes?`<div class="dsc-notes">${escHtml(s.notes)}</div>`:''}
                 </div>`;
             });
@@ -5652,6 +5653,13 @@ async function downloadDateIcs(scheduleId){
         setTimeout(()=>URL.revokeObjectURL(url),1000);
     }catch(e){toast('Could not export date','error');}
 }
+function openScheduledVideo(roomUrl){
+    try{
+        const url=new URL(roomUrl,location.origin);
+        if(!['http:','https:'].includes(url.protocol))return;
+        window.open(url.href,'_blank','noopener,noreferrer');
+    }catch(e){toast('Could not open video room','error');}
+}
 function showDateScheduleForm(partnerId,containerId){
     const formEl=document.getElementById('date-sched-form-'+containerId);
     if(!formEl)return;
@@ -5662,6 +5670,7 @@ function showDateScheduleForm(partnerId,containerId){
         </div>
         <div class="form-group" style="margin-top:8px"><label style="font-size:12px;color:var(--overlay0)">Venue</label><input type="text" id="dsc-venue-${containerId}" placeholder="Where are you meeting?"></div>
         <div class="form-group"><label style="font-size:12px;color:var(--overlay0)">Notes</label><textarea id="dsc-notes-${containerId}" placeholder="Anything to add..." style="min-height:60px"></textarea></div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--subtext1);margin:8px 0"><input type="checkbox" id="dsc-video-${containerId}"> Video date via Jitsi (send a calendar invite)</label>
         <div class="btn-row"><button class="btn btn-secondary" onclick="document.getElementById('date-sched-form-${containerId}').innerHTML=''">Cancel</button><button class="btn btn-primary" onclick="submitDateSchedule('${partnerId}','${containerId}')">Save</button></div>
     </div>`;
 }
@@ -5670,9 +5679,10 @@ async function submitDateSchedule(partnerId,containerId){
     const time=document.getElementById('dsc-time-'+containerId)?.value;
     const venue=document.getElementById('dsc-venue-'+containerId)?.value?.trim()||'';
     const notes=document.getElementById('dsc-notes-'+containerId)?.value?.trim()||'';
+    const video_enabled=!!document.getElementById('dsc-video-'+containerId)?.checked;
     if(!date){toast('Date required','error');return;}
     try{
-        const r=await authFetch(API+'/api/date-schedule',{method:'POST',headers:authHeaders(),body:JSON.stringify({partner_id:partnerId,date,time,venue,notes})});
+        const r=await authFetch(API+'/api/date-schedule',{method:'POST',headers:authHeaders(),body:JSON.stringify({partner_id:partnerId,date,time,venue,notes,video_enabled})});
         if(r.ok){toast('Date scheduled!','success');loadDateSchedules(partnerId,containerId);}
         else{const d=await r.json();toast(d.detail||'Could not schedule','error');}
     }catch(e){toast('Error','error');}

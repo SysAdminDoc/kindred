@@ -753,6 +753,7 @@ class DateScheduleCreate(BaseModel):
     time: str | None = None
     venue: str | None = None
     notes: str | None = None
+    video_enabled: bool = False
 
 class BlindDateStart(BaseModel):
     target_id: str
@@ -4160,6 +4161,23 @@ def _external_calendar_url(request: Request, token: str) -> str:
     ))
 
 
+def _external_schedule_ics_url(request: Request, schedule_id: str) -> str:
+    generated = str(request.url_for("export_date_ics", schedule_id=schedule_id))
+    headers = getattr(request, "headers", {})
+    forwarded_proto = headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    forwarded_host = headers.get("x-forwarded-host", "").split(",")[0].strip()
+    if not forwarded_proto and not forwarded_host:
+        return generated
+    parsed = urlsplit(generated)
+    return urlunsplit((
+        forwarded_proto or parsed.scheme,
+        forwarded_host or parsed.netloc,
+        parsed.path,
+        parsed.query,
+        parsed.fragment,
+    ))
+
+
 @app.get("/api/calendar-feeds/{partner_id}")
 def calendar_feed_status(partner_id: str, user: dict = Depends(require_user)):
     profile_id = _require_calendar_pair(partner_id, user)
@@ -4217,7 +4235,11 @@ def calendar_feed_ics(token: str):
     )
 
 @app.post("/api/date-schedule")
-def schedule_date(body: DateScheduleCreate, user: dict = Depends(require_user)):
+async def schedule_date(
+    body: DateScheduleCreate,
+    request: Request,
+    user: dict = Depends(require_user),
+):
     profile_id = user.get("profile_id", "")
     if not profile_id:
         raise HTTPException(status_code=400, detail="No profile")
@@ -4227,7 +4249,26 @@ def schedule_date(body: DateScheduleCreate, user: dict = Depends(require_user)):
     if is_blocked_either(profile_id, body.partner_id):
         raise HTTPException(status_code=404, detail="Profiles not available")
     result = create_date_schedule(profile_id, body.partner_id, profile_id,
-                                   body.date, body.time, body.venue, body.notes)
+                                   body.date, body.time, body.venue, body.notes,
+                                   body.video_enabled)
+    result["ics_url"] = _external_schedule_ics_url(request, result["id"])
+    if result.get("video_url"):
+        from app.database import get_user_by_profile_id
+        partner_user = get_user_by_profile_id(body.partner_id)
+        if partner_user:
+            create_notification(
+                partner_user["id"],
+                "video_date_scheduled",
+                "A video date was scheduled",
+                f"Join at the scheduled time: {result['video_url']}",
+                result["ics_url"],
+            )
+        await ws_manager.send_notification_to_profile(body.partner_id, {
+            "type": "video_date_scheduled",
+            "schedule_id": result["id"],
+            "room_url": result["video_url"],
+            "ics_url": result["ics_url"],
+        })
     return result
 
 
@@ -4272,7 +4313,7 @@ def export_date_ics(schedule_id: str, user: dict = Depends(require_user)):
     _ensure_pair_not_cooling_off(ds["profile_a"], ds["profile_b"])
     if is_blocked_either(ds["profile_a"], ds["profile_b"]):
         raise HTTPException(status_code=404, detail="Profiles not available")
-    ics = render_calendar([ds], calendar_name="Kindred Date")
+    ics = render_calendar([ds], calendar_name="Kindred Date", method="REQUEST")
     return Response(content=ics, media_type="text/calendar",
                     headers={"Content-Disposition": f"attachment; filename=kindred-date-{schedule_id}.ics"})
 

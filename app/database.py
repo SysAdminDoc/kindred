@@ -20,7 +20,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from app.config import DB_PATH, UPLOAD_DIR, SCHEMA_VERSION
+from app.config import DB_PATH, JITSI_BASE_URL, UPLOAD_DIR, SCHEMA_VERSION
 
 # Thread-local connection pool
 _local = threading.local()
@@ -770,6 +770,9 @@ def init_db():
             venue TEXT,
             notes TEXT,
             status TEXT DEFAULT 'proposed',
+            video_enabled INTEGER DEFAULT 0,
+            video_room_id TEXT,
+            video_url TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (profile_a) REFERENCES profiles(id) ON DELETE CASCADE,
             FOREIGN KEY (profile_b) REFERENCES profiles(id) ON DELETE CASCADE
@@ -1478,6 +1481,10 @@ def _migrate(conn):
         "ALTER TABLE voice_messages ADD COLUMN transcription_provider TEXT",
         "ALTER TABLE voice_messages ADD COLUMN transcription_error TEXT",
         "ALTER TABLE voice_messages ADD COLUMN transcribed_at TIMESTAMP",
+        # Scheduled Jitsi date support
+        "ALTER TABLE date_schedules ADD COLUMN video_enabled INTEGER DEFAULT 0",
+        "ALTER TABLE date_schedules ADD COLUMN video_room_id TEXT",
+        "ALTER TABLE date_schedules ADD COLUMN video_url TEXT",
     ]
     for sql in migrations:
         try:
@@ -5230,15 +5237,29 @@ def get_total_games_count() -> int:
 
 def create_date_schedule(profile_a: str, profile_b: str, scheduled_by: str,
                          date_date: str, date_time: str = None,
-                         venue: str = None, notes: str = None) -> dict:
+                         venue: str = None, notes: str = None,
+                         video_enabled: bool = False) -> dict:
     conn = get_db()
     ds_id = uuid.uuid4().hex
+    video_room_id = f"kindred-{uuid.uuid4().hex[:12]}" if video_enabled else None
+    video_url = f"{JITSI_BASE_URL}/{video_room_id}" if video_room_id else None
     conn.execute("""
-        INSERT INTO date_schedules (id, profile_a, profile_b, scheduled_by, date_date, date_time, venue, notes)
-        VALUES (?,?,?,?,?,?,?,?)
-    """, (ds_id, profile_a, profile_b, scheduled_by, date_date, date_time, venue, notes))
+        INSERT INTO date_schedules
+          (id, profile_a, profile_b, scheduled_by, date_date, date_time,
+           venue, notes, video_enabled, video_room_id, video_url)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    """, (
+        ds_id, profile_a, profile_b, scheduled_by, date_date, date_time,
+        venue, notes, int(bool(video_enabled)), video_room_id, video_url,
+    ))
     conn.commit()
-    return {"id": ds_id, "status": "proposed"}
+    return {
+        "id": ds_id,
+        "status": "proposed",
+        "video_enabled": bool(video_enabled),
+        "video_room_id": video_room_id,
+        "video_url": video_url,
+    }
 
 
 def get_date_schedules(profile_a: str, profile_b: str) -> list[dict]:

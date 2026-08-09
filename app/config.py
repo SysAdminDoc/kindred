@@ -258,5 +258,8 @@ WEBHOOKS_ENABLED = os.getenv("KINDRED_WEBHOOKS_ENABLED", "false").lower() == "tr
 # --- Theme ---
 DEFAULT_THEME = os.getenv("KINDRED_DEFAULT_THEME", "mocha")  # "mocha" or "latte"
 
+# --- Scheduled video dates ---
+JITSI_BASE_URL = os.getenv("KINDRED_JITSI_BASE_URL", "https://meet.jit.si").strip().rstrip("/")
+
 # --- Schema version (for migration tracking) ---
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21

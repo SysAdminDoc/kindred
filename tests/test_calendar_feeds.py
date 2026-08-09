@@ -98,6 +98,25 @@ class CalendarFeedTests(unittest.TestCase):
             main.export_date_ics(self.schedule["id"], {"profile_id": "outsider"})
         self.assertEqual(denied.exception.status_code, 403)
 
+    def test_video_date_includes_jitsi_url_and_request_calendar_method(self):
+        video_schedule = database.create_date_schedule(
+            "alice", "bob", "alice", "2026-09-02", "19:00",
+            "Online", "Bring your favorite tea", video_enabled=True,
+        )
+        stored = database.get_date_schedule(video_schedule["id"])
+
+        self.assertTrue(stored["video_enabled"])
+        self.assertTrue(stored["video_room_id"].startswith("kindred-"))
+        self.assertRegex(stored["video_url"], r"^https://meet\.jit\.si/kindred-")
+
+        calendar = render_calendar(
+            [stored], calendar_name="Kindred Date", method="REQUEST"
+        )
+        self.assertIn("METHOD:REQUEST", calendar)
+        self.assertIn("URL:" + stored["video_url"], calendar)
+        with self.assertRaises(ValueError):
+            render_calendar([stored], method="INVALID")
+
 
 if __name__ == "__main__":
     unittest.main()

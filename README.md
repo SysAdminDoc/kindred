@@ -75,7 +75,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Notification sounds (AudioContext two-tone beep)
 - Image cropping before upload (Canvas API)
 - Icebreaker games (Word Association, Would You Rather, 20 Questions)
-- Date scheduling with ICS calendar export
+- Date scheduling with ICS calendar export and optional Jitsi video rooms
 - Shared match calendars with revocable, tokenized ICS subscription URLs
 - Blind date mode (48h no-photo/name, then reveal)
 - Second look (review passed profiles)
@@ -356,6 +356,7 @@ Copy `.env.example` to `.env` to customize:
 | `KINDRED_FEDERATION_FETCH_TIMEOUT_SECONDS` | `10` | Timeout for remote actor and inbox requests |
 | `KINDRED_FEDERATION_MAX_BODY_BYTES` | `524288` | Maximum signed federation request/response size |
 | `KINDRED_FEDERATION_USER_AGENT` | `Kindred-Federation/1.0` | User-Agent sent to remote federation peers |
+| `KINDRED_JITSI_BASE_URL` | `https://meet.jit.si` | Base URL used for optional scheduled video-date rooms |
 | `KINDRED_USER_WORKERS` | `2` | User API worker count in the production Compose stack |
 | `KINDRED_ADMIN_WORKERS` | `1` | Admin API worker count in the production Compose stack |
 | `KINDRED_WS_WORKERS` | `2` | Dedicated WebSocket worker count in the production Compose stack |

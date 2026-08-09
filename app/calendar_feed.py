@@ -96,19 +96,29 @@ def _event_lines(schedule: dict) -> list[str]:
     notes = schedule.get("notes")
     if venue:
         lines.append(f"LOCATION:{_escape_ics(venue)}")
+    video_url = schedule.get("video_url")
+    if video_url:
+        lines.append(f"URL:{_escape_ics(video_url)}")
     if notes:
         lines.append(f"DESCRIPTION:{_escape_ics(notes)}")
     lines.append("END:VEVENT")
     return lines
 
 
-def render_calendar(schedules: Iterable[dict], calendar_name: str = "Kindred Shared Dates") -> str:
+def render_calendar(
+    schedules: Iterable[dict],
+    calendar_name: str = "Kindred Shared Dates",
+    method: str = "PUBLISH",
+) -> str:
     """Render schedules as a polling-friendly shared calendar feed."""
+    method = method.upper()
+    if method not in {"PUBLISH", "REQUEST"}:
+        raise ValueError("Unsupported calendar method")
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
         "CALSCALE:GREGORIAN",
-        "METHOD:PUBLISH",
+        f"METHOD:{method}",
         "PRODID:-//Kindred//Shared Match Calendar//EN",
         f"X-WR-CALNAME:{_escape_ics(calendar_name)}",
         "X-PUBLISHED-TTL:PT1H",
