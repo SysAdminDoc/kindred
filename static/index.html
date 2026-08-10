@@ -2103,6 +2103,8 @@ async function viewProfilePage(pid,viewer){
         // Settings section (owner only)
         if(isOwner){
             right+=`<div class="ms-section"><h2>Settings</h2>
+                <details open style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0;font-weight:600">Private Profile Coach</summary>
+                <div id="profile-coach-area" style="padding:12px 0"><div class="loading"><div class="spinner"></div></div></div></details>
                 <details open style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--lavender);font-size:14px;padding:8px 0;font-weight:600">Availability Status</summary>
                 <div style="display:flex;flex-direction:column;gap:8px;padding:12px 0">
                     <select id="availability-select" onchange="updateAvailability()" style="padding:8px;border-radius:var(--radius);border:1px solid var(--surface2);background:var(--surface0);color:var(--text)">
@@ -2212,6 +2214,7 @@ async function viewProfilePage(pid,viewer){
             loadRecalcHistory();
             loadAvailableLocales('lang-select');
             loadProfilePrompts(pid,true);
+            loadProfileCoach();
             // v2.3.0: Completeness widget injected at top of right column
             renderCompletenessWidget().then(html=>{
                 if(html){const rc=document.querySelector('.ms-right');if(rc)rc.insertAdjacentHTML('afterbegin',html);}
@@ -2232,6 +2235,26 @@ async function viewProfilePage(pid,viewer){
             }catch(e){}
         }
     }catch(e){app.innerHTML='<div class="empty"><h3>Error loading profile</h3></div>';console.error(e);}
+}
+
+async function loadProfileCoach(){
+    const el=document.getElementById('profile-coach-area');
+    if(!el)return;
+    try{
+        const r=await authFetch(API+'/api/profile-coach');
+        const d=await r.json();
+        if(!r.ok){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Coach unavailable</div>';return;}
+        const score=d.overall_score||0;
+        const scoreColor=score>=75?'var(--green)':score>=50?'var(--yellow)':'var(--peach)';
+        let html=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><div style="font-size:28px;font-weight:700;color:${scoreColor}">${score}</div><div><div style="font-size:13px;color:var(--text)">Profile writing score</div><div style="font-size:11px;color:var(--overlay0)">Private, local-only feedback — no bio text leaves Kindred.</div></div><button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:5px 9px" onclick="loadProfileCoach()">Refresh</button></div>`;
+        html+=`<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:12px">${(d.dimensions||[]).map(dim=>`<div style="padding:7px 8px;background:var(--surface0);border-radius:6px"><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--subtext1)"><span>${escHtml(dim.label)}</span><strong>${dim.score}</strong></div><div style="height:4px;background:var(--surface1);border-radius:3px;margin-top:5px"><div style="height:100%;width:${Math.max(0,Math.min(100,dim.score))}%;background:var(--mauve);border-radius:3px"></div></div></div>`).join('')}</div>`;
+        if(d.strengths?.length)html+=`<div style="font-size:12px;color:var(--green);margin-bottom:10px">${d.strengths.map(s=>`<div style="margin:4px 0">✓ ${escHtml(s)}</div>`).join('')}</div>`;
+        if(d.suggestions?.length){
+            html+='<div style="font-size:12px;color:var(--subtext1);margin-bottom:5px">Try next</div>';
+            html+=d.suggestions.map(s=>`<div style="padding:8px 0;border-top:1px solid var(--surface0)"><div style="font-size:12px;font-weight:600;color:var(--text)">${escHtml(s.title)} <span style="font-size:10px;color:var(--overlay0);font-weight:400">${escHtml(s.field)}</span></div><div style="font-size:11px;color:var(--subtext0);margin-top:3px">${escHtml(s.detail)}</div><div style="font-size:11px;color:var(--lavender);margin-top:3px">Example: ${escHtml(s.example)}</div></div>`).join('');
+        }else html+='<div style="font-size:12px;color:var(--green)">Your profile is in good shape. Keep it current as you change.</div>';
+        el.innerHTML=html;
+    }catch(e){el.innerHTML='<div style="color:var(--overlay0);font-size:13px">Could not load the local coach</div>';}
 }
 
 function renderEmbed(url){

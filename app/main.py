@@ -59,6 +59,7 @@ from app.object_storage import (
     ObjectStorageError,
     object_storage,
 )
+from app.profile_coach import coach_profile
 from app.photo_safety import (
     ExternalScanResult,
     PhotoSafetyError,
@@ -1308,6 +1309,17 @@ def profile_completeness(user: dict = Depends(require_user)):
     if not profile_id:
         return {"score": 0, "tips": []}
     return get_profile_completeness(profile_id, user["id"])
+
+
+@app.get("/api/profile-coach")
+def profile_coach_endpoint(user: dict = Depends(require_user)):
+    profile_id = user.get("profile_id", "")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="No profile linked")
+    profile = get_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return coach_profile(profile)
 
 
 @app.get("/api/profile/boost")

@@ -139,7 +139,7 @@ def _foreign_keys(
     for row in rows:
         grouped.setdefault(int(row[0]), []).append(row)
 
-    result = []
+    result: list[ForeignKeySnapshot] = []
     for constraint_id, group in sorted(grouped.items()):
         group.sort(key=lambda row: int(row[1]))
         referenced_columns = tuple(row[4] or "" for row in group)
@@ -161,7 +161,7 @@ def _foreign_keys(
 
 
 def _indexes(conn: sqlite3.Connection, table: str) -> tuple[IndexSnapshot, ...]:
-    result = []
+    result: list[IndexSnapshot] = []
     for row in _sqlite_pragma(conn, "index_list", table):
         # seq, name, unique, origin, partial were added across SQLite versions.
         index_name = str(row[1])

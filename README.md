@@ -89,6 +89,7 @@ Kindred is a dating and social platform built around genuine compatibility inste
 - Dark/Light theme toggle (Catppuccin Mocha/Latte)
 - Keyboard shortcuts with help overlay
 - Profile completeness coaching
+- Private local profile coach for clarity, specificity, warmth, and low-stakes vulnerability
 - Animated page transitions
 - Typing previews (opt-in)
 - WebSocket auto-reconnection with exponential backoff
